@@ -44,6 +44,8 @@ Alege una:
 
 Nu le activa pe amândouă. Pe server clona trebuie să poată face `git pull` fără parolă (repo public sau deploy key / token). Config pm2: [ecosystem.config.cjs](ecosystem.config.cjs) (un singur proces, intenționat). Exemplu nginx: [deploy/nginx.conf.example](deploy/nginx.conf.example).
 
+**Alt proiect pe același server** (ex. `mg.scada.md` pe portul 3000): pune `PORT=3001` în `.env.local`, creează un record DNS `A` pentru noul subdomeniu spre IP-ul serverului, copiază [deploy/nginx.conf.example](deploy/nginx.conf.example) ca site nou (`server_name` + `proxy_pass` spre portul ales) și emite certificatul (`certbot --nginx -d subdomeniu.scada.md`). Cookie-urile sunt per subdomeniu, deci cele două aplicații nu se amestecă.
+
 **Înainte de producție:** schimbă/șterge contul `test@gmail.com` (parolă publică în acest README) și lasă HTTPS activ — cookie-ul de sesiune e `Secure`.
 
 ## Primirea datelor
