@@ -7,4 +7,4 @@ git fetch --quiet origin
 branch=$(git rev-parse --abbrev-ref HEAD)
 if [ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$branch")" ]; then exit 0; fi
 echo "[$(date -Is)] commit nou pe $branch → deploy"
-./deploy/deploy.sh
+bash ./deploy/deploy.sh   # explicit cu bash: nu depinde de bitul de execuție
