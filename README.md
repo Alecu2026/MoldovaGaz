@@ -33,7 +33,16 @@ npm ci && npm run seed:user -- admin@exemplu.md ParolaPuternica "Nume"   # primu
 pm2 startup && pm2 save                          # pornire automată după reboot
 ```
 
-Actualizare ulterioară: `./deploy/deploy.sh`. Config pm2: [ecosystem.config.cjs](ecosystem.config.cjs) (un singur proces, intenționat). Exemplu nginx: [deploy/nginx.conf.example](deploy/nginx.conf.example).
+Actualizare ulterioară: `./deploy/deploy.sh` (cu lock, iar dacă build-ul noului commit pică revine singur la cel anterior).
+
+### Redeploy automat la push
+
+Alege una:
+
+- **GitHub Actions** — [.github/workflows/deploy.yml](.github/workflows/deploy.yml): la push pe `main` rulează `tsc` + `eslint`, apoi `deploy.sh` pe server prin SSH. Adaugă secretele `SSH_HOST`, `SSH_USER`, `SSH_KEY` (cheie privată dedicată, fără parolă), `APP_DIR` și opțional `SSH_PORT`, `SSH_KNOWN_HOSTS`. Cheia publică se pune în `~/.ssh/authorized_keys` pe server.
+- **Polling cu cron** — [deploy/auto-deploy.sh](deploy/auto-deploy.sh): `* * * * * /calea/MoldovaGaz/deploy/auto-deploy.sh >> /calea/MoldovaGaz/logs/auto-deploy.log 2>&1`. Fără secrete în GitHub și fără SSH deschis spre internet; deploy în ~1 minut.
+
+Nu le activa pe amândouă. Pe server clona trebuie să poată face `git pull` fără parolă (repo public sau deploy key / token). Config pm2: [ecosystem.config.cjs](ecosystem.config.cjs) (un singur proces, intenționat). Exemplu nginx: [deploy/nginx.conf.example](deploy/nginx.conf.example).
 
 **Înainte de producție:** schimbă/șterge contul `test@gmail.com` (parolă publică în acest README) și lasă HTTPS activ — cookie-ul de sesiune e `Secure`.
 
