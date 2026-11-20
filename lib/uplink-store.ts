@@ -71,6 +71,15 @@ export class UplinkStore {
   /** ranguri alfabetice (pentru sortare după nume) */
   rankDev: Int32Array | null = null;
   rankGw: Int32Array | null = null;
+  /** pe dispozitiv (index din dict.dev): aplicația, modelul și anul din nume („2154_00070948_2022” → model 2154, an 2022) */
+  devApp: Int32Array = new Int32Array(0);
+  devModel: Int16Array = new Int16Array(0);
+  devYear: Int16Array = new Int16Array(0);
+  models: string[] = [];
+  years: string[] = [];
+  private modelIdx = new Map<string, number>();
+  private yearIdx = new Map<string, number>();
+  private devPrepared = 0;
 
   static fromWire(d: DatasetWire): UplinkStore {
     const s = new UplinkStore();
@@ -249,8 +258,37 @@ export class UplinkStore {
     for (let i = this.lcDev.length; i < dev.length; i++) this.lcDev[i] = `${dev[i][0]} ${dev[i][1]} ${ap[dev[i][2]] ?? ""}`.toLowerCase();
     for (let i = this.lcGw.length; i < gw.length; i++) this.lcGw[i] = gw[i].toLowerCase();
     for (let i = this.lcTy.length; i < ty.length; i++) this.lcTy[i] = ty[i].toLowerCase();
+    if (this.devPrepared < dev.length) this.prepareDevices();
     if (!this.rankDev || this.rankDev.length !== dev.length) this.rankDev = ranks(dev.map((e) => `${e[0]} ${e[1]}`));
     if (!this.rankGw || this.rankGw.length !== gw.length) this.rankGw = ranks(gw);
+  }
+
+  private prepareDevices(): void {
+    const dev = this.dict.dev;
+    const grow = <T extends Int32Array | Int16Array>(old: T, Ctor: new (n: number) => T): T => {
+      const next = new Ctor(dev.length);
+      next.set(old);
+      return next;
+    };
+    this.devApp = grow(this.devApp, Int32Array);
+    this.devModel = grow(this.devModel, Int16Array);
+    this.devYear = grow(this.devYear, Int16Array);
+    const intern = (map: Map<string, number>, arr: string[], v: string) => {
+      let i = map.get(v);
+      if (i === undefined) {
+        i = arr.length;
+        arr.push(v);
+        map.set(v, i);
+      }
+      return i;
+    };
+    for (let d = this.devPrepared; d < dev.length; d++) {
+      const m = /^(\d{3,5})_\d+_(\d{4})$/.exec(dev[d][0]);
+      this.devApp[d] = dev[d][2];
+      this.devModel[d] = intern(this.modelIdx, this.models, m ? m[1] : "alt");
+      this.devYear[d] = intern(this.yearIdx, this.years, m ? m[2] : "alt");
+    }
+    this.devPrepared = dev.length;
   }
 
   view(i: number): RowView {

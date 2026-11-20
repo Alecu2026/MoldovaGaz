@@ -3,6 +3,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { FLAG, type RowView } from "@/lib/uplink-shared";
 import { uplinksToCsv } from "@/lib/uplink-csv";
+import { aggregate, makeCtx } from "@/lib/uplink-aggregate";
 import {
   DEFAULT_SORT,
   NO_FILTERS,
@@ -14,6 +15,8 @@ import {
   type SortKey,
 } from "@/lib/uplink-filter";
 import type { UplinkStore } from "@/lib/uplink-store";
+import { ActiveChips, AdvancedFilters, MainSelects } from "./FilterPanel";
+import UplinkCharts from "./UplinkCharts";
 import UplinkDetail from "./UplinkDetail";
 import { useUplinkStore, type Origin, type SyncInfo } from "./useUplinkStore";
 
@@ -42,6 +45,7 @@ type Props = {
   head: Head;
   initialFilters: Filters;
   initialSort: Sort;
+  initialView: "table" | "charts";
 };
 
 const RANGES: [string, string][] = [
@@ -51,17 +55,16 @@ const RANGES: [string, string][] = [
   ["7d", "7 zile"],
   ["30d", "30 zile"],
 ];
-const FLAG_OPTIONS: [string, string][] = [
-  ["alert", "Alerte (baterie / offline)"],
-  ["batt", "Baterie slabă"],
-  ["offline", "Offline"],
-  ["button", "Buton apăsat"],
-  ["magnet", "Magnet detectat"],
-];
 
-export default function UplinksTable({ userId, warm, head, initialFilters, initialSort }: Props) {
+/** Filtrele care trăiesc în panoul „Mai multe filtre” (dacă vreunul e activ, panoul se deschide singur). */
+const hasAdvanced = (f: Filters) =>
+  !!(f.dr || f.fr || f.port || f.adr || f.gn || f.model || f.year || f.rssiMin || f.rssiMax || f.snrMin || f.snrMax || f.valMin || f.valMax || f.fcMin || f.fcMax);
+
+export default function UplinksTable({ userId, warm, head, initialFilters, initialSort, initialView }: Props) {
   const [filters, setFilters] = useState<Filters>(initialFilters);
   const [sort, setSort] = useState<Sort>(initialSort);
+  const [view, setView] = useState<"table" | "charts">(initialView);
+  const [advOpen, setAdvOpen] = useState(() => hasAdvanced(initialFilters));
   const [live, setLive] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
   const { store, rev, status, syncing, offline, origin, info, refresh } = useUplinkStore({ userId, warm, live });
@@ -72,11 +75,16 @@ export default function UplinksTable({ userId, warm, head, initialFilters, initi
   const result = useMemo(() => (store ? runFilter(store, filters, dSort) : null), [store, rev, filters, dSort]); // eslint-disable-line react-hooks/exhaustive-deps -- `rev` = lista s-a modificat pe loc
   const pending = dSort !== sort;
 
-  // filtrele rămân în URL (refresh / link trimis cuiva păstrează vederea)
+  // Agregările graficelor: „toate” (context și numărătorile din liste) depind doar de listă și de intervalul de timp; „filtrate” rulează doar în fila Grafice.
+  const ctx = useMemo(() => (store ? makeCtx(store, filters) : null), [store, rev, filters.range, filters.from, filters.to]); // eslint-disable-line react-hooks/exhaustive-deps
+  const allAgg = useMemo(() => (store && ctx ? aggregate(store, null, ctx) : null), [store, ctx]);
+  const fltAgg = useMemo(() => (view === "charts" && store && ctx && result ? aggregate(store, result.idx, ctx) : null), [view, store, ctx, result]);
+
+  // filtrele (și fila) rămân în URL: refresh / link trimis cuiva păstrează vederea
   useEffect(() => {
-    const qs = toQuery(filters, sort);
+    const qs = toQuery(filters, sort, { view: view === "charts" ? "charts" : "" });
     window.history.replaceState(window.history.state, "", qs ? `?${qs}` : window.location.pathname);
-  }, [filters, sort]);
+  }, [filters, sort, view]);
 
   const patch = (p: Partial<Filters>) => setFilters((f) => ({ ...f, ...p }));
   const reset = () => setFilters(NO_FILTERS);
@@ -84,12 +92,6 @@ export default function UplinksTable({ userId, warm, head, initialFilters, initi
 
   const onSort = (key: SortKey) =>
     setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: key === "dev" || key === "gw" ? 1 : -1 }));
-
-  const devLabel = useMemo(() => {
-    if (!filters.dev || !store) return filters.dev;
-    const e = store.dict.dev.find((d) => d[1] === filters.dev || d[0] === filters.dev);
-    return e?.[0] || filters.dev;
-  }, [filters.dev, store, rev]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const exportCsv = () => {
     if (!store || !result) return;
@@ -120,20 +122,7 @@ export default function UplinksTable({ userId, warm, head, initialFilters, initi
             spellCheck={false}
           />
         </label>
-        <Select label="Aplicație" value={filters.app} onChange={(v) => patch({ app: v })} options={store?.dict.ap ?? []} />
-        <Select label="Gateway" value={filters.gw} onChange={(v) => patch({ gw: v })} options={store?.dict.gw ?? []} />
-        <Select label="Tip mesaj" value={filters.type} onChange={(v) => patch({ type: v })} options={store?.dict.ty ?? []} />
-        <label className="field">
-          <span>Stare</span>
-          <select className="select" value={filters.flag} onChange={(e) => patch({ flag: e.target.value })}>
-            <option value="">Toate</option>
-            {FLAG_OPTIONS.map(([v, l]) => (
-              <option key={v} value={v}>
-                {l}
-              </option>
-            ))}
-          </select>
-        </label>
+        <MainSelects store={store} all={allAgg} filters={filters} patch={patch} />
 
         <div className="toolbar-row2">
           <div className="field">
@@ -154,17 +143,9 @@ export default function UplinksTable({ userId, warm, head, initialFilters, initi
             <span>Până la</span>
             <input className="input" type="datetime-local" value={filters.to} min={filters.from || undefined} onChange={(e) => patch({ to: e.target.value, range: "" })} />
           </label>
-          {filters.dev && (
-            <div className="field">
-              <span>Dispozitiv</span>
-              <span className="chip-x">
-                {devLabel}
-                <button type="button" onClick={() => patch({ dev: "" })} aria-label="Elimină filtrul de dispozitiv">
-                  ×
-                </button>
-              </span>
-            </div>
-          )}
+          <button type="button" className="btn" aria-expanded={advOpen} aria-controls="adv-filters" onClick={() => setAdvOpen((v) => !v)}>
+            Mai multe filtre {advOpen ? "▴" : "▾"}
+          </button>
           <div style={{ flex: 1 }} />
           {nActive > 0 && (
             <button type="button" className="btn" onClick={reset}>
@@ -179,7 +160,14 @@ export default function UplinksTable({ userId, warm, head, initialFilters, initi
             Live
           </button>
         </div>
+        {advOpen && (
+          <div id="adv-filters" style={{ gridColumn: "1 / -1" }}>
+            <AdvancedFilters store={store} all={allAgg} filters={filters} patch={patch} />
+          </div>
+        )}
       </section>
+
+      <ActiveChips filters={filters} patch={patch} reset={reset} />
 
       <section className="stats" aria-label="Totaluri" aria-live="polite">
         <Stat k="Total mesaje" v={nf.format(total)} s={store && store.total > store.n ? `din ${nf.format(store.total)} în baza de date` : ready ? "toate încărcate" : "se încarcă…"} />
@@ -189,26 +177,47 @@ export default function UplinksTable({ userId, warm, head, initialFilters, initi
         <Stat k="Ultimul mesaj" v={newestTs ? fmtTime(newestTs).slice(11) : "—"} s={newestTs ? <Ago ts={newestTs} /> : " "} />
       </section>
 
-      <section className="tablebox" aria-label="Mesaje LoRaWAN">
-        <Grid
-          store={store}
-          rev={rev}
-          idx={result?.idx ?? null}
-          head={head.rows}
-          loading={status === "loading"}
-          error={status === "error"}
-          sort={sort}
-          onSort={onSort}
-          onOpen={setOpenId}
-          onDevice={(eui) => patch({ dev: eui })}
-          selectedId={openId}
-          resetKey={`${JSON.stringify(filters)}|${dSort.key}${dSort.dir}`}
-          anchorable={dSort.key === DEFAULT_SORT.key && dSort.dir === DEFAULT_SORT.dir}
-          onReset={reset}
-          onRetry={refresh}
-          hasFilters={nActive > 0}
-        />
-      </section>
+      <div className="tabs" role="tablist" aria-label="Vedere">
+        <button type="button" role="tab" id="tab-table" aria-selected={view === "table"} aria-controls="panel-view" onClick={() => setView("table")}>
+          Tabel
+        </button>
+        <button type="button" role="tab" id="tab-charts" aria-selected={view === "charts"} aria-controls="panel-view" onClick={() => setView("charts")}>
+          Grafice
+        </button>
+      </div>
+
+      {view === "table" ? (
+        <section className="tablebox" id="panel-view" role="tabpanel" aria-labelledby="tab-table" aria-label="Mesaje LoRaWAN">
+          <Grid
+            store={store}
+            rev={rev}
+            idx={result?.idx ?? null}
+            head={head.rows}
+            loading={status === "loading"}
+            error={status === "error"}
+            sort={sort}
+            onSort={onSort}
+            onOpen={setOpenId}
+            onDevice={(eui) => patch({ dev: eui })}
+            selectedId={openId}
+            resetKey={`${JSON.stringify(filters)}|${dSort.key}${dSort.dir}`}
+            anchorable={dSort.key === DEFAULT_SORT.key && dSort.dir === DEFAULT_SORT.dir}
+            onReset={reset}
+            onRetry={refresh}
+            hasFilters={nActive > 0}
+          />
+        </section>
+      ) : (
+        <section className="chartsbox" id="panel-view" role="tabpanel" aria-labelledby="tab-charts" aria-label="Grafice">
+          {store && ctx && allAgg && fltAgg ? (
+            <UplinkCharts store={store} filters={filters} patch={patch} all={allAgg} flt={fltAgg} ctx={ctx} pending={pending} />
+          ) : (
+            <div className="empty">
+              <h2>{status === "error" ? "Nu am putut încărca lista" : "Se încarcă lista…"}</h2>
+            </div>
+          )}
+        </section>
+      )}
 
       <StatusBar live={live} syncing={syncing} offline={offline} origin={origin} info={info} store={store} />
       {openId && <UplinkDetail id={openId} onClose={() => setOpenId(null)} />}
@@ -217,24 +226,6 @@ export default function UplinksTable({ userId, warm, head, initialFilters, initi
 }
 
 /* ───────────────────────── părți mici ───────────────────────── */
-
-function Select({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
-  const list = options.filter(Boolean);
-  const all = value && !list.includes(value) ? [value, ...list] : list; // valoarea din URL apare și cât timp lista încă se încarcă
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <select className="select" value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">Toate</option>
-        {all.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
 
 function Stat({ k, v, s, alert, busy }: { k: string; v: string; s: React.ReactNode; alert?: boolean; busy?: boolean }) {
   return (

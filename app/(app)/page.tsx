@@ -30,7 +30,7 @@ async function Gate({ searchParams }: { searchParams: SP }) {
     return Array.isArray(v) ? v[0] : v;
   };
   const [head, warm] = await Promise.all([getHeadRows(40), warmVersion()]);
-  return <UplinksTable userId={user.id} warm={warm} head={head} initialFilters={filtersFromParams(get)} initialSort={sortFromParams(get)} />;
+  return <UplinksTable userId={user.id} warm={warm} head={head} initialFilters={filtersFromParams(get)} initialSort={sortFromParams(get)} initialView={get("view") === "charts" ? "charts" : "table"} />;
 }
 
 function TableSkeleton() {

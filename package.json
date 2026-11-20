@@ -10,7 +10,8 @@
     "seed:user": "tsx scripts/seed-user.ts",
     "bench": "tsx scripts/bench-engine.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
-    "seed:meters": "tsx scripts/seed-meters.ts"
+    "seed:meters": "tsx scripts/seed-meters.ts",
+    "check": "tsx scripts/check-engine.ts"
   },
   "dependencies": {
     "mongodb": "^7.9.1",

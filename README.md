@@ -50,6 +50,12 @@ Nu le folosi pe amândouă (ar face deploy dublu): dacă alegi Actions, oprește
 
 **Înainte de producție:** schimbă/șterge contul `test@gmail.com` (parolă publică în acest README) și lasă HTTPS activ — cookie-ul de sesiune e `Secure`.
 
+## Filtre și grafice
+
+- **Filtre** (toate optimiste, se pot combina; între filtre diferite se aplică ȘI, între valorile aceluiași filtru SAU): căutare liberă, aplicație, gateway, tip de mesaj, stare (alerte / baterie / offline / buton / magnet), perioadă (presetată sau personalizată) și, în „Mai multe filtre”: data rate, frecvență, fPort, ADR, câte gateway-uri au auzit, model și an de fabricație (din numele dispozitivului), intervale pentru RSSI, SNR, valoarea citită și fCnt. Filtrele active apar ca etichete cu ✕ și se păstrează în URL.
+- **Grafice** (fila „Grafice”, același filtru ca tabelul): mesaje în timp, stare și alerte, aplicații, gateway-uri, tipuri, histogramele RSSI / SNR / valoare, harta de densitate RSSI × SNR, DR, frecvențe, fPort, gateway-uri per mesaj, model, an, activitate pe ore și pe zile, prospețimea dispozitivelor și top dispozitive. Click pe o bară filtrează, glisarea alege un interval, contextul „toate” rămâne în gri, iar „Tabel” de pe fiecare card arată datele.
+- Verificare automată a filtrelor și agregărilor față de implementări naive: `npm run check`.
+
 ## Primirea datelor
 
 ```
