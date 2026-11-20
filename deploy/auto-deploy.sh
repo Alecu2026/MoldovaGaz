@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Verifică GitHub-ul și face deploy doar dacă există commit-uri noi pe branch-ul curent. Pentru cron (fără secrete în GitHub, fără porturi deschise):
-#   crontab -e   →   * * * * * /calea/catre/MoldovaGaz/deploy/auto-deploy.sh >> /calea/catre/MoldovaGaz/logs/auto-deploy.log 2>&1
+# Verifică GitHub-ul și face deploy doar dacă există commit-uri noi pe branch-ul curent.
+# Rulează singur din pm2 (aplicația „<nume>-autodeploy”, vezi ecosystem.config.js), o dată pe minut; poate fi pornit și din cron.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 git fetch --quiet origin

@@ -37,12 +37,12 @@ Actualizare ulterioară: `./deploy/deploy.sh` (cu lock, iar dacă build-ul noulu
 
 ### Redeploy automat la push
 
-Alege una:
+Două variante:
 
 - **GitHub Actions** — [.github/workflows/deploy.yml](.github/workflows/deploy.yml): la push pe `main` rulează `tsc` + `eslint`, apoi `deploy.sh` pe server prin SSH. Adaugă secretele `SSH_HOST`, `SSH_USER`, `SSH_KEY` (cheie privată dedicată, fără parolă), `APP_DIR` și opțional `SSH_PORT`, `SSH_KNOWN_HOSTS`. Cheia publică se pune în `~/.ssh/authorized_keys` pe server.
-- **Polling cu cron** — [deploy/auto-deploy.sh](deploy/auto-deploy.sh): `* * * * * /calea/MoldovaGaz/deploy/auto-deploy.sh >> /calea/MoldovaGaz/logs/auto-deploy.log 2>&1`. Fără secrete în GitHub și fără SSH deschis spre internet; deploy în ~1 minut.
+- **Automat din pm2 (implicit)** — [ecosystem.config.js](ecosystem.config.js) pornește și un proces `<nume>-autodeploy` care o dată pe minut face `git fetch` și, dacă există commit nou, rulează [deploy/deploy.sh](deploy/deploy.sh) (`npm ci` doar dacă s-au schimbat dependențele, build, reload; la build eșuat revine la commit-ul anterior). Fără secrete în GitHub și fără SSH spre server — merge și într-o rețea locală. Numele și portul se iau din `PM2_NAME` și `PORT` din `.env.local`.
 
-Nu le activa pe amândouă. Pe server clona trebuie să poată face `git pull` fără parolă (repo public sau deploy key / token). Config pm2: [ecosystem.config.cjs](ecosystem.config.cjs) (un singur proces, intenționat). Exemplu nginx: [deploy/nginx.conf.example](deploy/nginx.conf.example).
+Nu le folosi pe amândouă (ar face deploy dublu): dacă alegi Actions, oprește procesul `<nume>-autodeploy` (`pm2 delete <nume>-autodeploy`). Pe server clona trebuie să poată face `git pull` fără parolă (repo public sau deploy key / token). Config pm2: [ecosystem.config.js](ecosystem.config.js) (un singur proces, intenționat). Exemplu nginx: [deploy/nginx.conf.example](deploy/nginx.conf.example).
 
 **Alt proiect pe același server** (ex. `mg.scada.md` pe portul 3000): pune `PORT=3001` în `.env.local`, creează un record DNS `A` pentru noul subdomeniu spre IP-ul serverului, copiază [deploy/nginx.conf.example](deploy/nginx.conf.example) ca site nou (`server_name` + `proxy_pass` spre portul ales) și emite certificatul (`certbot --nginx -d subdomeniu.scada.md`). Cookie-urile sunt per subdomeniu, deci cele două aplicații nu se amestecă.
 
