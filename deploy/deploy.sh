@@ -39,4 +39,5 @@ fi
 
 echo "→ pm2 (${NEW:0:7})"
 start_or_reload
-echo "Gata (${NEW:0:7}). Verifică:  pm2 status  |  pm2 logs moldovagaz  |  curl -I http://localhost:\${PORT:-3000}/login"
+PORT_NOW=$(grep -E '^PORT=' .env.local | tail -1 | tr -dc '0-9' || true)
+echo "Gata (${NEW:0:7}). Verifică:  pm2 status  |  pm2 logs moldovagaz  |  curl -I http://localhost:${PORT_NOW:-3000}/login"
