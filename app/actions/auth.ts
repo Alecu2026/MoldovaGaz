@@ -31,10 +31,12 @@ export async function loginAction(_prev: LoginState, form: FormData): Promise<Lo
   clearFails(key);
 
   const { token, expires } = await createSession(String(user._id));
+  // Secure doar când cererea vine pe HTTPS (Origin-ul trimis de browser sau X-Forwarded-Proto de la proxy): pe HTTP simplu, ex. IP din LAN, browserul ar refuza cookie-ul Secure
+  const https = (h.get("x-forwarded-proto") ?? "").split(",")[0].trim() === "https" || (h.get("origin") ?? "").startsWith("https://");
   (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production" && !process.env.INSECURE_COOKIES,
+    secure: process.env.NODE_ENV === "production" && https && !process.env.INSECURE_COOKIES,
     path: "/",
     expires,
     maxAge: SESSION_DAYS * 86_400,

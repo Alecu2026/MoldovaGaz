@@ -18,7 +18,7 @@ npm run dev           # http://localhost:3000
 | `INGEST_TOKEN` | secretul pentru `POST /api/ingest` |
 | `UPLINK_WINDOW_DAYS` (30) / `UPLINK_MAX_ROWS` (300000) | fereastra de date ținută în memorie |
 | `USERS_COLLECTION` / `SESSIONS_COLLECTION` / `UPLINKS_COLLECTION` | numele colecțiilor (implicit `users`, `sessions`, `uplinks`) |
-| `INSECURE_COOKIES=1` | doar dacă rulezi `npm start` pe HTTP, în afara `localhost` |
+| `INSECURE_COOKIES=1` | forțează cookie-ul de sesiune fără `Secure` (în mod normal e `Secure` doar când cererea vine pe HTTPS, deci de obicei nu e nevoie) |
 | `MONGO_DNS_SERVERS` | DNS-ul folosit ca fallback când routerul refuză interogările SRV ale `mongodb+srv://` (implicit `1.1.1.1,8.8.8.8`) |
 
 ## Producție (server cu pm2, din GitHub)
