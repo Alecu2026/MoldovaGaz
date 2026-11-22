@@ -258,6 +258,12 @@ export default function MeterDetail({ id, onClose }: { id: string; onClose: () =
                 <dt>ID client</dt><dd className="mono">{text(item.tb.customerId)}</dd>
                 <dt>Creat</dt><dd className="mono">{typeof item.tb.createdTime === "number" ? dt(item.tb.createdTime) : "—"}</dd>
                 <dt>Sincronizat</dt><dd className="mono">{dt(Date.parse(item.updatedAt))}</dd>
+                {Array.isArray(item.tb.dupWith) && item.tb.dupWith.length > 0 && (
+                  <>
+                    <dt>Serie repetată</dt>
+                    <dd>Același număr radio apare și la: {(item.tb.dupWith as string[]).join("; ")}</dd>
+                  </>
+                )}
               </dl>
             </section>
 

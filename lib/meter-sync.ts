@@ -32,7 +32,8 @@ export type MeterDoc = {
   updatedAt: Date;
   h: string;
   s: MeterSummary;
-  tb: { name: string; type: string; customerId: string | null; createdTime: number; label: string | null };
+  /** `dupWith` (doar când seria se repetă): celelalte dispozitive cu același număr radio, ca „nume (profil)” */
+  tb: { name: string; type: string; customerId: string | null; createdTime: number; label: string | null; dupWith?: string[] };
   bill: Bill | null;
   attrs: Record<string, string | number | boolean | null>;
   tel: Record<string, { t: number; v: string }>;
@@ -137,8 +138,22 @@ function indexBilling(billing: Bill[]): { byRadio: Map<string, Bill>; dups: numb
 
 const serialOf = (name: string): string | null => METER_NAME.exec(name)?.[2] ?? null;
 
+/** Dispozitivele a căror serie (numărul radio din nume) apare la mai multe dispozitive: id → toate dispozitivele cu aceeași serie (inclusiv el). */
+export function duplicateGroups(devices: Dev[]): Map<string, Dev[]> {
+  const bySerial = new Map<string, Dev[]>();
+  for (const d of devices) {
+    const s = serialOf(d.name);
+    if (s) (bySerial.get(s) ?? bySerial.set(s, []).get(s)!).push(d);
+  }
+  const out = new Map<string, Dev[]>();
+  for (const ds of bySerial.values()) if (ds.length > 1) for (const d of ds) out.set(d.id.id, ds);
+  return out;
+}
+export const dupLabels = (id: string, group: Dev[]): string[] => group.filter((x) => x.id.id !== id).map((x) => `${x.name} (${x.type})`);
+
 export function buildDocs(devices: Dev[], billing: Bill[], latest: Map<string, TbLatest>, now: Date): { docs: MeterDoc[]; stats: SyncStats } {
   const { byRadio, dups } = indexBilling(billing);
+  const dupGroup = duplicateGroups(devices);
 
   // 1) serie → dispozitive; legătura facturare ↔ dispozitiv și deducerea filialei pe client
   const bySerial = new Map<string, Dev[]>();
@@ -219,6 +234,8 @@ export function buildDocs(devices: Dev[], billing: Bill[], latest: Map<string, T
     if (["batteryTooLowVoltage", "buttonPressed", "magnet", "offline"].some((k) => tsv(l, k))) fl |= FLAG.STATUS;
     if (av(l, "SERVER_ATTRIBUTE", "active") === "false") fl |= FLAG.INACTIVE;
     if (bill) fl |= FLAG.BILLED;
+    const group = dupGroup.get(id);
+    if (group) fl |= FLAG.DUP;
 
     let battery: number | null = null;
     const bj = tsv(l, "battery");
@@ -275,7 +292,7 @@ export function buildDocs(devices: Dev[], billing: Bill[], latest: Map<string, T
 
     const body = {
       s,
-      tb: { name: d.name, type: d.type, customerId: d.customerId?.id ?? null, createdTime: d.createdTime, label: d.label ?? null },
+      tb: { name: d.name, type: d.type, customerId: d.customerId?.id ?? null, createdTime: d.createdTime, label: d.label ?? null, ...(group ? { dupWith: dupLabels(id, group) } : {}) },
       bill: bill ? Object.fromEntries(Object.entries(bill).map(([k, x]) => [k, typeof x === "string" ? x.trim() : x])) : null,
       attrs,
       tel,

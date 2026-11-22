@@ -459,7 +459,7 @@ function sigClass(rssi: number | null): string {
 
 function Row({ r, i, top, selected, onOpen, onDevice, flow }: { r: RowView; i: number; top: number; selected: boolean; onOpen: (id: string) => void; onDevice: (id: string) => void; flow?: boolean }) {
   const f = r.fl;
-  const hasStatusBadge = (f & (FLAG.BATT | FLAG.OFFLINE | FLAG.BTN | FLAG.MAG | FLAG.INACTIVE)) !== 0;
+  const hasStatusBadge = (f & (FLAG.BATT | FLAG.OFFLINE | FLAG.BTN | FLAG.MAG | FLAG.INACTIVE | FLAG.DUP)) !== 0;
   return (
     <div
       className={`row ${flow ? "static" : ""}`}
@@ -540,6 +540,7 @@ function Row({ r, i, top, selected, onOpen, onDevice, flow }: { r: RowView; i: n
           {f & FLAG.OFFLINE ? <span className="badge danger">Offline</span> : null}
           {f & FLAG.BATT ? <span className="badge danger">Baterie slabă</span> : null}
           {f & FLAG.INACTIVE ? <span className="badge warn">Inactiv</span> : null}
+          {f & FLAG.DUP ? <span className="badge warn" title="Același număr radio apare la mai multe dispozitive">Serie repetată</span> : null}
           {f & FLAG.BTN ? <span className="badge warn">Buton</span> : null}
           {f & FLAG.MAG ? <span className="badge warn">Magnet</span> : null}
           {!hasStatusBadge && (f & FLAG.STATUS ? <span className="badge ok">OK</span> : <span className="cell-sub">—</span>)}

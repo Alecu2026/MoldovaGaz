@@ -7,8 +7,8 @@
  * serverul numără modificările cu un `seq` global, iar browserul cere doar rândurile cu seq mai mare decât cel pe care îl are (upsert după id).
  */
 
-/** Biți din `fl` (stare a rândului). */
-export const FLAG = { BATT: 2, BTN: 4, MAG: 8, OFFLINE: 16, STATUS: 32, INACTIVE: 64, BILLED: 128 } as const;
+/** Biți din `fl` (stare a rândului). DUP = seria (numărul radio) apare la mai multe dispozitive din ThingsBoard. */
+export const FLAG = { DUP: 1, BATT: 2, BTN: 4, MAG: 8, OFFLINE: 16, STATUS: 32, INACTIVE: 64, BILLED: 128 } as const;
 /** „Alertă” = baterie slabă sau contor offline. */
 export const ALERT_FLAGS = FLAG.BATT | FLAG.OFFLINE;
 

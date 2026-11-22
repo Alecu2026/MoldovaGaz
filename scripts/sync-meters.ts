@@ -4,15 +4,48 @@
  *   npm run sync:meters -- --dry              → doar citește și combină, afișează statistici (nu scrie nimic)
  *   npm run sync:meters -- --dry --out f.json → la fel + salvează documentele în fișier
  *   npm run sync:meters -- --limit 2000       → doar primele N dispozitive (pentru teste; fără ștergeri)
+ *   npm run sync:meters -- --patch-dup        → marchează „Serie repetată” pe documentele existente, doar din lorawandb (fără ThingsBoard)
  *   npm run sync:meters -- --load f.json      → scrie documentele dintr-un fișier produs cu --out (fără rețea; fără ștergeri) — pentru încărcarea inițială
  *                                               când serverul nu ajunge la ThingsBoard
  * Rulează periodic din pm2 (`<nume>-sync`, vezi ecosystem.config.js). Mediu: TB_USER, TB_PASS, DATABASE_URL (+ opțional TB_URL, MG_DB_URL, LORAWAN_DB_URL, METERS_COLLECTION).
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { connectMongo } from "../lib/mongo-core";
-import { buildDocs, fetchLatest, fetchSources, type MeterDoc } from "../lib/meter-sync";
+import { buildDocs, dupLabels, duplicateGroups, fetchLatest, fetchSources, type MeterDoc } from "../lib/meter-sync";
+import { FLAG } from "../lib/meter-shared";
 
 const log = (m: string) => console.log(`[${new Date().toISOString()}] ${m}`);
+
+/**
+ * --patch-dup: marchează „Serie repetată” (FLAG.DUP + tb.dupWith) pe documentele deja existente, DOAR din lorawandb (fără ThingsBoard).
+ * Atinge doar contoarele cu serie repetată (și scoate marcajul de la cele care nu mai sunt); următoarea sincronizare completă rescrie oricum aceste documente.
+ */
+async function patchDup() {
+  const { devices } = await fetchSources();
+  const groups = duplicateGroups(devices);
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("DATABASE_URL lipsește.");
+  const client = await connectMongo(url);
+  try {
+    const coll = client.db().collection<{ _id: string; s: { fl: number }; tb: { dupWith?: string[] } }>(process.env.METERS_COLLECTION || "meters");
+    const now = new Date();
+    let set = 0, cleared = 0;
+    for (const [id, group] of groups) {
+      const d = await coll.findOne({ _id: id }, { projection: { "s.fl": 1 } });
+      if (!d) continue;
+      await coll.updateOne({ _id: id }, { $set: { "s.fl": d.s.fl | FLAG.DUP, "tb.dupWith": dupLabels(id, group), updatedAt: now, h: "patch-dup" } });
+      set++;
+    }
+    for await (const d of coll.find({ "s.fl": { $bitsAllSet: FLAG.DUP } }, { projection: { "s.fl": 1 } })) {
+      if (groups.has(d._id)) continue;
+      await coll.updateOne({ _id: d._id }, { $set: { "s.fl": d.s.fl & ~FLAG.DUP, updatedAt: now, h: "patch-dup" }, $unset: { "tb.dupWith": "" } });
+      cleared++;
+    }
+    log(`serii repetate: ${groups.size} dispozitive marcate (${set} documente actualizate), ${cleared} marcaje scoase`);
+  } finally {
+    await client.close();
+  }
+}
 
 async function main() {
   try { process.loadEnvFile(".env.local"); } catch { /* fără fișier: variabilele vin din mediu */ }
@@ -21,6 +54,10 @@ async function main() {
   const out = args.includes("--out") ? args[args.indexOf("--out") + 1] : null;
   let limit = args.includes("--limit") ? Number(args[args.indexOf("--limit") + 1]) || 0 : 0;
   const loadFile = args.includes("--load") ? args[args.indexOf("--load") + 1] : null;
+  if (args.includes("--patch-dup")) {
+    await patchDup();
+    return;
+  }
   const t0 = Date.now();
 
   let fresh: MeterDoc[];

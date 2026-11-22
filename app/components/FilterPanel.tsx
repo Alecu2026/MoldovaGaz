@@ -93,6 +93,7 @@ const STATE_OPTS = (all: Agg | null): Opt[] => [
   { value: "offline", label: FLAG_LABELS.offline, count: all?.flags.offline },
   { value: "batt", label: FLAG_LABELS.batt, count: all?.flags.batt },
   { value: "inactive", label: FLAG_LABELS.inactive, count: all?.flags.inactive },
+  { value: "dup", label: FLAG_LABELS.dup, count: all?.flags.dup },
   { value: "button", label: FLAG_LABELS.button, count: all?.flags.button },
   { value: "magnet", label: FLAG_LABELS.magnet, count: all?.flags.magnet },
 ];

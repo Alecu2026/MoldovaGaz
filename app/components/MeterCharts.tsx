@@ -46,6 +46,7 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
     { key: "offline", label: "Offline", value: flt.flags.offline, ghost: all.flags.offline, tone: "critical", glyph: "✕" },
     { key: "batt", label: "Baterie slabă", value: flt.flags.batt, ghost: all.flags.batt, tone: "serious", glyph: "▲" },
     { key: "inactive", label: "Inactiv în ThingsBoard", value: flt.flags.inactive, ghost: all.flags.inactive, tone: "warning", glyph: "◆" },
+    { key: "dup", label: "Serie repetată (același număr radio)", value: flt.flags.dup, ghost: all.flags.dup, tone: "warning", glyph: "◆" },
     { key: "button", label: "Buton apăsat", value: flt.flags.button, ghost: all.flags.button, tone: "warning", glyph: "◆" },
     { key: "magnet", label: "Magnet detectat", value: flt.flags.magnet, ghost: all.flags.magnet, tone: "warning", glyph: "◆" },
     { key: "ok", label: "Raport de stare fără alertă", value: flt.flags.statusOk, ghost: all.flags.statusOk, tone: "good", glyph: "✓" },
