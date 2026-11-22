@@ -3,16 +3,17 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { FLAG, type RowView } from "@/lib/meter-shared";
 import { metersToCsv } from "@/lib/meter-csv";
-import { aggregate, makeCtx } from "@/lib/meter-aggregate";
+import { aggregate, makeCtx, type Agg } from "@/lib/meter-aggregate";
 import { NO_FILTERS, activeFilters, runFilter, toQuery, type Filters, type Sort, type SortKey } from "@/lib/meter-filter";
 import type { MeterStore } from "@/lib/meter-store";
 import { ActiveChips, AdvancedFilters, MainSelects } from "./FilterPanel";
+import ColumnFilter, { type ColKey } from "./ColumnFilters";
 import MeterCharts from "./MeterCharts";
 import MeterDetail from "./MeterDetail";
 import { useMeterStore, type Origin, type SyncInfo } from "./useMeterStore";
 
 const ROW_H = 52;
-const HEADER_H = 40;
+const HEADER_H = 86; // rândul cu numele coloanelor (40) + rândul cu filtrele (46)
 const OVERSCAN = 8;
 
 const nf = new Intl.NumberFormat("ro-RO");
@@ -201,6 +202,9 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
             onReset={reset}
             onRetry={refresh}
             hasFilters={nActive > 0}
+            all={allAgg}
+            filters={filters}
+            patch={patch}
           />
         </section>
       ) : (
@@ -273,17 +277,18 @@ function StatusBar({ live, syncing, offline, origin, info, store }: { live: bool
 
 /* ───────────────────────── grila virtualizată ───────────────────────── */
 
-const COLUMNS: { key: SortKey | null; label: string; cls?: string }[] = [
-  { key: "ts", label: "Ultima citire" },
-  { key: "dev", label: "Contor" },
-  { key: "br", label: "Filială / oraș" },
-  { key: "gw", label: "Concentrator" },
-  { key: "rssi", label: "Semnal" },
-  { key: "bat", label: "Baterie" },
-  { key: "val", label: "Volume (m³)", cls: "num" },
-  { key: "dc", label: "Consum zi (L)", cls: "num" },
-  { key: null, label: "Tip mesaj" },
-  { key: null, label: "Stare" },
+const COLUMNS: { key: SortKey | null; col: ColKey; label: string; cls?: string }[] = [
+  { key: "ts", col: "ts", label: "Ultima citire" },
+  { key: "dev", col: "dev", label: "Contor" },
+  { key: "br", col: "br", label: "Filială" },
+  { key: null, col: "ct", label: "Oraș" },
+  { key: "gw", col: "gw", label: "Concentrator" },
+  { key: "rssi", col: "rssi", label: "Semnal" },
+  { key: "bat", col: "bat", label: "Baterie" },
+  { key: "val", col: "val", label: "Volume (m³)", cls: "num" },
+  { key: "dc", col: "dc", label: "Consum zi (L)", cls: "num" },
+  { key: null, col: "ty", label: "Tip mesaj" },
+  { key: null, col: "st", label: "Stare" },
 ];
 
 type GridProps = {
@@ -301,6 +306,10 @@ type GridProps = {
   onReset: () => void;
   onRetry: () => void;
   hasFilters: boolean;
+  /** filtrele din antet (aceeași stare ca bara de sus) */
+  all: Agg | null;
+  filters: Filters;
+  patch: (p: Partial<Filters>) => void;
 };
 
 /**
@@ -355,19 +364,28 @@ function Grid(p: GridProps) {
   return (
     <div className="vp" ref={vpRef} role="table" aria-label="Contoare" aria-rowcount={count + 1} aria-busy={p.loading}>
       <div className="tbl">
-        <div className="hdr" role="row">
-          {COLUMNS.map((c) => (
-            <div key={c.label} role="columnheader" aria-sort={c.key && sort.key === c.key ? (sort.dir === 1 ? "ascending" : "descending") : undefined} className={c.cls}>
-              {c.key ? (
-                <button type="button" data-on={sort.key === c.key ? 1 : 0} onClick={() => p.onSort(c.key as SortKey)} style={c.cls === "num" ? { justifyContent: "flex-end", width: "100%" } : undefined}>
-                  {c.label}
-                  <span aria-hidden="true">{sort.key === c.key ? (sort.dir === 1 ? "▲" : "▼") : ""}</span>
-                </button>
-              ) : (
-                <span className="plain">{c.label}</span>
-              )}
-            </div>
-          ))}
+        <div className="hdrs">
+          <div className="hdr" role="row">
+            {COLUMNS.map((c) => (
+              <div key={c.label} role="columnheader" aria-sort={c.key && sort.key === c.key ? (sort.dir === 1 ? "ascending" : "descending") : undefined} className={c.cls}>
+                {c.key ? (
+                  <button type="button" data-on={sort.key === c.key ? 1 : 0} onClick={() => p.onSort(c.key as SortKey)} style={c.cls === "num" ? { justifyContent: "flex-end", width: "100%" } : undefined}>
+                    {c.label}
+                    <span aria-hidden="true">{sort.key === c.key ? (sort.dir === 1 ? "▲" : "▼") : ""}</span>
+                  </button>
+                ) : (
+                  <span className="plain">{c.label}</span>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="fltr" role="row" aria-label="Filtre pe coloane">
+            {COLUMNS.map((c) => (
+              <div key={c.label} role="cell">
+                <ColumnFilter col={c.col} store={store} all={p.all} filters={p.filters} patch={p.patch} />
+              </div>
+            ))}
+          </div>
         </div>
 
         {headMode && !p.error && (
@@ -484,7 +502,9 @@ function Row({ r, i, top, selected, onOpen, onDevice, flow }: { r: RowView; i: n
       </div>
       <div role="cell">
         <div className="cell-main" title={r.branch ?? undefined}>{r.branch ?? "—"}</div>
-        <div className="cell-sub">{r.city && r.city !== "—" ? r.city : " "}</div>
+      </div>
+      <div role="cell">
+        <div className="cell-main" title={r.city ?? undefined}>{r.city && r.city !== "—" ? r.city : <span className="cell-sub">—</span>}</div>
       </div>
       <div role="cell">
         <div className="cell-main" title={r.gw ?? undefined}>{r.gw ?? "—"}</div>

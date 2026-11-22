@@ -45,6 +45,8 @@ export class MeterStore {
   id: string[] = []; nm: string[] = []; eu: string[] = []; q: string[] = [];
   /** textul de căutare, cu litere mici: nume + devEUI + număr radio / cont / adresă / consumator */
   lq: string[] = [];
+  /** doar nume + devEUI, cu litere mici (filtrul din antetul coloanei „Contor”) */
+  ln: string[] = [];
   ts: F64 = new Float64Array(0);
   ap: I32 = new Int32Array(0); gw: I32 = new Int32Array(0); br: I32 = new Int32Array(0); ct: I32 = new Int32Array(0); pf: I32 = new Int32Array(0);
   rssi: F32 = new Float32Array(0); snr: F32 = new Float32Array(0); bat: F32 = new Float32Array(0);
@@ -86,6 +88,7 @@ export class MeterStore {
     s.year = new Int16Array(p.n);
     for (let i = 0; i < p.n; i++) {
       s.lq[i] = `${p.nm[i]} ${p.eu[i]} ${p.q[i]}`.toLowerCase();
+      s.ln[i] = `${p.nm[i]} ${p.eu[i]}`.toLowerCase();
       s.setModelYear(i);
     }
     s.idx = new Map(p.id.map((id, i) => [id, i]));
@@ -161,6 +164,7 @@ export class MeterStore {
       }
       this.nm[i] = c.nm[j]; this.eu[i] = c.eu[j]; this.q[i] = c.q[j];
       this.lq[i] = `${c.nm[j]} ${c.eu[j]} ${c.q[j]}`.toLowerCase();
+      this.ln[i] = `${c.nm[j]} ${c.eu[j]}`.toLowerCase();
       this.ts[i] = c.ts[j]; this.ap[i] = c.ap[j]; this.gw[i] = c.gw[j]; this.br[i] = c.br[j]; this.ct[i] = c.ct[j]; this.pf[i] = c.pf[j];
       this.rssi[i] = c.rssi[j] ?? NaN; this.snr[i] = c.snr[j] ?? NaN; this.bat[i] = c.bat[j] ?? NaN;
       this.fr[i] = c.fr[j]; this.fl[i] = c.fl[j]; this.fc[i] = c.fc[j]; this.pt[i] = c.pt[j]; this.tm[i] = c.tm[j];

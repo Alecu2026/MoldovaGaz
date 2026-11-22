@@ -11,6 +11,8 @@ import type { MeterStore } from "./meter-store";
  */
 export type Filters = {
   q: string;
+  /** doar în numele sau devEUI-ul contorului (filtrul din antetul coloanei „Contor”) */
+  name: string;
   app: string;
   gw: string;
   type: string;
@@ -47,7 +49,7 @@ export type Filters = {
 };
 
 export const NO_FILTERS: Filters = {
-  q: "", app: "", gw: "", type: "", dev: "", flag: "", branch: "", city: "", profile: "", fr: "", port: "", model: "", year: "", billed: "",
+  q: "", name: "", app: "", gw: "", type: "", dev: "", flag: "", branch: "", city: "", profile: "", fr: "", port: "", model: "", year: "", billed: "",
   rssiMin: "", rssiMax: "", snrMin: "", snrMax: "", valMin: "", valMax: "", batMin: "", batMax: "", dcMin: "", dcMax: "", fcMin: "", fcMax: "",
   range: "", from: "", to: "",
 };
@@ -86,6 +88,7 @@ const LIST_KEYS = ["app", "gw", "type", "dev", "flag", "branch", "city", "profil
 export function activeFilters(f: Filters): number {
   let n = 0;
   if (f.q.trim()) n++;
+  if (f.name.trim()) n++;
   for (const k of LIST_KEYS) if (f[k]) n++;
   for (const [a, b] of [["rssiMin", "rssiMax"], ["snrMin", "snrMax"], ["valMin", "valMax"], ["batMin", "batMax"], ["dcMin", "dcMax"], ["fcMin", "fcMax"]] as const) if (f[a] || f[b]) n++;
   if (f.from || f.to || f.range) n++;
@@ -184,7 +187,8 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
     numV[w] = /^-?\d+(\.\d+)?$/.test(word) ? Number(word) : NaN;
   }
 
-  const { order, ts, gw, tm, fl, fc, pt, val, rssi, snr, fr, bat, dc, id, eu, nm, lq } = st;
+  const nameWords = f.name.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 4);
+  const { order, ts, gw, tm, fl, fc, pt, val, rssi, snr, fr, bat, dc, id, eu, nm, lq, ln } = st;
   const out = new Int32Array(n);
   let c = 0, alerts = 0, volume = 0;
   for (let k = 0; k < n; k++) {
@@ -207,6 +211,12 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
     if (billedNeed !== 0 && (billedNeed === 1) !== ((flags & FLAG.BILLED) !== 0)) continue;
     if (frOk !== null && frOk[((fr[i] / 100) + 0.5) | 0] === 0) continue;
     if (ptOk !== null && ptOk[pt[i] + 1] === 0) continue;
+    if (nameWords.length > 0) {
+      const t = ln[i];
+      let ok = true;
+      for (let w = 0; w < nameWords.length; w++) if (!t.includes(nameWords[w])) { ok = false; break; }
+      if (!ok) continue;
+    }
     if (f.dev && eu[i] !== f.dev && nm[i] !== f.dev && id[i] !== f.dev) continue;
     if (rOn) { const v = rssi[i]; if (v !== v || v < rMin || v > rMax) continue; }
     if (sOn) { const v = snr[i]; if (v !== v || v < sMin || v > sMax) continue; }
@@ -273,6 +283,7 @@ export function filtersFromParams(get: (k: string) => string | undefined): Filte
   const range = s("range", 4);
   return {
     q: s("q"),
+    name: s("name", 80),
     app: s("app", 600), gw: s("gw", 800), type: s("type", 400), dev: s("dev", 80),
     flag: fromList(toList(s("flag", 80)).filter((x) => x in FLAG_MASK)),
     branch: s("branch", 400), city: s("city", 800), profile: s("profile", 600),
@@ -309,6 +320,7 @@ export function describeFilters(f: Filters, nameOf: (id: string) => string = (x)
   const add = (id: string, label: string, clear: Partial<Filters>) => chips.push({ id, label, clear });
   const join = (l: string[]) => (l.length > 3 ? `${l.slice(0, 3).join(", ")} +${l.length - 3}` : l.join(", "));
   const range = (a: string, b: string, unit = "") => (a && b ? `${a} … ${b}${unit}` : a ? `≥ ${a}${unit}` : `≤ ${b}${unit}`);
+  if (f.name.trim()) add("name", `Contor conține: „${f.name.trim()}”`, { name: "" });
   if (f.q.trim()) add("q", `Căutare: „${f.q.trim()}”`, { q: "" });
   if (f.branch) add("branch", `Filială: ${join(toList(f.branch))}`, { branch: "" });
   if (f.city) add("city", `Oraș: ${join(toList(f.city))}`, { city: "" });

@@ -9,7 +9,7 @@ import { nf } from "./charts/primitives";
 export type Opt = { value: string; label?: string; count?: number };
 
 /** Listă derulantă cu bife (mai multe valori, SAU între ele) și căutare când sunt multe opțiuni. */
-export function MultiSelect({ label, options, selected, onChange }: { label: string; options: Opt[]; selected: string[]; onChange: (v: string[]) => void }) {
+export function MultiSelect({ label, options, selected, onChange, compact, align }: { label: string; options: Opt[]; selected: string[]; onChange: (v: string[]) => void; /** în antetul tabelului: fără etichetă vizibilă, buton mic */ compact?: boolean; /** lângă ce margine se deschide lista */ align?: "left" | "right" }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const ref = useRef<HTMLDivElement>(null);
@@ -38,8 +38,8 @@ export function MultiSelect({ label, options, selected, onChange }: { label: str
   const toggle = (v: string) => onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v]);
 
   return (
-    <div className="field ms" ref={ref}>
-      <span id={id}>{label}</span>
+    <div className={`field ms ${compact ? "ms-compact" : ""} ${align === "right" ? "ms-right" : ""}`} ref={ref}>
+      <span id={id} className={compact ? "sr-only" : undefined}>{label}</span>
       <button type="button" className={`select ms-btn ${selected.length ? "on" : ""}`} aria-haspopup="listbox" aria-expanded={open} aria-labelledby={id} onClick={() => setOpen((v) => !v)}>
         <span className="ms-sum">{summary}</span>
         <span aria-hidden="true">▾</span>

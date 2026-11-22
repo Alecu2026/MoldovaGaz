@@ -88,6 +88,7 @@ const naive = (f: Filters): number[] => {
     if (f.branch && !(v.branch && L(f.branch).includes(v.branch))) continue;
     if (f.city && !(v.city && L(f.city).includes(v.city))) continue;
     if (f.profile && !(v.profile && L(f.profile).includes(v.profile))) continue;
+    if (f.name && !f.name.toLowerCase().split(/\s+/).filter(Boolean).every((w) => `${v.name} ${v.eui}`.toLowerCase().includes(w))) continue;
     if (f.dev && v.eui !== f.dev && v.name !== f.dev && v.id !== f.dev) continue;
     if (f.flag) {
       const m = L(f.flag).reduce((a, k) => a | (k === "alert" ? ALERT_FLAGS : k === "batt" ? FLAG.BATT : k === "offline" ? FLAG.OFFLINE : k === "button" ? FLAG.BTN : k === "magnet" ? FLAG.MAG : FLAG.INACTIVE), 0);
@@ -120,6 +121,8 @@ const cases: [string, Filters][] = [
   ["rssi", F({ rssiMin: "-110", rssiMax: "-90" })], ["snr", F({ snrMin: "-5", snrMax: "5" })], ["fCnt", F({ fcMin: "100", fcMax: "5000" })], ["24h", F({ range: "24h" })], ["7 zile", F({ range: "7d" })],
   ["căutare nume", F({ q: "S2154_0007" })], ["căutare adresă", F({ q: "strada mare" })], ["căutare consumator + oraș", F({ q: "maria 70" })], ["căutare gateway", F({ q: "gwb" })], ["căutare tip", F({ q: "status" })],
   ["căutare numerică", F({ q: "42" })], ["dev id", F({ dev: "id-7" })],
+  ["nume contor (antet)", F({ name: "s2154_0007" })], ["nume + devEUI (antet)", F({ name: "001a7988 s2155" })], ["nume NU caută în adresă", F({ name: "strada mare" })],
+  ["antete combinate", F({ name: "s21", branch: "05 · Comrat", city: "Comrat|Orhei", flag: "offline|batt", rssiMin: "-115", rssiMax: "-80", batMin: "10", valMin: "100", dcMax: "2500", range: "7d" })],
   ["combinat", F({ branch: "05 · Comrat", city: "Comrat|Orhei", profile: "Comrat_Gas_Meter_DP|Jooby_Gas_Meter_DP", dcMin: "50", flag: "offline", range: "7d", q: "popescu" })],
   ["gateway inexistent", F({ gw: "nu-exista" })], ["filială inexistentă", F({ branch: "nu-exista" })],
 ];
