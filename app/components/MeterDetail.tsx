@@ -200,13 +200,13 @@ export default function MeterDetail({ id, onClose }: { id: string; onClose: () =
                 cons.bars.length > 0 ? (
                   <>
                     {h.source === "stored" && (
-                      <p className="cell-sub" role="note" style={{ margin: "0 0 6px", color: "var(--warn)" }}>
+                      <p className="cell-sub" role="note" style={{ margin: "0 0 6px", color: "var(--warn)", whiteSpace: "normal" }}>
                         Istoric din arhivă (ThingsBoard nu poate fi interogat acum de pe server): ultima citire arhivată {dt(h.fetchedAt)}, arhivă încărcată {h.storedAt ? dt(h.storedAt) : "—"}; acoperă ultimele ~90 de zile.
                       </p>
                     )}
                     <ColumnChart bars={cons.bars} ariaLabel={`Consum pe ${by === "day" ? "zi" : "oră"} (m³)`} labelWidth={by === "day" ? 56 : 90} />
-                    <p className="cell-sub" style={{ margin: "6px 0 0" }}>
-                      Consum = diferența dintre citiri consecutive ale Volume_m3_Total_ts (m³){cons.anomalies ? ` · ${cons.anomalies} scăderi ale contorului ignorate (resetare / corecție)` : ""}.
+                    <p className="cell-sub" style={{ margin: "6px 0 0", whiteSpace: "normal" }}>
+                      Dacă între două citiri trec mai multe zile, tot consumul acelui interval apare în ziua celei de-a doua citiri (de aici vârfurile). Consum = diferența dintre citiri consecutive ale Volume_m3_Total_ts (m³){cons.anomalies ? ` · ${cons.anomalies} scăderi ale contorului ignorate (resetare / corecție)` : ""}.
                       {h.hourly.length < 2 && h.transmissions.length >= 2 ? " Nu există citiri orare în perioadă: folosesc valorile de la transmisii." : ""}
                     </p>
                   </>
