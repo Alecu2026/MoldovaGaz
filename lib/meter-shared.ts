@@ -11,6 +11,9 @@
 export const FLAG = { DUP: 1, BATT: 2, BTN: 4, MAG: 8, OFFLINE: 16, STATUS: 32, INACTIVE: 64, BILLED: 128 } as const;
 /** „Alertă” = baterie slabă sau contor offline. */
 export const ALERT_FLAGS = FLAG.BATT | FLAG.OFFLINE;
+/** „Probleme” raportate de contor (baterie, offline, buton, magnet). „OK” = are raport de stare și niciuna dintre ele. */
+export const PROBLEM_FLAGS = FLAG.BATT | FLAG.OFFLINE | FLAG.BTN | FLAG.MAG;
+export const isStatusOk = (fl: number): boolean => (fl & FLAG.STATUS) !== 0 && (fl & PROBLEM_FLAGS) === 0;
 
 /** Tipurile de mesaj (ieType) se țin într-o mască pe 32 de biți: primele 31 au bitul lor, restul se strâng în ultimul (index 31). */
 export const TYPE_SLOTS = 31;

@@ -1,4 +1,4 @@
-import { ALERT_FLAGS, FLAG } from "./meter-shared";
+import { ALERT_FLAGS, FLAG, isStatusOk } from "./meter-shared";
 import type { MeterStore } from "./meter-store";
 
 /**
@@ -18,7 +18,7 @@ export type Filters = {
   type: string;
   /** un singur contor: id, devEUI sau nume */
   dev: string;
-  /** stare (a|b): alert | batt | offline | button | magnet | inactive | dup (seria se repetă) */
+  /** stare (a|b): alert | batt | offline | button | magnet | inactive | dup (seria se repetă) | ok (raport de stare fără probleme) | nostatus (fără raport) */
   flag: string;
   /** filiala (a|b), ex. „05 · Comrat” */
   branch: string;
@@ -57,7 +57,7 @@ export const NO_FILTERS: Filters = {
 export const RANGE_MS: Record<string, number> = { "1h": 3_600_000, "24h": 86_400_000, "7d": 7 * 86_400_000, "30d": 30 * 86_400_000 };
 const FLAG_MASK: Record<string, number> = { alert: ALERT_FLAGS, batt: FLAG.BATT, offline: FLAG.OFFLINE, button: FLAG.BTN, magnet: FLAG.MAG, inactive: FLAG.INACTIVE, dup: FLAG.DUP };
 export const FLAG_LABELS: Record<string, string> = {
-  alert: "Alerte (baterie / offline)", batt: "Baterie slabă", offline: "Offline", button: "Buton apăsat", magnet: "Magnet detectat", inactive: "Inactiv în ThingsBoard", dup: "Serie repetată",
+  alert: "Alerte (baterie / offline)", batt: "Baterie slabă", offline: "Offline", button: "Buton apăsat", magnet: "Magnet detectat", inactive: "Inactiv în ThingsBoard", dup: "Serie repetată", ok: "OK (raport de stare fără probleme)", nostatus: "Fără raport de stare",
 };
 
 /** a|b|c ↔ ["a","b","c"] */
@@ -134,7 +134,13 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
     if (tyMaskWant === 0) return empty;
   }
   let flagMask = 0;
-  for (const k of toList(f.flag)) flagMask |= FLAG_MASK[k] ?? 0;
+  let wantOk = false, wantNoStatus = false;
+  for (const k of toList(f.flag)) {
+    flagMask |= FLAG_MASK[k] ?? 0;
+    if (k === "ok") wantOk = true;
+    if (k === "nostatus") wantNoStatus = true;
+  }
+  const flagOn = flagMask !== 0 || wantOk || wantNoStatus;
   let frOk: Uint8Array | null = null;
   if (f.fr) {
     frOk = new Uint8Array(10_001);
@@ -207,7 +213,8 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
     if (yearOk !== null && yearOk[st.year[i]] === 0) continue;
     if (tyMaskWant !== 0 && (tm[i] & tyMaskWant) === 0) continue;
     const flags = fl[i];
-    if (flagMask !== 0 && (flags & flagMask) === 0) continue;
+    // stările bifate se combină cu SAU (inclusiv „OK” și „fără raport de stare”)
+    if (flagOn && !((flagMask !== 0 && (flags & flagMask) !== 0) || (wantOk && isStatusOk(flags)) || (wantNoStatus && (flags & FLAG.STATUS) === 0))) continue;
     if (billedNeed !== 0 && (billedNeed === 1) !== ((flags & FLAG.BILLED) !== 0)) continue;
     if (frOk !== null && frOk[((fr[i] / 100) + 0.5) | 0] === 0) continue;
     if (ptOk !== null && ptOk[pt[i] + 1] === 0) continue;
@@ -285,7 +292,7 @@ export function filtersFromParams(get: (k: string) => string | undefined): Filte
     q: s("q"),
     name: s("name", 80),
     app: s("app", 600), gw: s("gw", 800), type: s("type", 400), dev: s("dev", 80),
-    flag: fromList(toList(s("flag", 80)).filter((x) => x in FLAG_MASK)),
+    flag: fromList(toList(s("flag", 80)).filter((x) => x in FLAG_MASK || x === "ok" || x === "nostatus")),
     branch: s("branch", 400), city: s("city", 800), profile: s("profile", 600),
     fr: digits("fr", 80), port: digits("port", 80), model: digits("model", 80), year: digits("year", 80),
     billed: s("billed", 1) === "1" ? "1" : s("billed", 1) === "0" ? "0" : "",

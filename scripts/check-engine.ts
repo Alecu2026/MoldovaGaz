@@ -8,7 +8,7 @@
 import { aggregate, makeCtx, FRESH_EDGES } from "../lib/meter-aggregate";
 import { NO_FILTERS, runFilter, type Filters, type Sort } from "../lib/meter-filter";
 import { MeterStore } from "../lib/meter-store";
-import { ALERT_FLAGS, FLAG, type ColsWire, type DatasetWire, type DeltaWire } from "../lib/meter-shared";
+import { ALERT_FLAGS, FLAG, PROBLEM_FLAGS, isStatusOk, type ColsWire, type DatasetWire, type DeltaWire } from "../lib/meter-shared";
 import { buildDocs, type Bill, type Dev } from "../lib/meter-sync";
 import { assertReadOnly } from "../lib/thingsboard";
 import { pack, unpack, type Pts } from "../lib/meter-history";
@@ -92,8 +92,9 @@ const naive = (f: Filters): number[] => {
     if (f.name && !f.name.toLowerCase().split(/\s+/).filter(Boolean).every((w) => `${v.name} ${v.eui}`.toLowerCase().includes(w))) continue;
     if (f.dev && v.eui !== f.dev && v.name !== f.dev && v.id !== f.dev) continue;
     if (f.flag) {
-      const m = L(f.flag).reduce((a, k) => a | (k === "alert" ? ALERT_FLAGS : k === "batt" ? FLAG.BATT : k === "offline" ? FLAG.OFFLINE : k === "button" ? FLAG.BTN : k === "magnet" ? FLAG.MAG : k === "dup" ? FLAG.DUP : FLAG.INACTIVE), 0);
-      if (!(v.fl & m)) continue;
+      const m = L(f.flag).reduce((a, k) => a | (k === "alert" ? ALERT_FLAGS : k === "batt" ? FLAG.BATT : k === "offline" ? FLAG.OFFLINE : k === "button" ? FLAG.BTN : k === "magnet" ? FLAG.MAG : k === "dup" ? FLAG.DUP : k === "inactive" ? FLAG.INACTIVE : 0), 0);
+      const toks = L(f.flag);
+      if (!((m !== 0 && (v.fl & m) !== 0) || (toks.includes("ok") && isStatusOk(v.fl)) || (toks.includes("nostatus") && !(v.fl & FLAG.STATUS)))) continue;
     }
     if (f.billed === "1" && !(v.fl & FLAG.BILLED)) continue;
     if (f.billed === "0" && v.fl & FLAG.BILLED) continue;
@@ -116,6 +117,7 @@ const naive = (f: Filters): number[] => {
 const cases: [string, Filters][] = [
   ["filială", F({ branch: "05 · Comrat" })], ["filiale multi", F({ branch: "05 · Comrat|20 · Orhei" })], ["oraș", F({ city: "Rezina" })], ["oraș multi", F({ city: "Cahul|Orhei" })],
   ["profil", F({ profile: "Defectate_Jooby_Gaz" })], ["aplicație", F({ app: "app1|app3" })], ["concentrator", F({ gw: "gwA|gwD" })], ["tip multi", F({ type: "DeviceStatus|CurrentData" })],
+  ["stare OK", F({ flag: "ok" })], ["fără raport de stare", F({ flag: "nostatus" })], ["OK + offline", F({ flag: "ok|offline" })], ["OK + serie repetată", F({ flag: "ok|dup|nostatus" })],
   ["serie repetată", F({ flag: "dup" })], ["serie repetată + offline", F({ flag: "dup|offline" })],
   ["stare multi", F({ flag: "batt|button" })], ["stare alert", F({ flag: "alert" })], ["inactiv", F({ flag: "inactive" })], ["cu facturare", F({ billed: "1" })], ["fără facturare", F({ billed: "0" })],
   ["frecvență", F({ fr: "868300" })], ["port", F({ port: "1" })], ["port altele", F({ port: "17|42" })], ["model", F({ model: "2155" })], ["model multi", F({ model: "2154|2137" })], ["an", F({ year: "2023|2025" })],
@@ -175,6 +177,7 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   check(`agregare ${label}: fresh < 1 oră`, a.fresh[0] === rows.filter((i) => st.ts[i] > 0 && now - st.ts[i] < FRESH_EDGES[1]).length);
   check(`agregare ${label}: gateway + fără = n`, sum(a.gws) + a.noGw === rows.length);
   check(`agregare ${label}: frecvențe = porturi = modele = ani = n`, sum(a.freq) === rows.length && sum(a.ports) === rows.length && sum(a.models) === rows.length && sum(a.years) === rows.length);
+  check(`agregare ${label}: OK / fără raport`, a.flags.statusOk === rows.filter((i) => isStatusOk(st.fl[i])).length && a.flags.noStatus === rows.filter((i) => !(st.fl[i] & FLAG.STATUS)).length && PROBLEM_FLAGS === 30);
   check(`agregare ${label}: stări`, a.flags.batt === rows.filter((i) => st.fl[i] & FLAG.BATT).length && a.flags.alert === rows.filter((i) => st.fl[i] & ALERT_FLAGS).length && a.flags.billed + a.flags.noBilled === rows.length);
   const inTime = rows.filter((i) => st.ts[i] > 0 && st.ts[i] >= ctx.tStart && st.ts[i] < ctx.tStart + ctx.tN * ctx.tStep).length;
   check(`agregare ${label}: găleți de timp`, sum(a.time) === inTime, `${ctx.tN} găleți`);

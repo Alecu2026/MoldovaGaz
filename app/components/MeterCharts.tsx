@@ -49,7 +49,7 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
     { key: "dup", label: "Serie repetată (același număr radio)", value: flt.flags.dup, ghost: all.flags.dup, tone: "warning", glyph: "◆" },
     { key: "button", label: "Buton apăsat", value: flt.flags.button, ghost: all.flags.button, tone: "warning", glyph: "◆" },
     { key: "magnet", label: "Magnet detectat", value: flt.flags.magnet, ghost: all.flags.magnet, tone: "warning", glyph: "◆" },
-    { key: "ok", label: "Raport de stare fără alertă", value: flt.flags.statusOk, ghost: all.flags.statusOk, tone: "good", glyph: "✓" },
+    { key: "ok", label: "OK (raport de stare fără probleme)", value: flt.flags.statusOk, ghost: all.flags.statusOk, tone: "good", glyph: "✓" },
     { key: "nostatus", label: "Fără raport de stare", value: flt.flags.noStatus, ghost: all.flags.noStatus, tone: "neutral", glyph: "○" },
     { key: "billed", label: "Cu rând în facturare", value: flt.flags.billed, ghost: all.flags.billed, tone: "neutral", glyph: "●" },
     { key: "unbilled", label: "Fără facturare", value: flt.flags.noBilled, ghost: all.flags.noBilled, tone: "neutral", glyph: "○" },
@@ -58,7 +58,6 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
   const toggleFlag = (k: string) => {
     if (k === "billed") patch({ billed: filters.billed === "1" ? "" : "1" });
     else if (k === "unbilled") patch({ billed: filters.billed === "0" ? "" : "0" });
-    else if (k === "ok" || k === "nostatus") return; // doar informative
     else patch({ flag: toggleIn(filters.flag, k) });
   };
 
@@ -159,7 +158,7 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
           <ColumnChart bars={timeBars} ariaLabel="Contoare după momentul ultimei citiri" selected={fromMs === fromMs || toMs === toMs ? timeSel : undefined} onBrush={timeBrush} onBar={(i) => timeBrush(i, i)} labelWidth={96} />
         </ChartCard>
 
-        <ChartCard title="Stare și alerte" hint="click pe o stare ca s-o filtrezi" table={tableOf(flagItems)}>
+        <ChartCard title="Stare și alerte" hint="click pe o stare ca s-o filtrezi (se combină cu SAU)" table={tableOf(flagItems)}>
           <BarList items={flagItems} selected={flagSelected} onToggle={toggleFlag} top={9} ariaLabel="Stări ale contoarelor" />
         </ChartCard>
 

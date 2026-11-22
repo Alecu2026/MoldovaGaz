@@ -1,4 +1,4 @@
-import { ALERT_FLAGS, FLAG } from "./meter-shared";
+import { ALERT_FLAGS, FLAG, isStatusOk } from "./meter-shared";
 import { RANGE_MS, type Filters } from "./meter-filter";
 import type { MeterStore } from "./meter-store";
 
@@ -159,7 +159,8 @@ export function aggregate(st: MeterStore, idx: Int32Array | null, ctx: AggCtx): 
     if (f & FLAG.INACTIVE) a.flags.inactive++;
     if (f & ALERT_FLAGS) a.flags.alert++;
     if (f & FLAG.BILLED) a.flags.billed++; else a.flags.noBilled++;
-    if (f & FLAG.STATUS) { if (!(f & ALERT_FLAGS)) a.flags.statusOk++; } else a.flags.noStatus++;
+    if (isStatusOk(f)) a.flags.statusOk++;
+    if (!(f & FLAG.STATUS)) a.flags.noStatus++;
   }
   a.topDc = top;
   return a;

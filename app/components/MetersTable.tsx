@@ -1,7 +1,7 @@
 "use client";
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { FLAG, type RowView } from "@/lib/meter-shared";
+import { FLAG, METER_NAME, PROBLEM_FLAGS, isStatusOk, type RowView } from "@/lib/meter-shared";
 import { metersToCsv } from "@/lib/meter-csv";
 import { aggregate, makeCtx, type Agg } from "@/lib/meter-aggregate";
 import { NO_FILTERS, activeFilters, runFilter, toQuery, type Filters, type Sort, type SortKey } from "@/lib/meter-filter";
@@ -197,6 +197,7 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
             onSort={onSort}
             onOpen={setOpenId}
             onDevice={(id) => patch({ dev: id })}
+            onSerial={(serial) => setFilters({ ...NO_FILTERS, name: serial })}
             selectedId={openId}
             resetKey={`${JSON.stringify(filters)}|${dSort.key}${dSort.dir}`}
             onReset={reset}
@@ -301,6 +302,8 @@ type GridProps = {
   onSort: (k: SortKey) => void;
   onOpen: (id: string) => void;
   onDevice: (id: string) => void;
+  /** arată toate dispozitivele cu aceeași serie (resetează celelalte filtre) */
+  onSerial: (serial: string) => void;
   selectedId: string | null;
   resetKey: string;
   onReset: () => void;
@@ -355,7 +358,7 @@ function Grid(p: GridProps) {
 
   const rows: React.ReactNode[] = [];
   if (store && idx) {
-    for (let i = first; i < last; i++) rows.push(<Row key={store.id[idx[i]]} r={store.view(idx[i])} i={i} top={i * ROW_H} selected={store.id[idx[i]] === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} />);
+    for (let i = first; i < last; i++) rows.push(<Row key={store.id[idx[i]]} r={store.view(idx[i])} i={i} top={i * ROW_H} selected={store.id[idx[i]] === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} onSerial={p.onSerial} />);
   }
 
   const headMode = !idx; // lista completă încă nu e gata: primele rânduri vin din HTML
@@ -391,7 +394,7 @@ function Grid(p: GridProps) {
         {headMode && !p.error && (
           <div role="rowgroup">
             {head.map((r, i) => (
-              <Row key={r.id} r={r} i={i} top={0} selected={r.id === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} flow />
+              <Row key={r.id} r={r} i={i} top={0} selected={r.id === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} onSerial={p.onSerial} flow />
             ))}
             {head.length === 0 && p.loading && <SkeletonRows />}
             {p.loading && head.length > 0 && <div className="cell-sub" style={{ padding: 14 }}>Se încarcă lista completă…</div>}
@@ -457,9 +460,11 @@ function sigClass(rssi: number | null): string {
   return rssi >= -105 ? "good" : rssi >= -115 ? "mid" : "bad";
 }
 
-function Row({ r, i, top, selected, onOpen, onDevice, flow }: { r: RowView; i: number; top: number; selected: boolean; onOpen: (id: string) => void; onDevice: (id: string) => void; flow?: boolean }) {
+function Row({ r, i, top, selected, onOpen, onDevice, onSerial, flow }: { r: RowView; i: number; top: number; selected: boolean; onOpen: (id: string) => void; onDevice: (id: string) => void; onSerial: (serial: string) => void; flow?: boolean }) {
   const f = r.fl;
-  const hasStatusBadge = (f & (FLAG.BATT | FLAG.OFFLINE | FLAG.BTN | FLAG.MAG | FLAG.INACTIVE | FLAG.DUP)) !== 0;
+  const statusOk = isStatusOk(f); // „OK” = raport de stare fără probleme (inactiv / serie repetată se afișează în plus)
+  const anyBadge = statusOk || (f & (PROBLEM_FLAGS | FLAG.INACTIVE | FLAG.DUP)) !== 0;
+  const serial = METER_NAME.exec(r.name)?.[2];
   return (
     <div
       className={`row ${flow ? "static" : ""}`}
@@ -540,10 +545,15 @@ function Row({ r, i, top, selected, onOpen, onDevice, flow }: { r: RowView; i: n
           {f & FLAG.OFFLINE ? <span className="badge danger">Offline</span> : null}
           {f & FLAG.BATT ? <span className="badge danger">Baterie slabă</span> : null}
           {f & FLAG.INACTIVE ? <span className="badge warn">Inactiv</span> : null}
-          {f & FLAG.DUP ? <span className="badge warn" title="Același număr radio apare la mai multe dispozitive">Serie repetată</span> : null}
+          {f & FLAG.DUP ? (
+            <button type="button" className="badge warn badge-btn" title={`Același număr radio (${serial ?? "?"}) apare la mai multe dispozitive. Click: arată-le împreună.`} onClick={(e) => { e.stopPropagation(); if (serial) onSerial(serial); }}>
+              Serie repetată
+            </button>
+          ) : null}
           {f & FLAG.BTN ? <span className="badge warn">Buton</span> : null}
           {f & FLAG.MAG ? <span className="badge warn">Magnet</span> : null}
-          {!hasStatusBadge && (f & FLAG.STATUS ? <span className="badge ok">OK</span> : <span className="cell-sub">—</span>)}
+          {statusOk ? <span className="badge ok">OK</span> : null}
+          {!anyBadge ? <span className="cell-sub">—</span> : null}
         </div>
       </div>
     </div>
