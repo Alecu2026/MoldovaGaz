@@ -155,43 +155,44 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
 
       <div className="grid">
         <ChartCard title="Contoare după ultima citire" hint={`câte contoare au ultima citire în fiecare interval de ${stepLabel} — glisează ca să alegi perioada`} span={2} table={barsTable(timeBars)}>
-          <ColumnChart bars={timeBars} ariaLabel="Contoare după momentul ultimei citiri" selected={fromMs === fromMs || toMs === toMs ? timeSel : undefined} onBrush={timeBrush} onBar={(i) => timeBrush(i, i)} labelWidth={96} />
+          <ColumnChart unit="contoare" bars={timeBars} ariaLabel="Contoare după momentul ultimei citiri" selected={fromMs === fromMs || toMs === toMs ? timeSel : undefined} onBrush={timeBrush} onBar={(i) => timeBrush(i, i)} labelWidth={96} />
         </ChartCard>
 
         <ChartCard title="Stare și alerte" hint="click pe o stare ca s-o filtrezi (se combină cu SAU)" table={tableOf(flagItems)}>
-          <BarList items={flagItems} selected={flagSelected} onToggle={toggleFlag} top={9} ariaLabel="Stări ale contoarelor" />
+          <BarList unit="contoare" items={flagItems} selected={flagSelected} onToggle={toggleFlag} top={9} ariaLabel="Stări ale contoarelor" />
         </ChartCard>
 
         <ChartCard title="Contoare pe filială" hint="filiala din facturare (FIL), altfel din clientul ThingsBoard" table={tableOf(branches)}>
-          <BarList items={branches} selected={toList(filters.branch)} onToggle={(k) => patch({ branch: toggleIn(filters.branch, k) })} top={12} ariaLabel="Contoare pe filială" />
+          <BarList unit="contoare" items={branches} selected={toList(filters.branch)} onToggle={(k) => patch({ branch: toggleIn(filters.branch, k) })} top={12} ariaLabel="Contoare pe filială" />
         </ChartCard>
 
         <ChartCard title="Volum total pe filială (m³)" hint="suma ultimelor citiri Volume_m3_Total (valorile negative sunt ignorate)" table={tableOf(brVolume)}>
-          <BarList items={brVolume} selected={toList(filters.branch)} onToggle={(k) => patch({ branch: toggleIn(filters.branch, k) })} top={12} ariaLabel="Volum total pe filială" />
+          <BarList unit="m³" items={brVolume} selected={toList(filters.branch)} onToggle={(k) => patch({ branch: toggleIn(filters.branch, k) })} top={12} ariaLabel="Volum total pe filială" />
         </ChartCard>
 
         <ChartCard title="Orașe / localități" table={tableOf(cities)}>
-          <BarList items={cities} selected={toList(filters.city)} onToggle={(k) => patch({ city: toggleIn(filters.city, k) })} ariaLabel="Contoare pe oraș" />
+          <BarList unit="contoare" items={cities} selected={toList(filters.city)} onToggle={(k) => patch({ city: toggleIn(filters.city, k) })} ariaLabel="Contoare pe oraș" />
         </ChartCard>
 
         <ChartCard title="Profil contor" hint="profilul de dispozitiv din ThingsBoard" table={tableOf(profiles)}>
-          <BarList items={profiles} selected={toList(filters.profile)} onToggle={(k) => patch({ profile: toggleIn(filters.profile, k) })} top={12} ariaLabel="Contoare pe profil" />
+          <BarList unit="contoare" items={profiles} selected={toList(filters.profile)} onToggle={(k) => patch({ profile: toggleIn(filters.profile, k) })} top={12} ariaLabel="Contoare pe profil" />
         </ChartCard>
 
         <ChartCard title="Aplicații" table={tableOf(apps)}>
-          <BarList items={apps} selected={toList(filters.app)} onToggle={(k) => patch({ app: toggleIn(filters.app, k) })} ariaLabel="Contoare pe aplicație" />
+          <BarList unit="contoare" items={apps} selected={toList(filters.app)} onToggle={(k) => patch({ app: toggleIn(filters.app, k) })} ariaLabel="Contoare pe aplicație" />
         </ChartCard>
 
         <ChartCard title="Concentratoare (gateway)" hint="ultimul concentrator care a auzit contorul" table={tableOf(gws)}>
-          <BarList items={gws} selected={toList(filters.gw)} onToggle={(k) => patch({ gw: toggleIn(filters.gw, k) })} ariaLabel="Contoare pe concentrator" />
+          <BarList unit="contoare" items={gws} selected={toList(filters.gw)} onToggle={(k) => patch({ gw: toggleIn(filters.gw, k) })} ariaLabel="Contoare pe concentrator" />
         </ChartCard>
 
         <ChartCard title="Tipuri de mesaj" hint="ultimul tip de mesaj primit (ieType)" table={tableOf(types)}>
-          <BarList items={types} selected={toList(filters.type)} onToggle={(k) => patch({ type: toggleIn(filters.type, k) })} ariaLabel="Contoare pe tip de mesaj" />
+          <BarList unit="contoare" items={types} selected={toList(filters.type)} onToggle={(k) => patch({ type: toggleIn(filters.type, k) })} ariaLabel="Contoare pe tip de mesaj" />
         </ChartCard>
 
         <ChartCard title="Volume (m³)" hint="ultima citire Volume_m3_Total; scală neliniară — glisează pentru interval" span={2} table={barsTable(valBars)}>
           <ColumnChart
+            unit="contoare"
             bars={valBars} ariaLabel="Distribuția volumului citit" labelWidth={52}
             selected={on(filters.valMin, filters.valMax) ? (i) => overlap(edge(ctx.valMax, i), edge(ctx.valMax, i + 1), filters.valMin, filters.valMax) : undefined}
             onBrush={(a, b) => patch({ valMin: String(Math.floor(edge(ctx.valMax, a))), valMax: hi(ctx.valMax, b) })}
@@ -202,6 +203,7 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
 
         <ChartCard title="Consum zilnic (L)" hint="dailyConsumption din ThingsBoard — glisează pentru interval" table={barsTable(dcBars)}>
           <ColumnChart
+            unit="contoare"
             bars={dcBars} ariaLabel="Distribuția consumului zilnic" labelWidth={46}
             selected={on(filters.dcMin, filters.dcMax) ? (i) => overlap(edge(ctx.dcMax, i), edge(ctx.dcMax, i + 1), filters.dcMin, filters.dcMax) : undefined}
             onBrush={(a, b) => patch({ dcMin: String(Math.floor(edge(ctx.dcMax, a))), dcMax: hi(ctx.dcMax, b) })}
@@ -211,6 +213,7 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
 
         <ChartCard title="Baterie (%)" hint="capacitatea rămasă — glisează pentru interval" table={barsTable(batBars)}>
           <ColumnChart
+            unit="contoare"
             bars={batBars} ariaLabel="Distribuția bateriei" labelWidth={26}
             selected={on(filters.batMin, filters.batMax) ? (i) => overlap(i * 10, (i + 1) * 10, filters.batMin, filters.batMax) : undefined}
             onBrush={(a, b) => patch({ batMin: String(a * 10), batMax: String((b + 1) * 10) })}
@@ -220,6 +223,7 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
 
         <ChartCard title="RSSI (dBm)" hint="puterea semnalului — glisează pentru interval" table={barsTable(rssiBars)}>
           <ColumnChart
+            unit="contoare"
             bars={rssiBars} ariaLabel="Distribuția RSSI" labelWidth={40}
             selected={on(filters.rssiMin, filters.rssiMax) ? (i) => overlap(RSSI_MIN + i * RSSI_STEP, RSSI_MIN + (i + 1) * RSSI_STEP, filters.rssiMin, filters.rssiMax) : undefined}
             onBrush={(a, b) => patch({ rssiMin: String(RSSI_MIN + a * RSSI_STEP), rssiMax: String(RSSI_MIN + (b + 1) * RSSI_STEP) })}
@@ -229,6 +233,7 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
 
         <ChartCard title="SNR (dB)" hint="raportul semnal/zgomot — glisează pentru interval" table={barsTable(snrBars)}>
           <ColumnChart
+            unit="contoare"
             bars={snrBars} ariaLabel="Distribuția SNR" labelWidth={40}
             selected={on(filters.snrMin, filters.snrMax) ? (i) => overlap(SNR_MIN + i * SNR_STEP, SNR_MIN + (i + 1) * SNR_STEP, filters.snrMin, filters.snrMax) : undefined}
             onBrush={(a, b) => patch({ snrMin: String(SNR_MIN + a * SNR_STEP), snrMax: String(SNR_MIN + (b + 1) * SNR_STEP) })}
@@ -245,19 +250,20 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
         </ChartCard>
 
         <ChartCard title="Frecvențe" table={tableOf(freqItems)}>
-          <BarList items={freqItems} selected={toList(filters.fr)} onToggle={(k) => patch({ fr: toggleIn(filters.fr, k) })} ariaLabel="Contoare pe frecvență" />
+          <BarList unit="contoare" items={freqItems} selected={toList(filters.fr)} onToggle={(k) => patch({ fr: toggleIn(filters.fr, k) })} ariaLabel="Contoare pe frecvență" />
         </ChartCard>
 
         <ChartCard title="fPort" table={tableOf(portItems)}>
-          <BarList items={portItems} selected={toList(filters.port)} onToggle={(k) => patch({ port: toggleIn(filters.port, k) })} ariaLabel="Contoare pe fPort" />
+          <BarList unit="contoare" items={portItems} selected={toList(filters.port)} onToggle={(k) => patch({ port: toggleIn(filters.port, k) })} ariaLabel="Contoare pe fPort" />
         </ChartCard>
 
         <ChartCard title="Model contor" hint="din numele dispozitivului (ex. S2154_…)" table={tableOf(models)}>
-          <BarList items={models} selected={toList(filters.model)} onToggle={(k) => patch({ model: toggleIn(filters.model, k) })} ariaLabel="Contoare pe model" />
+          <BarList unit="contoare" items={models} selected={toList(filters.model)} onToggle={(k) => patch({ model: toggleIn(filters.model, k) })} ariaLabel="Contoare pe model" />
         </ChartCard>
 
         <ChartCard title="An / cod lot" hint="ultimele 4 cifre din numele dispozitivului (an la modelele vechi, cod de lot la cele noi)" table={barsTable(yearBars)}>
           <ColumnChart
+            unit="contoare"
             bars={yearBars} ariaLabel="Contoare pe an de fabricație" labelWidth={30}
             selected={filters.year ? (i) => toList(filters.year).includes(yearBars[i].label) : undefined}
             onBar={(i) => patch({ year: toggleIn(filters.year, yearBars[i].label) })}
@@ -265,19 +271,19 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
         </ChartCard>
 
         <ChartCard title="Ora ultimei citiri" hint="ora locală a browserului" span={2} table={barsTable(hourBars)}>
-          <ColumnChart bars={hourBars} ariaLabel="Contoare după ora ultimei citiri" labelWidth={26} />
+          <ColumnChart unit="contoare" bars={hourBars} ariaLabel="Contoare după ora ultimei citiri" labelWidth={26} />
         </ChartCard>
 
         <ChartCard title="Ziua ultimei citiri" table={barsTable(wdayBars)}>
-          <ColumnChart bars={wdayBars} ariaLabel="Contoare după ziua săptămânii" labelWidth={40} />
+          <ColumnChart unit="contoare" bars={wdayBars} ariaLabel="Contoare după ziua săptămânii" labelWidth={40} />
         </ChartCard>
 
         <ChartCard title="Prospețimea citirilor" hint="vechimea ultimei citiri — click filtrează contoarele din acel interval" span={2} table={barsTable(freshBars)}>
-          <ColumnChart bars={freshBars} ariaLabel="Contoare după vechimea ultimei citiri" labelWidth={70} onBar={freshClick} />
+          <ColumnChart unit="contoare" bars={freshBars} ariaLabel="Contoare după vechimea ultimei citiri" labelWidth={70} onBar={freshClick} />
         </ChartCard>
 
         <ChartCard title="Cele mai mari consumuri zilnice" hint="top 10 contoare din rândurile filtrate, în litri — click filtrează contorul" table={tableOf(topDc)}>
-          <BarList items={topDc} selected={filters.dev ? [filters.dev] : []} onToggle={(k) => patch({ dev: filters.dev === k ? "" : k })} ariaLabel="Top consum zilnic" />
+          <BarList unit="L" items={topDc} selected={filters.dev ? [filters.dev] : []} onToggle={(k) => patch({ dev: filters.dev === k ? "" : k })} ariaLabel="Top consum zilnic" />
         </ChartCard>
       </div>
     </div>

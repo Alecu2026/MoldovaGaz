@@ -56,7 +56,7 @@ function consumption(points: [number, number][], by: "day" | "hour", sinceMs: nu
   for (let k = first; k <= last && bars.length < 400; k = next(k)) {
     const d = new Date(k);
     const lbl = by === "day" ? `${p2(d.getDate())}.${p2(d.getMonth() + 1)}` : `${p2(d.getDate())}.${p2(d.getMonth() + 1)} ${p2(d.getHours())}:00`;
-    bars.push({ label: by === "day" ? `${lbl}.${d.getFullYear()}` : lbl, axis: lbl, value: Math.round((sums.get(k) ?? 0) * 1000) / 1000, ghost: 0 });
+    bars.push({ label: by === "day" ? `Consum în ${lbl}.${d.getFullYear()}` : `Consum în ${lbl}–${p2((d.getHours() + 1) % 24)}:00`, axis: lbl, value: Math.round((sums.get(k) ?? 0) * 1000) / 1000, ghost: 0 });
   }
   return { bars, total, anomalies };
 }
@@ -204,7 +204,8 @@ export default function MeterDetail({ id, onClose }: { id: string; onClose: () =
                         Istoric din arhivă (ThingsBoard nu poate fi interogat acum de pe server): ultima citire arhivată {dt(h.fetchedAt)}, arhivă încărcată {h.storedAt ? dt(h.storedAt) : "—"}; acoperă ultimele ~90 de zile.
                       </p>
                     )}
-                    <ColumnChart bars={cons.bars} ariaLabel={`Consum pe ${by === "day" ? "zi" : "oră"} (m³)`} labelWidth={by === "day" ? 56 : 90} />
+                    <p className="cell-sub" style={{ margin: "0 0 2px", fontWeight: 600 }}>Consum în m³, pe {by === "day" ? "zi" : "oră"}</p>
+                    <ColumnChart unit="m³" bars={cons.bars} ariaLabel={`Consum pe ${by === "day" ? "zi" : "oră"} (m³)`} labelWidth={by === "day" ? 56 : 90} />
                     <p className="cell-sub" style={{ margin: "6px 0 0", whiteSpace: "normal" }}>
                       Dacă între două citiri trec mai multe zile, tot consumul acelui interval apare în ziua celei de-a doua citiri (de aici vârfurile). Consum = diferența dintre citiri consecutive ale Volume_m3_Total_ts (m³){cons.anomalies ? ` · ${cons.anomalies} scăderi ale contorului ignorate (resetare / corecție)` : ""}.
                       {h.hourly.length < 2 && h.transmissions.length >= 2 ? " Nu există citiri orare în perioadă: folosesc valorile de la transmisii." : ""}

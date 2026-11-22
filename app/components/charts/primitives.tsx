@@ -127,6 +127,7 @@ export function ColumnChart({
   onBrush,
   labelEvery,
   labelWidth = 64,
+  unit,
 }: {
   bars: Bar[];
   ariaLabel: string;
@@ -139,6 +140,8 @@ export function ColumnChart({
   labelEvery?: number;
   /** lățimea rezervată unei etichete pe axă (px) */
   labelWidth?: number;
+  /** unitatea valorii din hover (ex. „m³”, „contoare”) */
+  unit?: string;
 }) {
   const [ref, w] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
@@ -162,7 +165,7 @@ export function ColumnChart({
 
   const tip: Tip | null =
     hover != null && bars[hover]
-      ? { x: ML + (hover + 0.5) * band, y: Math.max(14, y(Math.max(bars[hover].value, 0)) - 6), title: bars[hover].label, value: nf.format(bars[hover].value), sub: bars[hover].ghost > bars[hover].value ? `din ${nf.format(bars[hover].ghost)} în total` : bars[hover].sub }
+      ? { x: ML + (hover + 0.5) * band, y: Math.max(14, y(Math.max(bars[hover].value, 0)) - 6), title: bars[hover].label, value: `${nf.format(bars[hover].value)}${unit ? ` ${unit}` : ""}`, sub: bars[hover].ghost > bars[hover].value ? `din ${nf.format(bars[hover].ghost)} ${unit ?? ""} în total`.replace(/ +/g, " ") : bars[hover].sub }
       : null;
 
   return (
@@ -236,7 +239,7 @@ export function ColumnChart({
 /* ───────── listă de bare orizontale (categorii nominale: o singură culoare) ───────── */
 export type BarItem = { key: string; label: string; value: number; ghost: number; sub?: string; tone?: "critical" | "serious" | "warning" | "good" | "neutral"; glyph?: string };
 
-export function BarList({ items, selected = [], onToggle, top = 10, ariaLabel }: { items: BarItem[]; selected?: string[]; onToggle?: (key: string) => void; top?: number; ariaLabel: string }) {
+export function BarList({ items, selected = [], onToggle, top = 10, ariaLabel, unit }: { items: BarItem[]; selected?: string[]; onToggle?: (key: string) => void; top?: number; ariaLabel: string; /** unitatea valorii din hover */ unit?: string }) {
   const [all, setAll] = useState(false);
   const [tip, setTip] = useState<Tip | null>(null);
   const [ref, w] = useWidth<HTMLDivElement>();
@@ -247,7 +250,7 @@ export function BarList({ items, selected = [], onToggle, top = 10, ariaLabel }:
     const wrap = ref.current?.getBoundingClientRect();
     const r = el.getBoundingClientRect();
     if (!wrap) return;
-    setTip({ x: (clientX ?? r.left + r.width / 2) - wrap.left, y: r.top - wrap.top - 2, title: it.label, value: nf.format(it.value), sub: it.ghost > it.value ? `din ${nf.format(it.ghost)} în total` : it.sub });
+    setTip({ x: (clientX ?? r.left + r.width / 2) - wrap.left, y: r.top - wrap.top - 2, title: it.label, value: `${nf.format(it.value)}${unit ? ` ${unit}` : ""}`, sub: it.ghost > it.value ? `din ${nf.format(it.ghost)}${unit ? ` ${unit}` : ""} în total` : it.sub });
   };
   return (
     <div className="chart-wrap" ref={ref} role="list" aria-label={ariaLabel}>
