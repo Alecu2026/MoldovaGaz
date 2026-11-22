@@ -1,28 +1,27 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DatasetWire, DeltaFull, DeltaWire } from "@/lib/uplink-shared";
-import { UplinkStore, type Snapshot } from "@/lib/uplink-store";
+import type { DatasetWire, DeltaFull, DeltaWire } from "@/lib/meter-shared";
+import { MeterStore, type Snapshot } from "@/lib/meter-store";
 
 /**
- * Lista completă de mesaje în browser, pe TREI straturi (peste cache-ul serverului din lib/services/uplink-dataset.ts):
+ * Lista completă de contoare în browser, pe TREI straturi (peste cache-ul serverului din lib/services/meter-dataset.ts):
  *   1. memorie  — obiectul `memo` de mai jos: rămâne cât timp fila e deschisă; la întoarcerea pe pagină apare instant, fără IndexedDB, fără decodare;
  *   2. IndexedDB — vectorii tipizați se salvează ca atare (fără JSON.parse): după un refresh / o zi mai târziu lista apare în zeci de ms;
- *   3. server    — o singură descărcare completă (gzip + ETag/304) când nu avem nimic compatibil, apoi DOAR delta: „dă-mi ce e după poziția X”.
- * Mesajele sunt imutabile, deci o copie veche nu e niciodată „greșită”, doar incompletă: o arătăm imediat și o completăm cu delta.
+ *   3. server    — o singură descărcare completă (gzip + ETag/304) când nu avem nimic compatibil, apoi DOAR delta: „dă-mi ce s-a schimbat după seq X”.
+ * O copie veche nu e „greșită”, doar depășită: o arătăm imediat și o aducem la zi cu delta.
  */
 
-const IDB_BASE = "mg-cache";
-const IDB_KEY = "uplinks";
-const POLL_MS = 10_000;
-const MAX_CLIENT_ROWS = 600_000; // peste atât (fereastra serverului e mai mică) începem de la zero
+const IDB_BASE = "mg-cache-m";
+const IDB_KEY = "meters";
+const POLL_MS = 30_000;
 
-type Stored = { v: 2; s: Snapshot };
+type Stored = { v: 3; s: Snapshot };
 export type SyncKind = "noop" | "delta" | "full";
 export type Origin = "memorie" | "IndexedDB" | "server" | "";
 export type SyncInfo = { at: number; kind: SyncKind; added: number };
 
-let memo: { user: string; store: UplinkStore } | null = null; // STRATUL 1 (în browser)
+let memo: { user: string; store: MeterStore } | null = null; // STRATUL 1 (în browser)
 
 /* ---------- IndexedDB ---------- */
 const dbName = (user: string) => `${IDB_BASE}:${user}`;
@@ -73,25 +72,25 @@ async function idbSet(user: string, value: Stored): Promise<void> {
 }
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
-function schedulePersist(user: string, store: UplinkStore, delay = 3000) {
+function schedulePersist(user: string, store: MeterStore, delay = 3000) {
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = setTimeout(() => {
     persistTimer = null;
-    const run = () => void idbSet(user, { v: 2, s: store.snapshot() });
+    const run = () => void idbSet(user, { v: 3, s: store.snapshot() });
     if (typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout: 5000 });
     else run();
   }, delay);
 }
 
-/** La ieșire din cont: lista nu rămâne în browser pentru următorul utilizator al calculatorului. */
-export async function clearUplinkCaches(): Promise<void> {
+/** La ieșire din cont: lista (cu date despre consumatori) nu rămâne în browser pentru următorul utilizator al calculatorului. */
+export async function clearMeterCaches(): Promise<void> {
   memo = null;
   if (persistTimer) clearTimeout(persistTimer);
   try {
     const dbs = (await indexedDB.databases?.()) ?? [];
     await Promise.all(
       dbs
-        .filter((d) => d.name?.startsWith(`${IDB_BASE}:`))
+        .filter((d) => d.name?.startsWith("mg-cache"))
         .map(
           (d) =>
             new Promise<void>((resolve) => {
@@ -106,7 +105,7 @@ export async function clearUplinkCaches(): Promise<void> {
 }
 
 /** Lista vine gzip (application/gzip, memorată pe server) și se decomprimă aici; fără DecompressionStream cerem JSON simplu. */
-const DATASET_URL = typeof DecompressionStream === "undefined" ? "/api/uplinks/dataset?enc=json" : "/api/uplinks/dataset";
+const DATASET_URL = typeof DecompressionStream === "undefined" ? "/api/meters/dataset?enc=json" : "/api/meters/dataset";
 async function readJson<T>(res: Response): Promise<T> {
   if (res.body && (res.headers.get("content-type") ?? "").includes("gzip")) {
     return JSON.parse(await new Response(res.body.pipeThrough(new DecompressionStream("gzip"))).text()) as T;
@@ -115,16 +114,16 @@ async function readJson<T>(res: Response): Promise<T> {
 }
 
 /* ---------- hook ---------- */
-export function useUplinkStore(opts: { userId: string; warm: { gen: string; head: number } | null; live: boolean }) {
+export function useMeterStore(opts: { userId: string; warm: { gen: string; head: number } | null; live: boolean }) {
   const { userId, warm, live } = opts;
-  const [store, setStore] = useState<UplinkStore | null>(() => (memo?.user === userId ? memo.store : null));
+  const [store, setStore] = useState<MeterStore | null>(() => (memo?.user === userId ? memo.store : null));
   const [rev, setRev] = useState(0); // lista se modifică pe loc (delta): rev declanșează re-randarea și e cheie de memoizare
   const [status, setStatus] = useState<"loading" | "ready" | "error">(() => (memo?.user === userId ? "ready" : "loading"));
   const [syncing, setSyncing] = useState(false);
   const [offline, setOffline] = useState(false);
   const [origin, setOrigin] = useState<Origin>(() => (memo?.user === userId ? "memorie" : ""));
   const [info, setInfo] = useState<SyncInfo | null>(null);
-  const ref = useRef<{ store: UplinkStore | null; busy: boolean; warmUsed: boolean; user: string }>({
+  const ref = useRef<{ store: MeterStore | null; busy: boolean; warmUsed: boolean; user: string }>({
     store: memo?.user === userId ? memo.store : null,
     busy: false,
     warmUsed: false,
@@ -141,7 +140,7 @@ export function useUplinkStore(opts: { userId: string; warm: { gen: string; head
     r.busy = true;
     setSyncing(true);
     try {
-      let st = r.store;
+      const st = r.store;
       const w = warmRef.current;
       const firstSync = !r.warmUsed;
       r.warmUsed = true;
@@ -154,16 +153,13 @@ export function useUplinkStore(opts: { userId: string; warm: { gen: string; head
         return;
       }
 
-      if (st && st.n <= MAX_CLIENT_ROWS) {
+      if (st) {
+        const d0 = st.dict;
         const qs = new URLSearchParams({
-          gen: st.gen,
-          after: String(st.head),
-          dev: String(st.dict.dev.length),
-          gw: String(st.dict.gw.length),
-          ap: String(st.dict.ap.length),
-          ty: String(st.dict.ty.length),
+          gen: st.gen, after: String(st.head),
+          ap: String(d0.ap.length), gw: String(d0.gw.length), ty: String(d0.ty.length), br: String(d0.br.length), ct: String(d0.ct.length), pf: String(d0.pf.length),
         });
-        const res = await fetch(`/api/uplinks/delta?${qs}`, { cache: "no-store" });
+        const res = await fetch(`/api/meters/delta?${qs}`, { cache: "no-store" });
         if (res.status === 401) {
           window.location.replace("/login");
           return;
@@ -171,20 +167,20 @@ export function useUplinkStore(opts: { userId: string; warm: { gen: string; head
         if (!res.ok) throw new Error(String(res.status));
         const d = (await res.json()) as DeltaWire | DeltaFull;
         if (!("full" in d)) {
-          const added = st.applyDelta(d);
-          if (added >= 0) {
+          const changed = st.applyDelta(d);
+          if (changed >= 0) {
             memo = { user: r.user, store: st };
-            setInfo({ at: Date.now(), kind: added > 0 ? "delta" : "noop", added });
+            setInfo({ at: Date.now(), kind: changed > 0 ? "delta" : "noop", added: changed });
             setStatus("ready");
             setOffline(false);
-            if (added > 0) {
+            if (changed > 0) {
               setRev((v) => v + 1);
               schedulePersist(r.user, st);
             }
             return;
           }
         }
-        st = null; // generație schimbată / poziție care nu se potrivește ⇒ lista întreagă
+        // generație schimbată / cursor care nu se potrivește ⇒ lista întreagă
       }
 
       const res = await fetch(DATASET_URL); // cache-ul HTTP al browserului revalidează singur cu If-None-Match
@@ -193,7 +189,7 @@ export function useUplinkStore(opts: { userId: string; warm: { gen: string; head
         return;
       }
       if (!res.ok) throw new Error(String(res.status));
-      const next = UplinkStore.fromWire(await readJson<DatasetWire>(res));
+      const next = MeterStore.fromWire(await readJson<DatasetWire>(res));
       r.store = next;
       setStore(next);
       memo = { user: r.user, store: next };
@@ -204,8 +200,8 @@ export function useUplinkStore(opts: { userId: string; warm: { gen: string; head
       setRev((v) => v + 1);
       schedulePersist(r.user, next, 500);
     } catch (e) {
-      console.error("[uplinks] sincronizare eșuată:", e);
-      // fără rețea / server căzut: păstrăm ce avem (poate fi incomplet, dar nu e greșit)
+      console.error("[meters] sincronizare eșuată:", e);
+      // fără rețea / server căzut: păstrăm ce avem (poate fi depășit, dar nu e greșit)
       if (ref.current.store) setOffline(true);
       else setStatus("error");
     } finally {
@@ -222,9 +218,9 @@ export function useUplinkStore(opts: { userId: string; warm: { gen: string; head
       if (!ref.current.store) {
         const saved = await idbGet(userId);
         if (!alive) return;
-        if (saved?.v === 2 && saved.s?.ts instanceof Float64Array && saved.s.n >= 0) {
+        if (saved?.v === 3 && saved.s?.ts instanceof Float64Array && saved.s.n >= 0) {
           try {
-            const st = UplinkStore.fromSnapshot(saved.s);
+            const st = MeterStore.fromSnapshot(saved.s);
             ref.current.store = st;
             setStore(st);
             memo = { user: userId, store: st };
@@ -243,20 +239,17 @@ export function useUplinkStore(opts: { userId: string; warm: { gen: string; head
     };
   }, [userId, sync]);
 
-  // „live”: întrebăm serverul cât timp fila e vizibilă (răspunsul fără mesaje noi are câțiva zeci de octeți)
+  // „live”: întrebăm serverul cât timp fila e vizibilă (răspunsul fără modificări are câteva zeci de octeți)
   useEffect(() => {
     if (!live) return;
     const tick = () => {
       if (document.visibilityState === "visible") void sync();
     };
     const t = setInterval(tick, POLL_MS);
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void sync();
-    };
-    document.addEventListener("visibilitychange", onVisible);
+    document.addEventListener("visibilitychange", tick);
     return () => {
       clearInterval(t);
-      document.removeEventListener("visibilitychange", onVisible);
+      document.removeEventListener("visibilitychange", tick);
     };
   }, [live, sync]);
 

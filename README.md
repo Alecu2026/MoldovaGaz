@@ -1,25 +1,38 @@
-# Moldovagaz — mesaje LoRaWAN
+# Moldovagaz — contoare de gaz LoRaWAN
 
-Next.js 16 (App Router, Cache Components) + MongoDB. Primește uplink-urile ChirpStack / Jooby și le arată într-un tabel cu totaluri, filtre și sortare **instant**, chiar și cu sute de mii de rânduri.
+Next.js 16 (App Router, Cache Components) + MongoDB. Arată contoarele de gaz Moldovagaz (≈69.000) într-un tabel și într-un tablou de grafice, cu totaluri, filtre și sortare **instant**, iar pentru fiecare contor istoricul **Volume (m³)** din ThingsBoard.
 
-## Pornire
+## Sursele de date
+
+| Sursă | Ce aduce |
+|---|---|
+| `lorawandb` (`http://192.168.77.11:3880/lorawandb`) | lista dispozitivelor ThingsBoard care sunt contoare: id, nume, profil, client |
+| `getmgdb` (`http://192.168.77.11:3880/getmgdb`) | facturarea: **filiala (FIL)**, cont (ACCT_ID), **număr radio**, adresă, consumator, secție, controlor… |
+| ThingsBoard (`https://gw.scada.md`) | valorile curente (`Volume_m3_Total`, RSSI/SNR, baterie, consumuri…), atributele și **istoricul** `Volume_m3_Total_ts` |
+
+**Legătura facturare ↔ dispozitiv:** `NUM_RADIO` (8 cifre) = seria din numele dispozitivului (`S2154_00070948_2022` → `00070948`). Pe datele reale se potrivesc 99,1% din rândurile de facturare. **Filiala:** codul `FIL` din facturare (01 Chișinău, 05 Comrat, 10 Edineț, 11 Cahul, 20 Orhei, 27 Taraclia, 31 Florești, 33 Cimișlia, 35 Ștefan Vodă, 36 Ialoveni); contoarele fără facturare primesc filiala clientului lor din ThingsBoard (dedusă din perechile potrivite). Cheile LoRaWAN (APPKEY / NWKSKEY / APPSKEY) **nu** se copiază niciodată în aplicație.
+
+## Sincronizarea
+
+`scripts/sync-meters.ts` (pm2: `<nume>-sync`, la 10 minute) citește cele trei surse (ThingsBoard în loturi de 500, ~70 s pentru toate contoarele), le combină și scrie în colecția `meters` **doar contoarele ale căror date s-au schimbat** (hash pe conținut). Contoarele dispărute din `lorawandb` se șterg (cu plasă de siguranță dacă dispar prea multe deodată).
+
+```bash
+npm run sync:meters                       # sincronizare completă
+npm run sync:meters -- --dry              # doar citește și combină; afișează statistici (nu scrie nimic)
+npm run sync:meters -- --dry --out f.json # la fel, + salvează documentele într-un fișier
+npm run sync:meters -- --load f.json      # scrie documentele din fișier (fără rețea) — încărcare inițială
+npm run check                             # verifică filtrele, agregările, actualizările pe loc și combinarea (date sintetice)
+```
+
+## Pornire locală
 
 ```bash
 npm install
-npm run seed:user     # creează test@gmail.com / parola123 în colecția `users`
-npm run dev           # http://localhost:3000
+npm run seed:user -- admin@exemplu.md ParolaPuternica "Nume" super_admin   # primul cont (colecția users)
+npm run dev                                                               # http://localhost:3000
 ```
 
-`.env.local` (nu se comite):
-
-| variabilă | rol |
-|---|---|
-| `DATABASE_URL` | conexiunea MongoDB (baza `moldovagaz`) |
-| `INGEST_TOKEN` | secretul pentru `POST /api/ingest` |
-| `UPLINK_WINDOW_DAYS` (30) / `UPLINK_MAX_ROWS` (300000) | fereastra de date ținută în memorie |
-| `USERS_COLLECTION` / `SESSIONS_COLLECTION` / `UPLINKS_COLLECTION` | numele colecțiilor (implicit `users`, `sessions`, `uplinks`) |
-| `INSECURE_COOKIES=1` | forțează cookie-ul de sesiune fără `Secure` (în mod normal e `Secure` doar când cererea vine pe HTTPS, deci de obicei nu e nevoie) |
-| `MONGO_DNS_SERVERS` | DNS-ul folosit ca fallback când routerul refuză interogările SRV ale `mongodb+srv://` (implicit `1.1.1.1,8.8.8.8`) |
+`.env.local` (nu se comite; model în [.env.example](.env.example)): `DATABASE_URL`, `TB_USER`, `TB_PASS` (+ opțional `TB_URL`, `LORAWAN_DB_URL`, `MG_DB_URL`, `PORT`, `PM2_NAME`, `INSECURE_COOKIES`, `MONGO_DNS_SERVERS`).
 
 ## Producție (server cu pm2, din GitHub)
 
@@ -27,66 +40,38 @@ Pe server: Node 20+, `git`, `pm2` (`npm i -g pm2`).
 
 ```bash
 git clone https://github.com/Alecu2026/MoldovaGaz.git && cd MoldovaGaz
-cp .env.example .env.local && nano .env.local   # DATABASE_URL, INGEST_TOKEN (+ INSECURE_COOKIES=1 doar fără HTTPS)
-npm ci && npm run seed:user -- admin@exemplu.md ParolaPuternica "Nume"   # primul cont (nu folosi parola de test!)
-./deploy/deploy.sh                               # git pull, npm ci, build, pm2 start/reload
+cp .env.example .env.local && nano .env.local   # DATABASE_URL, TB_USER, TB_PASS, PORT, PM2_NAME
+npm ci && npm run seed:user -- admin@exemplu.md ParolaPuternica "Nume" super_admin
+./deploy/deploy.sh                               # git pull, npm ci (doar dacă s-au schimbat dependențele), build, pm2 start/reload
 pm2 startup && pm2 save                          # pornire automată după reboot
 ```
 
-Actualizare ulterioară: `./deploy/deploy.sh` (cu lock, iar dacă build-ul noului commit pică revine singur la cel anterior).
+[ecosystem.config.js](ecosystem.config.js) pornește trei procese: aplicația (un singur proces, intenționat: lista din memorie e per proces), `<nume>-sync` (sincronizarea la 10 minute) și `<nume>-autodeploy` (la un minut face `git fetch` și, dacă există commit nou, rulează [deploy/deploy.sh](deploy/deploy.sh); la build eșuat revine la commit-ul anterior). Fără secrete în GitHub și fără SSH spre server. Variantă alternativă: [.github/workflows/deploy.yml](.github/workflows/deploy.yml) (GitHub Actions + SSH) — nu o folosi împreună cu `autodeploy`.
 
-### Redeploy automat la push
+**Rețea:** serverul trebuie să ajungă la ThingsBoard (`TB_URL`) și la sursele din LAN. Dacă domeniul public al ThingsBoard nu se poate accesa din interiorul rețelei (NAT hairpin), pune adresa internă în `TB_URL` sau o intrare `IP gw.scada.md` în `/etc/hosts`. Exemplu nginx: [deploy/nginx.conf.example](deploy/nginx.conf.example).
 
-Două variante:
-
-- **GitHub Actions** — [.github/workflows/deploy.yml](.github/workflows/deploy.yml): la push pe `main` rulează `tsc` + `eslint`, apoi `deploy.sh` pe server prin SSH. Adaugă secretele `SSH_HOST`, `SSH_USER`, `SSH_KEY` (cheie privată dedicată, fără parolă), `APP_DIR` și opțional `SSH_PORT`, `SSH_KNOWN_HOSTS`. Cheia publică se pune în `~/.ssh/authorized_keys` pe server.
-- **Automat din pm2 (implicit)** — [ecosystem.config.js](ecosystem.config.js) pornește și un proces `<nume>-autodeploy` care o dată pe minut face `git fetch` și, dacă există commit nou, rulează [deploy/deploy.sh](deploy/deploy.sh) (`npm ci` doar dacă s-au schimbat dependențele, build, reload; la build eșuat revine la commit-ul anterior). Fără secrete în GitHub și fără SSH spre server — merge și într-o rețea locală. Numele și portul se iau din `PM2_NAME` și `PORT` din `.env.local`.
-
-Starea o vezi cu `pm2 status` și `pm2 logs <nume>-autodeploy` (log în `logs/auto-deploy.log`).
-
-Nu le folosi pe amândouă (ar face deploy dublu): dacă alegi Actions, oprește procesul `<nume>-autodeploy` (`pm2 delete <nume>-autodeploy`). Pe server clona trebuie să poată face `git pull` fără parolă (repo public sau deploy key / token). Config pm2: [ecosystem.config.js](ecosystem.config.js) (un singur proces, intenționat). Exemplu nginx: [deploy/nginx.conf.example](deploy/nginx.conf.example).
-
-**Alt proiect pe același server** (ex. `mg.scada.md` pe portul 3000): pune `PORT=3001` în `.env.local`, creează un record DNS `A` pentru noul subdomeniu spre IP-ul serverului, copiază [deploy/nginx.conf.example](deploy/nginx.conf.example) ca site nou (`server_name` + `proxy_pass` spre portul ales) și emite certificatul (`certbot --nginx -d subdomeniu.scada.md`). Cookie-urile sunt per subdomeniu, deci cele două aplicații nu se amestecă.
-
-**Înainte de producție:** schimbă/șterge contul `test@gmail.com` (parolă publică în acest README) și lasă HTTPS activ — cookie-ul de sesiune e `Secure`.
-
-## Filtre și grafice
-
-- **Filtre** (toate optimiste, se pot combina; între filtre diferite se aplică ȘI, între valorile aceluiași filtru SAU): căutare liberă, aplicație, gateway, tip de mesaj, stare (alerte / baterie / offline / buton / magnet), perioadă (presetată sau personalizată) și, în „Mai multe filtre”: data rate, frecvență, fPort, ADR, câte gateway-uri au auzit, model și an de fabricație (din numele dispozitivului), intervale pentru RSSI, SNR, valoarea citită și fCnt. Filtrele active apar ca etichete cu ✕ și se păstrează în URL.
-- **Grafice** (fila „Grafice”, același filtru ca tabelul): mesaje în timp, stare și alerte, aplicații, gateway-uri, tipuri, histogramele RSSI / SNR / valoare, harta de densitate RSSI × SNR, DR, frecvențe, fPort, gateway-uri per mesaj, model, an, activitate pe ore și pe zile, prospețimea dispozitivelor și top dispozitive. Click pe o bară filtrează, glisarea alege un interval, contextul „toate” rămâne în gri, iar „Tabel” de pe fiecare card arată datele.
-- Verificare automată a filtrelor și agregărilor față de implementări naive: `npm run check`.
-
-## Primirea datelor
-
-```
-POST /api/ingest
-Authorization: Bearer <INGEST_TOKEN>      (sau X-Ingest-Token: <INGEST_TOKEN>)
-```
-
-Corp: un obiect JSON, o listă, sau NDJSON. Formatul poate varia (mai multe gateway-uri, `object` lipsă, alte tipuri de `decoded`): se păstrează payload-ul original întreg, iar coloanele din tabel se extrag defensiv. Retrimiterea aceluiași mesaj nu creează dubluri. Răspuns: `{ received, inserted, duplicates, rejected }`.
-
-În ChirpStack (integrarea HTTP) pune URL-ul `https://<server>/api/ingest` și antetul `Authorization: Bearer …`. Evenimentele care nu sunt `up` (`?event=join|ack|status…`) sunt ignorate cu 200.
-
-```bash
-curl -X POST http://localhost:3000/api/ingest -H "Authorization: Bearer $INGEST_TOKEN" --data-binary @scripts/sample-uplink.json
-```
+**Alt proiect pe același server:** `PORT` și `PM2_NAME` diferite în `.env.local`, un record DNS `A` pentru subdomeniu, un site nginx nou (`proxy_pass` spre portul ales) și certificat (`certbot --nginx -d subdomeniu`). Cookie-urile sunt per subdomeniu.
 
 ## Cum e făcut să meargă instant
 
-Același model ca „tasks” din StefanPWA, adaptat la date doar-adăugare:
+Același model ca „tasks” din StefanPWA, adaptat la rânduri care se modifică pe loc:
 
-1. **Server (memorie)** — `lib/services/uplink-dataset.ts`. Lista, coloanar, în memoria procesului. La fiecare cerere se verifică o *amprentă* ieftină din Mongo (total estimat + ultimul `receivedAt`); dacă s-a schimbat, se aduc **doar** documentele noi și se adaugă la coadă (nu se recitește colecția). Gzip-ul se face o dată și se memorează pe versiune. `ETag = generație.poziție` → `304` fără corp.
+1. **Server (memorie)** — `lib/services/meter-dataset.ts`. Lista, coloanar, în memoria procesului. La fiecare cerere se verifică o *amprentă* ieftină din Mongo (total + ultimul `updatedAt`); dacă s-a schimbat, se aduc **doar** documentele modificate și se suprascriu rândurile (fiecare modificare primește un `seq`). Gzip-ul se face o dată și se memorează pe versiune. `ETag = generație.seq` → `304` fără corp.
 2. **Browser, IndexedDB** — vectorii tipizați se salvează ca atare; la deschidere lista apare din cache local, fără `JSON.parse`.
-3. **Browser, memorie** — obiectul `UplinkStore` rămâne cât timp fila e deschisă.
-4. **Sincronizare incrementală** — `/api/uplinks/delta?after=<poziție>` întoarce doar mesajele noi (zero rânduri = câțiva zeci de octeți). „Live” = o întrebare la 10 s cât timp fila e vizibilă.
-5. **Virtualizare** — în DOM stau ~25 de rânduri, indiferent de număr; filtrarea/sortarea rulează într-o trecere peste vectori tipizați (câțiva ms la 300.000 de rânduri).
+3. **Browser, memorie** — obiectul `MeterStore` rămâne cât timp fila e deschisă.
+4. **Sincronizare incrementală** — `/api/meters/delta?after=<seq>` întoarce doar contoarele modificate (zero rânduri = câteva zeci de octeți). „Live” = o întrebare la 30 s cât timp fila e vizibilă.
+5. **Virtualizare** — în DOM stau ~20 de rânduri, indiferent de număr; filtrarea / sortarea rulează într-o trecere peste vectori tipizați (câțiva ms).
 6. Prima pictare vine din HTML (primele 40 de rânduri) și, dacă browserul are deja versiunea curentă, **nu se face nicio cerere**.
+7. **Istoricul** unui contor nu intră în listă: se citește din ThingsBoard doar când deschizi contorul (`/api/meters/<id>/history`, doar citire, 60 s în memorie).
 
-Verificări: `npm run bench` (motorul pe 300.000 de rânduri sintetice, în memorie).
+## Filtre și grafice
 
-## Limite de știut
+- **Filtre** (toate optimiste, combinabile; între filtre diferite ȘI, între valorile aceluiași filtru SAU): căutare liberă (nume contor, devEUI, număr radio, cont, adresă, consumator), **filială**, oraș, profil, stare (alerte / offline / baterie / inactiv / buton / magnet), perioada ultimei citiri (presetată sau personalizată) și, în „Mai multe filtre”: aplicație, concentrator, tip mesaj, frecvență, fPort, model, an / cod lot, facturare, intervale pentru **Volume (m³)**, consum zilnic, baterie, RSSI, SNR și fCnt. Filtrele active apar ca etichete cu ✕ și se păstrează în URL.
+- **Grafice** (fila „Grafice”, același filtru ca tabelul): contoare după ultima citire, stare și alerte, contoare și **volum pe filială**, orașe, profile, aplicații, concentratoare, tipuri de mesaj, histograme pentru Volume / consum zilnic / baterie / RSSI / SNR, harta RSSI × SNR, frecvențe, fPort, model, an, ora și ziua ultimei citiri, prospețimea citirilor și topul consumurilor. Click pe o bară filtrează, glisarea alege un interval, contextul „toate” rămâne în gri, iar „Tabel” de pe fiecare card arată datele.
+- **Detaliu contor** (click pe rând): Volume (m³) cu consum pe zi / oră din `Volume_m3_Total_ts`, facturare completă, ThingsBoard, ultima telemetrie, atribute, JSON.
 
-- **Fereastra**: în memorie stau ultimele `UPLINK_WINDOW_DAYS` zile / `UPLINK_MAX_ROWS` rânduri; „Total” arată și câte sunt în baza de date. Istoricul mai vechi există în Mongo, dar nu se vede încă în tabel (ar cere interogări pe server).
-- **Un singur proces Node** (`next start`): `gen`-ul listei e per proces. Pe serverless sau cu mai multe instanțe totul rămâne corect, dar browserul reface mai des descărcarea completă.
-- **Spațiu în Mongo**: un mesaj ocupă ~1–2 KB (payload-ul original). Clusterul Atlas M0 are 512 MB **partajați cu celelalte baze**; planifică retenție (ex. index TTL pe `receivedAt`) sau un cluster mai mare înainte de volum real.
-- `scripts/seed-demo.ts` generează date sintetice, dar doar într-o colecție de test (refuză colecția reală).
+## Limite și date personale
+
+- Facturarea conține **date personale** (nume consumator, adresă). Ele ajung în browserul utilizatorilor autentificați (căutare instant) și în IndexedDB-ul lor; se șterg la „Ieșire”. Exportul CSV **nu** le include. Dă acces doar persoanelor autorizate.
+- Un singur proces Node (`next start`): `gen`-ul listei e per proces; cu mai multe instanțe totul rămâne corect, dar browserul reface mai des descărcarea completă.
+- `Volume_m3_Total` negativ (date eronate la unele contoare) nu intră în grafice și în sume.

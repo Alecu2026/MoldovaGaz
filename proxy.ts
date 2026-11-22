@@ -2,8 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 /**
  * Proxy (fostul middleware) — verificare OPTIMISTĂ, fără DB: doar prezența cookie-ului decide redirectul rapid.
- * Validarea reală a sesiunii se face în lib/dal.ts (pagini) și în fiecare route handler (/api/uplinks/*).
- * /api nu trece pe aici: API-urile răspund cu 401 JSON (nu cu redirect), iar /api/ingest are propriul token.
+ * Validarea reală a sesiunii se face în lib/dal.ts (pagini) și în fiecare route handler (/api/meters/*).
+ * /api nu trece pe aici: API-urile răspund cu 401 JSON (nu cu redirect).
  */
 const COOKIE = "mg_session";
 

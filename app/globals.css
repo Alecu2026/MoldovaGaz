@@ -399,8 +399,8 @@ body {
   overscroll-behavior: contain;
 }
 .tbl {
-  min-width: 1330px;
-  --cols: 168px minmax(210px, 1.5fr) minmax(150px, 1fr) 104px 112px 104px minmax(240px, 1.3fr) 110px 148px;
+  min-width: 1560px;
+  --cols: 118px minmax(210px, 1.3fr) minmax(170px, 1fr) minmax(130px, 0.9fr) 104px 74px 112px 118px 130px minmax(160px, 1fr);
 }
 .hdr {
   position: sticky;
@@ -897,3 +897,5 @@ button.bl-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 
   .card.span2, .card.span3 { grid-column: auto; }
   .grid { grid-template-columns: 1fr; }
 }
+
+.cell-main.low { color: var(--danger); }

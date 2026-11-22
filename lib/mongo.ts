@@ -4,12 +4,13 @@ import { connectMongo } from "./mongo-core";
 
 /**
  * Singleton MongoDB (supraviețuiește HMR din dev: stă pe globalThis) + indecși creați o singură dată pe proces.
- * Numele colecțiilor se pot schimba din env (USERS_COLLECTION / SESSIONS_COLLECTION / UPLINKS_COLLECTION) — util pentru teste pe o colecție separată.
+ * Numele colecțiilor se pot schimba din env (USERS_COLLECTION / SESSIONS_COLLECTION / METERS_COLLECTION) — util pentru teste pe o colecție separată.
  */
 export const COLLECTIONS = {
   users: process.env.USERS_COLLECTION || "users",
   sessions: process.env.SESSIONS_COLLECTION || "sessions",
-  uplinks: process.env.UPLINKS_COLLECTION || "uplinks",
+  /** contoarele reale (scrise de scripts/sync-meters.ts) */
+  meters: process.env.METERS_COLLECTION || "meters",
 };
 
 const g = globalThis as unknown as { __mgClient?: Promise<MongoClient>; __mgIndexes?: Promise<void> };
@@ -41,10 +42,10 @@ async function ensureIndexes(db: Db) {
     db.collection(COLLECTIONS.users).createIndex({ email: 1 }, { unique: true }),
     db.collection(COLLECTIONS.sessions).createIndex({ tokenHash: 1 }, { unique: true }),
     db.collection(COLLECTIONS.sessions).createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
-    // delta (receivedAt) + capul listei / ordinea implicită (ts) + istoricul unui dispozitiv
-    db.collection(COLLECTIONS.uplinks).createIndex({ receivedAt: -1 }),
-    db.collection(COLLECTIONS.uplinks).createIndex({ ts: -1 }),
-    db.collection(COLLECTIONS.uplinks).createIndex({ devEUI: 1, ts: -1 }),
+    // contoare: delta după updatedAt, capul listei după ultima citire
+    db.collection(COLLECTIONS.meters).createIndex({ updatedAt: -1 }),
+    db.collection(COLLECTIONS.meters).createIndex({ "s.t": -1 }),
+    // (colecția veche `uplinks`, mesajele brute din ingest, nu mai e folosită)
   ]);
 }
 

@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import { logoutAction } from "@/app/actions/auth";
-import { clearUplinkCaches } from "./useUplinkStore";
+import { clearMeterCaches } from "./useMeterStore";
 
 export default function LogoutButton() {
   const cleared = useRef(false);
@@ -13,7 +13,7 @@ export default function LogoutButton() {
         if (cleared.current) return;
         e.preventDefault();
         const form = e.currentTarget;
-        await clearUplinkCaches(); // lista din memorie / IndexedDB nu rămâne în browser după ieșire
+        await clearMeterCaches(); // lista din memorie / IndexedDB nu rămâne în browser după ieșire
         cleared.current = true;
         form.requestSubmit();
       }}

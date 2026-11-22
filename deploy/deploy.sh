@@ -6,8 +6,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-[ -f .env.local ] || { echo "Lipsește .env.local — copiază .env.example și completează DATABASE_URL și INGEST_TOKEN."; exit 1; }
-grep -Eq '^INGEST_TOKEN="?[^" ]+' .env.local || { echo "INGEST_TOKEN e gol în .env.local."; exit 1; }
+[ -f .env.local ] || { echo "Lipsește .env.local — copiază .env.example și completează DATABASE_URL, TB_USER și TB_PASS."; exit 1; }
+grep -Eq '^DATABASE_URL=' .env.local || { echo "DATABASE_URL lipsește din .env.local."; exit 1; }
 command -v pm2 >/dev/null || { echo "pm2 nu e instalat:  npm i -g pm2"; exit 1; }
 
 env_get() { grep -E "^$1=" .env.local | tail -1 | cut -d= -f2- | tr -d '"' | tr -d '\r' || true; }
@@ -20,7 +20,7 @@ flock -n 9 || { echo "Alt deploy rulează deja."; exit 0; }
 # pornește / reîncarcă DOAR aplicația (nu și watcher-ul care a pornit acest script)
 start_or_reload() {
   mkdir -p logs
-  pm2 startOrReload ecosystem.config.js --only "$NAME" --update-env
+  pm2 startOrReload ecosystem.config.js --only "$NAME,$NAME-sync" --update-env
   pm2 save >/dev/null
 }
 

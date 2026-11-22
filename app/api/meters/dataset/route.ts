@@ -1,14 +1,14 @@
 import { gunzipSync } from "node:zlib";
 import { getCurrentUser } from "@/lib/dal";
-import { encodedDataset, getStore } from "@/lib/services/uplink-dataset";
+import { encodedDataset, getStore } from "@/lib/services/meter-dataset";
 
 /**
- * Lista COMPLETĂ (coloanar) pentru motorul local din browser. ETag = `gen.head`: aceeași versiune ⇒ 304 fără corp.
- * Se cere doar la prima deschidere (sau după repornirea serverului); în rest browserul se sincronizează cu /api/uplinks/delta.
+ * Lista COMPLETĂ de contoare (coloanar) pentru motorul local din browser. ETag = `gen.seq`: aceeași versiune ⇒ 304 fără corp.
+ * Se cere doar la prima deschidere (sau după repornirea serverului); în rest browserul se sincronizează cu /api/meters/delta.
  *
- * Transport: gzip-ul e făcut O DATĂ pe server și memorat pe versiune. Next elimină antetele Content-Encoding / Content-Length din răspunsurile
+ * Transport: gzip-ul se face O DATĂ pe server și se memorează pe versiune. Next elimină antetele Content-Encoding / Content-Length din răspunsurile
  * route handler (și altfel și-ar comprima singur încă o dată corpul), așa că trimitem octeții ca `application/gzip` + `no-transform`, iar browserul
- * îi decomprimă cu DecompressionStream (vezi useUplinkStore). Fără suport pentru el: `?enc=json` întoarce JSON simplu, pe care îl comprimă Next.
+ * îi decomprimă cu DecompressionStream (vezi useMeterStore). Fără suport pentru el: `?enc=json` întoarce JSON simplu, pe care îl comprimă Next.
  */
 export async function GET(req: Request) {
   const user = await getCurrentUser();
@@ -24,7 +24,7 @@ export async function GET(req: Request) {
     if (plain) return new Response(new Uint8Array(gunzipSync(buf)), { headers: { ...base, "Content-Type": "application/json" } });
     return new Response(new Uint8Array(buf), { headers: { ...base, "Content-Type": "application/gzip" } });
   } catch (e) {
-    console.error("[uplinks/dataset] eșuat:", e);
+    console.error("[meters/dataset] eșuat:", e);
     return Response.json({ error: "Nu am putut încărca lista." }, { status: 500 });
   }
 }

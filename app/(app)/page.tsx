@@ -1,11 +1,11 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
-import UplinksTable from "@/app/components/UplinksTable";
+import MetersTable from "@/app/components/MetersTable";
 import { requireUser } from "@/lib/dal";
-import { getHeadRows, warmVersion } from "@/lib/services/uplink-dataset";
-import { filtersFromParams, sortFromParams } from "@/lib/uplink-filter";
+import { getHeadRows, warmVersion } from "@/lib/services/meter-dataset";
+import { filtersFromParams, sortFromParams } from "@/lib/meter-filter";
 
-export const metadata: Metadata = { title: "Mesaje LoRaWAN" };
+export const metadata: Metadata = { title: "Contoare de gaz" };
 
 type SP = Promise<Record<string, string | string[] | undefined>>;
 
@@ -20,7 +20,7 @@ export default function Page({ searchParams }: { searchParams: SP }) {
 /**
  * Verifică sesiunea și trimite către client doar ce trebuie pentru PRIMA pictare: filtrele din URL, primele rânduri (o interogare indexată) și versiunea
  * listei de pe server — dacă browserul are deja exact această versiune (memorie / IndexedDB), nu mai face nicio cerere.
- * Lista completă NU trece prin HTML: vine separat, gzip, din /api/uplinks/dataset.
+ * Lista completă NU trece prin HTML: vine separat, gzip, din /api/meters/dataset.
  */
 async function Gate({ searchParams }: { searchParams: SP }) {
   const user = await requireUser();
@@ -30,7 +30,7 @@ async function Gate({ searchParams }: { searchParams: SP }) {
     return Array.isArray(v) ? v[0] : v;
   };
   const [head, warm] = await Promise.all([getHeadRows(40), warmVersion()]);
-  return <UplinksTable userId={user.id} warm={warm} head={head} initialFilters={filtersFromParams(get)} initialSort={sortFromParams(get)} initialView={get("view") === "charts" ? "charts" : "table"} />;
+  return <MetersTable userId={user.id} warm={warm} head={head} initialFilters={filtersFromParams(get)} initialSort={sortFromParams(get)} initialView={get("view") === "charts" ? "charts" : "table"} />;
 }
 
 function TableSkeleton() {

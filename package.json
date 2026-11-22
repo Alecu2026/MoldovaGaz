@@ -8,10 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "seed:user": "tsx scripts/seed-user.ts",
-    "bench": "tsx scripts/bench-engine.ts",
-    "seed:demo": "tsx scripts/seed-demo.ts",
-    "seed:meters": "tsx scripts/seed-meters.ts",
-    "check": "tsx scripts/check-engine.ts"
+    "check": "tsx scripts/check-engine.ts",
+    "sync:meters": "tsx scripts/sync-meters.ts"
   },
   "dependencies": {
     "mongodb": "^7.9.1",

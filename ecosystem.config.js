@@ -1,23 +1,29 @@
 /**
  * pm2:  pm2 startOrReload ecosystem.config.js   |   pm2 logs <nume>   |   pm2 status
  *
- * Două aplicații:
- *  1. aplicația Next (un SINGUR proces, fork — intenționat: lista de mesaje din memorie e per proces; în cluster ar fi mai multe copii);
- *  2. „<nume>-autodeploy”: o dată pe minut verifică GitHub-ul (deploy/auto-deploy.sh) și, dacă există commit nou pe branch, face deploy
+ * Trei aplicații:
+ *  1. aplicația Next (un SINGUR proces, fork — intenționat: lista de contoare din memorie e per proces; în cluster ar fi mai multe copii);
+ *  2. „<nume>-sync”: la 10 minute rulează scripts/sync-meters.ts (lorawandb + getmgdb + ThingsBoard → colecția `meters`; scrie doar contoarele modificate);
+ *  3. „<nume>-autodeploy”: o dată pe minut verifică GitHub-ul (deploy/auto-deploy.sh) și, dacă există commit nou pe branch, face deploy
  *     (git pull, npm ci doar dacă s-au schimbat dependențele, build, reload; la build eșuat revine la commit-ul anterior).
  *     Nu e nevoie de webhook sau de SSH dinspre GitHub, deci merge și pe un server din rețeaua locală.
  *
  * Numele și portul se citesc din .env.local: PM2_NAME (implicit „moldovagaz”) și PORT (implicit 3000). Next NU citește PORT din .env.local
  * (serverul HTTP pornește înainte să se încarce fișierele .env), de aceea îl dăm noi explicit cu `-p`.
- * Restul variabilelor (DATABASE_URL, INGEST_TOKEN…) le citește Next din .env.local.
+ * Restul variabilelor (DATABASE_URL, TB_USER, TB_PASS…) le citește Next din .env.local.
  */
 const fs = require("node:fs");
 const path = require("node:path");
 
 function fromEnvFile(key, fallback) {
   try {
-    const m = fs.readFileSync(path.join(__dirname, ".env.local"), "utf8").match(new RegExp(`^\s*${key}\s*=\s*"?([^"\r\n#]+?)"?\s*$`, "m"));
-    if (m) return m[1];
+    // o linie „CHEIE=valoare” (cu sau fără ghilimele, spații, comentariu la final)
+    for (const line of fs.readFileSync(path.join(__dirname, ".env.local"), "utf8").split(/\r?\n/)) {
+      const eq = line.indexOf("=");
+      if (eq < 0 || line.slice(0, eq).trim() !== key) continue;
+      const v = line.slice(eq + 1).split(" #")[0].trim().replace(/^"(.*)"$/, "$1");
+      if (v) return v;
+    }
   } catch {}
   return process.env[key] || fallback;
 }
@@ -46,6 +52,21 @@ module.exports = {
       merge_logs: true,
       out_file: "logs/out.log",
       error_file: "logs/error.log",
+    },
+    {
+      name: `${NAME}-sync`,
+      cwd: __dirname,
+      script: "node_modules/tsx/dist/cli.mjs",
+      args: "scripts/sync-meters.ts",
+      exec_mode: "fork",
+      instances: 1,
+      autorestart: false, // rulează o dată și iese; pm2 îl repornește după cron_restart
+      cron_restart: "*/10 * * * *",
+      watch: false,
+      time: true,
+      merge_logs: true,
+      out_file: "logs/sync.log",
+      error_file: "logs/sync.log",
     },
     {
       name: `${NAME}-autodeploy`,

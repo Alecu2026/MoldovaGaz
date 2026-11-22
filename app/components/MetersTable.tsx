@@ -1,30 +1,22 @@
 "use client";
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { FLAG, type RowView } from "@/lib/uplink-shared";
-import { uplinksToCsv } from "@/lib/uplink-csv";
-import { aggregate, makeCtx } from "@/lib/uplink-aggregate";
-import {
-  DEFAULT_SORT,
-  NO_FILTERS,
-  activeFilters,
-  runFilter,
-  toQuery,
-  type Filters,
-  type Sort,
-  type SortKey,
-} from "@/lib/uplink-filter";
-import type { UplinkStore } from "@/lib/uplink-store";
+import { FLAG, type RowView } from "@/lib/meter-shared";
+import { metersToCsv } from "@/lib/meter-csv";
+import { aggregate, makeCtx } from "@/lib/meter-aggregate";
+import { NO_FILTERS, activeFilters, runFilter, toQuery, type Filters, type Sort, type SortKey } from "@/lib/meter-filter";
+import type { MeterStore } from "@/lib/meter-store";
 import { ActiveChips, AdvancedFilters, MainSelects } from "./FilterPanel";
-import UplinkCharts from "./UplinkCharts";
-import UplinkDetail from "./UplinkDetail";
-import { useUplinkStore, type Origin, type SyncInfo } from "./useUplinkStore";
+import MeterCharts from "./MeterCharts";
+import MeterDetail from "./MeterDetail";
+import { useMeterStore, type Origin, type SyncInfo } from "./useMeterStore";
 
 const ROW_H = 52;
 const HEADER_H = 40;
 const OVERSCAN = 8;
 
 const nf = new Intl.NumberFormat("ro-RO");
+const nf3 = new Intl.NumberFormat("ro-RO", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 const p2 = (n: number) => String(n).padStart(2, "0");
 function fmtTime(ts: number): string {
   const d = new Date(ts);
@@ -58,19 +50,19 @@ const RANGES: [string, string][] = [
 
 /** Filtrele care trăiesc în panoul „Mai multe filtre” (dacă vreunul e activ, panoul se deschide singur). */
 const hasAdvanced = (f: Filters) =>
-  !!(f.dr || f.fr || f.port || f.adr || f.gn || f.model || f.year || f.rssiMin || f.rssiMax || f.snrMin || f.snrMax || f.valMin || f.valMax || f.fcMin || f.fcMax);
+  !!(f.app || f.gw || f.type || f.fr || f.port || f.model || f.year || f.billed || f.valMin || f.valMax || f.dcMin || f.dcMax || f.batMin || f.batMax || f.rssiMin || f.rssiMax || f.snrMin || f.snrMax || f.fcMin || f.fcMax);
 
-export default function UplinksTable({ userId, warm, head, initialFilters, initialSort, initialView }: Props) {
+export default function MetersTable({ userId, warm, head, initialFilters, initialSort, initialView }: Props) {
   const [filters, setFilters] = useState<Filters>(initialFilters);
   const [sort, setSort] = useState<Sort>(initialSort);
   const [view, setView] = useState<"table" | "charts">(initialView);
   const [advOpen, setAdvOpen] = useState(() => hasAdvanced(initialFilters));
   const [live, setLive] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
-  const { store, rev, status, syncing, offline, origin, info, refresh } = useUplinkStore({ userId, warm, live });
+  const { store, rev, status, syncing, offline, origin, info, refresh } = useMeterStore({ userId, warm, live });
 
-  // OPTIMIST: filtrele se aplică în același cadru cu schimbarea (o trecere peste vectori tipizați = 1–5 ms la 300.000 de rânduri), fără amânare.
-  // Doar sortarea completă (~250 ms la 300.000) rămâne amânată: săgeata din antet se mută imediat, rândurile urmează când sunt gata.
+  // OPTIMIST: filtrele se aplică în același cadru cu schimbarea (o trecere peste vectori tipizați = câțiva ms), fără amânare.
+  // Doar sortarea completă rămâne amânată: săgeata din antet se mută imediat, rândurile urmează când sunt gata.
   const dSort = useDeferredValue(sort);
   const result = useMemo(() => (store ? runFilter(store, filters, dSort) : null), [store, rev, filters, dSort]); // eslint-disable-line react-hooks/exhaustive-deps -- `rev` = lista s-a modificat pe loc
   const pending = dSort !== sort;
@@ -91,14 +83,20 @@ export default function UplinksTable({ userId, warm, head, initialFilters, initi
   const nActive = activeFilters(filters);
 
   const onSort = (key: SortKey) =>
-    setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: key === "dev" || key === "gw" ? 1 : -1 }));
+    setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: key === "dev" || key === "br" || key === "gw" ? 1 : -1 }));
+
+  const nameOf = (id: string) => {
+    if (!store) return id;
+    const i = store.id.indexOf(id);
+    return i >= 0 && i < store.n ? store.nm[i] : id;
+  };
 
   const exportCsv = () => {
     if (!store || !result) return;
-    const blob = new Blob([uplinksToCsv(store, result.idx)], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob([metersToCsv(store, result.idx)], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `mesaje-lorawan-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.csv`;
+    a.download = `contoare-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   };
@@ -117,7 +115,7 @@ export default function UplinksTable({ userId, warm, head, initialFilters, initi
             type="search"
             value={filters.q}
             onChange={(e) => patch({ q: e.target.value })}
-            placeholder="Dispozitiv, devEUI, gateway, tip, fCnt…"
+            placeholder="Nume contor, devEUI, număr radio, cont, adresă, consumator…"
             autoComplete="off"
             spellCheck={false}
           />
@@ -126,7 +124,7 @@ export default function UplinksTable({ userId, warm, head, initialFilters, initi
 
         <div className="toolbar-row2">
           <div className="field">
-            <span id="lbl-range">Perioadă</span>
+            <span id="lbl-range">Ultima citire</span>
             <div className="seg" role="group" aria-labelledby="lbl-range">
               {RANGES.map(([v, l]) => (
                 <button key={v || "all"} type="button" aria-pressed={!filters.from && !filters.to && filters.range === v} onClick={() => patch({ range: v, from: "", to: "" })}>
@@ -152,10 +150,10 @@ export default function UplinksTable({ userId, warm, head, initialFilters, initi
               Resetează filtrele ({nActive})
             </button>
           )}
-          <button type="button" className="btn" onClick={exportCsv} disabled={!ready || result.matched === 0} title="Exportă rândurile filtrate">
+          <button type="button" className="btn" onClick={exportCsv} disabled={!ready || result.matched === 0} title="Exportă contoarele filtrate">
             Export CSV
           </button>
-          <button type="button" className="btn" aria-pressed={live} onClick={() => setLive((v) => !v)} title="Actualizare automată la 10 secunde">
+          <button type="button" className="btn" aria-pressed={live} onClick={() => setLive((v) => !v)} title="Actualizare automată la 30 de secunde">
             <span className={`dot ${live ? "live" : ""}`} style={{ margin: 0 }} />
             Live
           </button>
@@ -167,14 +165,14 @@ export default function UplinksTable({ userId, warm, head, initialFilters, initi
         )}
       </section>
 
-      <ActiveChips filters={filters} patch={patch} reset={reset} />
+      <ActiveChips filters={filters} patch={patch} reset={reset} nameOf={nameOf} />
 
       <section className="stats" aria-label="Totaluri" aria-live="polite">
-        <Stat k="Total mesaje" v={nf.format(total)} s={store && store.total > store.n ? `din ${nf.format(store.total)} în baza de date` : ready ? "toate încărcate" : "se încarcă…"} />
+        <Stat k="Total contoare" v={nf.format(total)} s={store && store.total !== store.n ? `în baza de date: ${nf.format(store.total)}` : ready ? "toate încărcate" : "se încarcă…"} />
         <Stat k="Filtrate" v={result ? nf.format(result.matched) : "—"} s={result && store && store.n > 0 ? `${((result.matched / store.n) * 100).toFixed(result.matched === store.n ? 0 : 1)}% din total` : " "} busy={pending} />
-        <Stat k="Dispozitive" v={result ? nf.format(result.devices) : "—"} s={store ? `din ${nf.format(store.dict.dev.length)}` : " "} busy={pending} />
+        <Stat k="Volume (m³)" v={result ? nf.format(Math.round(result.volume)) : "—"} s="suma ultimelor citiri filtrate" busy={pending} />
         <Stat k="Alerte" v={result ? nf.format(result.alerts) : "—"} s="baterie slabă / offline" alert={!!result && result.alerts > 0} busy={pending} />
-        <Stat k="Ultimul mesaj" v={newestTs ? fmtTime(newestTs).slice(11) : "—"} s={newestTs ? <Ago ts={newestTs} /> : " "} />
+        <Stat k="Ultima citire" v={newestTs ? fmtTime(newestTs).slice(11) : "—"} s={newestTs ? <Ago ts={newestTs} /> : " "} />
       </section>
 
       <div className="tabs" role="tablist" aria-label="Vedere">
@@ -187,10 +185,9 @@ export default function UplinksTable({ userId, warm, head, initialFilters, initi
       </div>
 
       {view === "table" ? (
-        <section className="tablebox" id="panel-view" role="tabpanel" aria-labelledby="tab-table" aria-label="Mesaje LoRaWAN">
+        <section className="tablebox" id="panel-view" role="tabpanel" aria-labelledby="tab-table" aria-label="Contoare">
           <Grid
             store={store}
-            rev={rev}
             idx={result?.idx ?? null}
             head={head.rows}
             loading={status === "loading"}
@@ -198,10 +195,9 @@ export default function UplinksTable({ userId, warm, head, initialFilters, initi
             sort={sort}
             onSort={onSort}
             onOpen={setOpenId}
-            onDevice={(eui) => patch({ dev: eui })}
+            onDevice={(id) => patch({ dev: id })}
             selectedId={openId}
             resetKey={`${JSON.stringify(filters)}|${dSort.key}${dSort.dir}`}
-            anchorable={dSort.key === DEFAULT_SORT.key && dSort.dir === DEFAULT_SORT.dir}
             onReset={reset}
             onRetry={refresh}
             hasFilters={nActive > 0}
@@ -210,7 +206,7 @@ export default function UplinksTable({ userId, warm, head, initialFilters, initi
       ) : (
         <section className="chartsbox" id="panel-view" role="tabpanel" aria-labelledby="tab-charts" aria-label="Grafice">
           {store && ctx && allAgg && fltAgg ? (
-            <UplinkCharts store={store} filters={filters} patch={patch} all={allAgg} flt={fltAgg} ctx={ctx} pending={pending} />
+            <MeterCharts store={store} filters={filters} patch={patch} all={allAgg} flt={fltAgg} ctx={ctx} pending={pending} />
           ) : (
             <div className="empty">
               <h2>{status === "error" ? "Nu am putut încărca lista" : "Se încarcă lista…"}</h2>
@@ -220,7 +216,7 @@ export default function UplinksTable({ userId, warm, head, initialFilters, initi
       )}
 
       <StatusBar live={live} syncing={syncing} offline={offline} origin={origin} info={info} store={store} />
-      {openId && <UplinkDetail id={openId} onClose={() => setOpenId(null)} />}
+      {openId && <MeterDetail id={openId} onClose={() => setOpenId(null)} />}
     </div>
   );
 }
@@ -251,8 +247,8 @@ function Ago({ ts }: { ts: number }) {
   return <>{now == null ? " " : ago(now - ts)}</>;
 }
 
-function StatusBar({ live, syncing, offline, origin, info, store }: { live: boolean; syncing: boolean; offline: boolean; origin: Origin; info: SyncInfo | null; store: UplinkStore | null }) {
-  const kind = info?.kind === "full" ? "listă completă descărcată" : info?.kind === "delta" ? `Δ +${nf.format(info.added)} mesaje noi` : info ? "la zi" : "";
+function StatusBar({ live, syncing, offline, origin, info, store }: { live: boolean; syncing: boolean; offline: boolean; origin: Origin; info: SyncInfo | null; store: MeterStore | null }) {
+  const kind = info?.kind === "full" ? "listă completă descărcată" : info?.kind === "delta" ? `Δ ${nf.format(info.added)} contoare actualizate` : info ? "la zi" : "";
   return (
     <div className="statusbar" role="status">
       <span>
@@ -268,7 +264,7 @@ function StatusBar({ live, syncing, offline, origin, info, store }: { live: bool
       {origin && <span>Pornit din: {origin}</span>}
       {store && (
         <span style={{ marginLeft: "auto" }}>
-          {nf.format(store.n)} rânduri în memorie · {nf.format(store.total)} în baza de date
+          {nf.format(store.n)} contoare în memorie · {nf.format(store.total)} în baza de date
         </span>
       )}
     </div>
@@ -278,20 +274,20 @@ function StatusBar({ live, syncing, offline, origin, info, store }: { live: bool
 /* ───────────────────────── grila virtualizată ───────────────────────── */
 
 const COLUMNS: { key: SortKey | null; label: string; cls?: string }[] = [
-  { key: "ts", label: "Timp" },
-  { key: "dev", label: "Dispozitiv" },
-  { key: "gw", label: "Gateway" },
+  { key: "ts", label: "Ultima citire" },
+  { key: "dev", label: "Contor" },
+  { key: "br", label: "Filială / oraș" },
+  { key: "gw", label: "Concentrator" },
   { key: "rssi", label: "Semnal" },
-  { key: "dr", label: "Radio" },
-  { key: "fc", label: "Cadru" },
+  { key: "bat", label: "Baterie" },
+  { key: "val", label: "Volume (m³)", cls: "num" },
+  { key: "dc", label: "Consum zi (L)", cls: "num" },
   { key: null, label: "Tip mesaj" },
-  { key: "val", label: "Valoare", cls: "num" },
   { key: null, label: "Stare" },
 ];
 
 type GridProps = {
-  store: UplinkStore | null;
-  rev: number;
+  store: MeterStore | null;
   idx: Int32Array | null;
   head: RowView[];
   loading: boolean;
@@ -299,17 +295,16 @@ type GridProps = {
   sort: Sort;
   onSort: (k: SortKey) => void;
   onOpen: (id: string) => void;
-  onDevice: (eui: string) => void;
+  onDevice: (id: string) => void;
   selectedId: string | null;
   resetKey: string;
-  anchorable: boolean;
   onReset: () => void;
   onRetry: () => void;
   hasFilters: boolean;
 };
 
 /**
- * Doar rândurile din fereastra vizibilă (+ câteva de rezervă) există în DOM: la 300.000 de rânduri sunt ~25 de elemente, nu 300.000.
+ * Doar rândurile din fereastra vizibilă (+ câteva de rezervă) există în DOM: la zeci de mii de contoare sunt ~25 de elemente.
  * Înălțimea rândului e fixă ⇒ poziția fiecărui rând = index × ROW_H, fără măsurători. Starea de derulare stă AICI, nu în părinte:
  * derularea nu re-randează bara de filtre.
  */
@@ -345,16 +340,7 @@ function Grid(p: GridProps) {
     if (vpRef.current) vpRef.current.scrollTop = 0;
   }, [p.resetKey]);
 
-  // mesaje noi sosesc deasupra: cine citește mai jos rămâne pe aceleași rânduri
-  const prev = useRef({ count: 0, key: "" });
   const count = idx ? idx.length : 0;
-  useEffect(() => {
-    const el = vpRef.current;
-    const was = prev.current;
-    if (el && p.anchorable && was.key === p.resetKey && count > was.count && el.scrollTop > ROW_H) el.scrollTop += (count - was.count) * ROW_H;
-    prev.current = { count, key: p.resetKey };
-  }, [count, p.resetKey, p.anchorable]);
-
   const first = Math.max(0, Math.floor((vp.top - HEADER_H) / ROW_H) - OVERSCAN);
   const last = Math.min(count, Math.ceil((vp.top + vp.h) / ROW_H) + OVERSCAN);
 
@@ -367,7 +353,7 @@ function Grid(p: GridProps) {
   const empty = idx && count === 0;
 
   return (
-    <div className="vp" ref={vpRef} role="table" aria-label="Mesaje" aria-rowcount={count + 1} aria-busy={p.loading}>
+    <div className="vp" ref={vpRef} role="table" aria-label="Contoare" aria-rowcount={count + 1} aria-busy={p.loading}>
       <div className="tbl">
         <div className="hdr" role="row">
           {COLUMNS.map((c) => (
@@ -411,15 +397,15 @@ function Grid(p: GridProps) {
 
         {empty && store && store.n === 0 && (
           <div className="empty">
-            <h2>Nu a sosit niciun mesaj încă</h2>
+            <h2>Nu există contoare în baza de date</h2>
             <p style={{ margin: 0 }}>
-              Trimite payload-urile ChirpStack la <code>POST /api/ingest</code> cu antetul <code>Authorization: Bearer &lt;INGEST_TOKEN&gt;</code>.
+              Rulează sincronizarea: <code>npm run sync:meters</code> (citește lorawandb, getmgdb și ThingsBoard).
             </p>
           </div>
         )}
         {empty && store && store.n > 0 && (
           <div className="empty">
-            <h2>Niciun mesaj pentru filtrele curente</h2>
+            <h2>Niciun contor pentru filtrele curente</h2>
             {p.hasFilters && (
               <button className="btn" onClick={p.onReset}>
                 Resetează filtrele
@@ -437,7 +423,7 @@ function SkeletonRows() {
     <div aria-hidden="true">
       {Array.from({ length: 9 }, (_, i) => (
         <div key={i} className="row static" style={{ height: ROW_H, cursor: "default" }}>
-          {Array.from({ length: 9 }, (_, j) => (
+          {COLUMNS.map((_, j) => (
             <div key={j}>
               <div className="skeleton" style={{ height: 12, width: `${55 + ((i * 7 + j * 13) % 40)}%` }} />
             </div>
@@ -453,9 +439,9 @@ function sigClass(rssi: number | null): string {
   return rssi >= -105 ? "good" : rssi >= -115 ? "mid" : "bad";
 }
 
-function Row({ r, i, top, selected, onOpen, onDevice, flow }: { r: RowView; i: number; top: number; selected: boolean; onOpen: (id: string) => void; onDevice: (eui: string) => void; flow?: boolean }) {
+function Row({ r, i, top, selected, onOpen, onDevice, flow }: { r: RowView; i: number; top: number; selected: boolean; onOpen: (id: string) => void; onDevice: (id: string) => void; flow?: boolean }) {
   const f = r.fl;
-  const hasStatusBadge = (f & (FLAG.BATT | FLAG.OFFLINE | FLAG.BTN | FLAG.MAG)) !== 0;
+  const hasStatusBadge = (f & (FLAG.BATT | FLAG.OFFLINE | FLAG.BTN | FLAG.MAG | FLAG.INACTIVE)) !== 0;
   return (
     <div
       className={`row ${flow ? "static" : ""}`}
@@ -473,32 +459,36 @@ function Row({ r, i, top, selected, onOpen, onDevice, flow }: { r: RowView; i: n
       }}
     >
       <div role="cell">
-        <div className="mono cell-main" suppressHydrationWarning>
-          {fmtTime(r.ts).slice(11)}
-        </div>
-        <div className="cell-sub mono" suppressHydrationWarning>
-          {fmtTime(r.ts).slice(0, 10)}
-        </div>
+        {r.ts > 0 ? (
+          <>
+            <div className="mono cell-main" suppressHydrationWarning>{fmtTime(r.ts).slice(11)}</div>
+            <div className="cell-sub mono" suppressHydrationWarning>{fmtTime(r.ts).slice(0, 10)}</div>
+          </>
+        ) : (
+          <div className="cell-sub">fără citiri</div>
+        )}
       </div>
       <div role="cell">
         <button
           type="button"
           className="dev-link"
-          title={`Filtrează după ${r.dev || r.eui}`}
+          title={`Filtrează după ${r.name}`}
           onClick={(e) => {
             e.stopPropagation();
-            onDevice(r.eui || r.dev);
+            onDevice(r.id);
           }}
         >
-          {r.dev || r.eui || "—"}
+          {r.name || r.eui || "—"}
         </button>
-        <div className="cell-sub mono">{r.eui}</div>
+        <div className="cell-sub mono">{r.eui || " "}</div>
       </div>
       <div role="cell">
-        <div className="cell-main" title={r.gw ?? undefined}>
-          {r.gw ?? "—"}
-        </div>
-        <div className="cell-sub">{r.gn > 1 ? `${r.gn} gateway-uri` : r.gn === 1 ? "1 gateway" : " "}</div>
+        <div className="cell-main" title={r.branch ?? undefined}>{r.branch ?? "—"}</div>
+        <div className="cell-sub">{r.city && r.city !== "—" ? r.city : " "}</div>
+      </div>
+      <div role="cell">
+        <div className="cell-main" title={r.gw ?? undefined}>{r.gw ?? "—"}</div>
+        <div className="cell-sub mono">{r.freqKhz ? `${(r.freqKhz / 1000).toFixed(1)} MHz` : " "}</div>
       </div>
       <div role="cell">
         <div className="mono cell-main">
@@ -508,34 +498,28 @@ function Row({ r, i, top, selected, onOpen, onDevice, flow }: { r: RowView; i: n
         <div className="cell-sub mono">{r.snr != null ? `SNR ${Math.round(r.snr * 10) / 10}` : " "}</div>
       </div>
       <div role="cell">
-        <div className="mono cell-main">{r.freqKhz ? `${(r.freqKhz / 1000).toFixed(1)} MHz` : "—"}</div>
-        <div className="cell-sub mono">
-          {r.dr >= 0 ? `DR${r.dr}` : " "}
-          {f & FLAG.ADR ? " · ADR" : ""}
-        </div>
+        <div className={`mono cell-main ${r.bat != null && r.bat < 20 ? "low" : ""}`}>{r.bat != null ? `${Math.round(r.bat)}%` : "—"}</div>
+      </div>
+      <div role="cell" className="num mono cell-main">
+        {r.val != null ? nf3.format(r.val) : <span className="cell-sub">—</span>}
+      </div>
+      <div role="cell" className="num mono">
+        {r.dc != null ? nf.format(r.dc) : <span className="cell-sub">—</span>}
+        {r.mc != null && <div className="cell-sub">lună: {nf.format(r.mc)}</div>}
       </div>
       <div role="cell">
-        <div className="mono cell-main">{r.fc >= 0 ? `#${nf.format(r.fc)}` : "—"}</div>
-        <div className="cell-sub mono">{r.pt >= 0 ? `port ${r.pt}` : " "}</div>
-      </div>
-      <div role="cell">
-        {r.types.length === 0 ? (
-          <span className="cell-sub">fără decodare</span>
-        ) : (
+        {r.types.length === 0 ? <span className="cell-sub">—</span> : (
           <div className="badges" title={r.types.join(", ")}>
             <span className="badge type">{r.types[0]}</span>
-            {r.types.length > 1 && <span className="badge type">{r.types[1]}</span>}
-            {r.types.length > 2 && <span className="badge">+{r.types.length - 2}</span>}
+            {r.types.length > 1 && <span className="badge">+{r.types.length - 1}</span>}
           </div>
         )}
       </div>
-      <div role="cell" className="num mono cell-main">
-        {r.val != null ? nf.format(r.val) : <span className="cell-sub">—</span>}
-      </div>
       <div role="cell">
         <div className="badges">
-          {f & FLAG.BATT ? <span className="badge danger">Baterie slabă</span> : null}
           {f & FLAG.OFFLINE ? <span className="badge danger">Offline</span> : null}
+          {f & FLAG.BATT ? <span className="badge danger">Baterie slabă</span> : null}
+          {f & FLAG.INACTIVE ? <span className="badge warn">Inactiv</span> : null}
           {f & FLAG.BTN ? <span className="badge warn">Buton</span> : null}
           {f & FLAG.MAG ? <span className="badge warn">Magnet</span> : null}
           {!hasStatusBadge && (f & FLAG.STATUS ? <span className="badge ok">OK</span> : <span className="cell-sub">—</span>)}
@@ -544,4 +528,3 @@ function Row({ r, i, top, selected, onOpen, onDevice, flow }: { r: RowView; i: n
     </div>
   );
 }
-
