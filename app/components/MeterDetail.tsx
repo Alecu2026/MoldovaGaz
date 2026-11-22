@@ -5,7 +5,7 @@ import { ColumnChart, nf, type Bar } from "./charts/primitives";
 
 type Obj = Record<string, unknown>;
 type Detail = { id: string; updatedAt: string; tb: Obj; bill: Obj | null; attrs: Obj; tel: Record<string, { t: number; v: string }>; s: Obj };
-type History = { hourly: [number, number][]; transmissions: [number, number][]; days: number; fetchedAt: number };
+type History = { hourly: [number, number][]; transmissions: [number, number][]; days: number; fetchedAt: number; source?: "live" | "stored"; storedAt?: number };
 
 const nf3 = new Intl.NumberFormat("ro-RO", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 const p2 = (n: number) => String(n).padStart(2, "0");
@@ -199,6 +199,11 @@ export default function MeterDetail({ id, onClose }: { id: string; onClose: () =
               {!histLoading && h && (
                 cons.bars.length > 0 ? (
                   <>
+                    {h.source === "stored" && (
+                      <p className="cell-sub" role="note" style={{ margin: "0 0 6px", color: "var(--warn)" }}>
+                        Istoric din arhivă (ThingsBoard nu poate fi interogat acum de pe server): ultima citire arhivată {dt(h.fetchedAt)}, arhivă încărcată {h.storedAt ? dt(h.storedAt) : "—"}; acoperă ultimele ~90 de zile.
+                      </p>
+                    )}
                     <ColumnChart bars={cons.bars} ariaLabel={`Consum pe ${by === "day" ? "zi" : "oră"} (m³)`} labelWidth={by === "day" ? 56 : 90} />
                     <p className="cell-sub" style={{ margin: "6px 0 0" }}>
                       Consum = diferența dintre citiri consecutive ale Volume_m3_Total_ts (m³){cons.anomalies ? ` · ${cons.anomalies} scăderi ale contorului ignorate (resetare / corecție)` : ""}.

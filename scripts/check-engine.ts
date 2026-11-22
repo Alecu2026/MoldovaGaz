@@ -11,6 +11,7 @@ import { MeterStore } from "../lib/meter-store";
 import { ALERT_FLAGS, FLAG, type ColsWire, type DatasetWire, type DeltaWire } from "../lib/meter-shared";
 import { buildDocs, type Bill, type Dev } from "../lib/meter-sync";
 import { assertReadOnly } from "../lib/thingsboard";
+import { pack, unpack, type Pts } from "../lib/meter-history";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { TbLatest } from "../lib/thingsboard";
@@ -269,11 +270,21 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   check("read-only: fetch() doar în fișierele așteptate", fetches.every((f) => allowedFetch.has(f)), [...new Set(fetches)].join(", "));
   const mutating = files.filter((f) => /method:\s*"(PUT|DELETE|PATCH)"|\.(deleteOne|deleteMany|drop|updateMany|updateOne|insertOne|insertMany|replaceOne|bulkWrite)\(/.test(readFileSync(f, "utf8"))).map((f) => f.replace(/\\/g, "/"));
   // scrieri în baza NOASTRĂ: doar sesiuni / utilizator (login, seed) și colecția `meters` (sincronizare); niciodată în surse
-  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts"]);
-  check("read-only: scrieri în baza de date doar în sesiuni, seed:user și sync-meters", mutating.every((f) => allowedWrites.has(f)), mutating.join(", "));
+  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts"]);
+  check("read-only: scrieri în baza de date doar în sesiuni, seed:user, sync-meters și load-history", mutating.every((f) => allowedWrites.has(f)), mutating.join(", "));
   const syncSrc = readFileSync("scripts/sync-meters.ts", "utf8");
   const syncCollections = syncSrc.match(/client\.db\(\)\.collection[^\n]*/g) ?? [];
   check("read-only: sync-meters scrie doar în colecția `meters` (METERS_COLLECTION)", syncCollections.length >= 1 && syncCollections.every((l) => /METERS_COLLECTION \|\| "meters"/.test(l)), `${syncCollections.length} accesări`);
+}
+
+/* ───────── 5) istoric împachetat ───────── */
+{
+  const pts: Pts = [[1_700_000_000_000, 10413.347], [1_700_003_600_000, 10413.879], [1_700_007_200_000, 0.001], [1_795_342_318_000, 99023.6]];
+  const packed = pack(pts);
+  const back = unpack(packed);
+  check("istoric: împachetare / despachetare exactă (momente la secundă, valori Float64)", back.length === 4 && back.every((p, i) => p[0] === pts[i][0] && p[1] === pts[i][1]));
+  check("istoric: citit din Buffer / Binary (ca din Mongo) și gol", unpack({ n: packed.n, t: Buffer.from(packed.t, "base64"), v: { buffer: Buffer.from(packed.v, "base64") } }).length === 4 && unpack(pack([])).length === 0);
+  check("istoric: 12 octeți / punct", Buffer.from(packed.t, "base64").length + Buffer.from(packed.v, "base64").length === 4 * 12);
 }
 
 console.log(bad ? `\n${bad} EȘECURI` : "\nToate verificările au trecut.");

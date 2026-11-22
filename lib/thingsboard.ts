@@ -112,7 +112,7 @@ export async function tbLatest(ids: string[], keys: { ts: string[]; server: stri
 
 export type TsPoint = { ts: number; value: string };
 /** Serii de timp ale unui dispozitiv (valori brute, fără agregare), cele mai vechi primele. */
-export async function tbSeries(deviceId: string, keys: string[], startTs: number, endTs: number, limit: number): Promise<Record<string, TsPoint[]>> {
+export async function tbSeries(deviceId: string, keys: string[], startTs: number, endTs: number, limit: number, opts?: { timeoutMs?: number; retries?: number }): Promise<Record<string, TsPoint[]>> {
   const q = new URLSearchParams({ keys: keys.join(","), startTs: String(startTs), endTs: String(endTs), limit: String(limit), agg: "NONE", orderBy: "ASC" });
-  return tb<Record<string, TsPoint[]>>(`/api/plugins/telemetry/DEVICE/${encodeURIComponent(deviceId)}/values/timeseries?${q}`, { timeoutMs: 45_000 });
+  return tb<Record<string, TsPoint[]>>(`/api/plugins/telemetry/DEVICE/${encodeURIComponent(deviceId)}/values/timeseries?${q}`, { timeoutMs: opts?.timeoutMs ?? 45_000, retries: opts?.retries });
 }

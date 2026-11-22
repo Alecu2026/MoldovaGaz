@@ -11,6 +11,8 @@ export const COLLECTIONS = {
   sessions: process.env.SESSIONS_COLLECTION || "sessions",
   /** contoarele reale (scrise de scripts/sync-meters.ts) */
   meters: process.env.METERS_COLLECTION || "meters",
+  /** istoricul Volume (m3) arhivat (scrisă de scripts/load-history.ts), folosită când ThingsBoard nu răspunde */
+  history: process.env.HISTORY_COLLECTION || "meter_history",
 };
 
 const g = globalThis as unknown as { __mgClient?: Promise<MongoClient>; __mgIndexes?: Promise<void> };

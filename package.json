@@ -9,7 +9,9 @@
     "lint": "eslint",
     "seed:user": "tsx scripts/seed-user.ts",
     "check": "tsx scripts/check-engine.ts",
-    "sync:meters": "tsx scripts/sync-meters.ts"
+    "sync:meters": "tsx scripts/sync-meters.ts",
+    "history:fetch": "tsx scripts/fetch-history.ts",
+    "history:load": "tsx scripts/load-history.ts"
   },
   "dependencies": {
     "mongodb": "^7.9.1",
