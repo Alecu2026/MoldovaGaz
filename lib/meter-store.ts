@@ -18,6 +18,7 @@ export type Snapshot = {
   rssi: Float32Array; snr: Float32Array; bat: Float32Array;
   fr: Int32Array; fl: Uint8Array; fc: Float64Array; pt: Int16Array; tm: Int32Array;
   val: Float64Array; dc: Float64Array; mc: Float64Array;
+  la: Float64Array; lo: Float64Array;
 };
 
 type F64 = Float64Array;
@@ -52,6 +53,8 @@ export class MeterStore {
   rssi: F32 = new Float32Array(0); snr: F32 = new Float32Array(0); bat: F32 = new Float32Array(0);
   fr: I32 = new Int32Array(0); fl: U8 = new Uint8Array(0); fc: F64 = new Float64Array(0); pt: I16 = new Int16Array(0); tm: I32 = new Int32Array(0);
   val: F64 = new Float64Array(0); dc: F64 = new Float64Array(0); mc: F64 = new Float64Array(0);
+  /** latitudine / longitudine în grade (NaN = fără coordonate) */
+  la: F64 = new Float64Array(0); lo: F64 = new Float64Array(0);
   /** modelul și anul din nume (ex. S2154_00070948_2022 → 2154 / 2022), ca indici în `models` / `years` */
   model: I16 = new Int16Array(0);
   year: I16 = new Int16Array(0);
@@ -83,7 +86,7 @@ export class MeterStore {
     s.id = p.id; s.nm = p.nm; s.eu = p.eu; s.q = p.q;
     s.ts = p.ts; s.ap = p.ap; s.gw = p.gw; s.br = p.br; s.ct = p.ct; s.pf = p.pf;
     s.rssi = p.rssi; s.snr = p.snr; s.bat = p.bat; s.fr = p.fr; s.fl = p.fl; s.fc = p.fc; s.pt = p.pt; s.tm = p.tm;
-    s.val = p.val; s.dc = p.dc; s.mc = p.mc;
+    s.val = p.val; s.dc = p.dc; s.mc = p.mc; s.la = p.la; s.lo = p.lo;
     s.model = new Int16Array(p.n);
     s.year = new Int16Array(p.n);
     for (let i = 0; i < p.n; i++) {
@@ -105,7 +108,7 @@ export class MeterStore {
       id: this.id.slice(0, n), nm: this.nm.slice(0, n), eu: this.eu.slice(0, n), q: this.q.slice(0, n),
       ts: this.ts.slice(0, n), ap: this.ap.slice(0, n), gw: this.gw.slice(0, n), br: this.br.slice(0, n), ct: this.ct.slice(0, n), pf: this.pf.slice(0, n),
       rssi: this.rssi.slice(0, n), snr: this.snr.slice(0, n), bat: this.bat.slice(0, n), fr: this.fr.slice(0, n), fl: this.fl.slice(0, n),
-      fc: this.fc.slice(0, n), pt: this.pt.slice(0, n), tm: this.tm.slice(0, n), val: this.val.slice(0, n), dc: this.dc.slice(0, n), mc: this.mc.slice(0, n),
+      fc: this.fc.slice(0, n), pt: this.pt.slice(0, n), tm: this.tm.slice(0, n), val: this.val.slice(0, n), dc: this.dc.slice(0, n), mc: this.mc.slice(0, n), la: this.la.slice(0, n), lo: this.lo.slice(0, n),
     };
   }
 
@@ -134,6 +137,7 @@ export class MeterStore {
     this.fr = grow(Int32Array, this.fr, n, cap); this.fl = grow(Uint8Array, this.fl, n, cap); this.fc = grow(Float64Array, this.fc, n, cap);
     this.pt = grow(Int16Array, this.pt, n, cap); this.tm = grow(Int32Array, this.tm, n, cap);
     this.val = grow(Float64Array, this.val, n, cap); this.dc = grow(Float64Array, this.dc, n, cap); this.mc = grow(Float64Array, this.mc, n, cap);
+    this.la = grow(Float64Array, this.la, n, cap); this.lo = grow(Float64Array, this.lo, n, cap);
     this.model = grow(Int16Array, this.model, n, cap); this.year = grow(Int16Array, this.year, n, cap);
     this.cap = cap;
   }
@@ -169,6 +173,7 @@ export class MeterStore {
       this.rssi[i] = c.rssi[j] ?? NaN; this.snr[i] = c.snr[j] ?? NaN; this.bat[i] = c.bat[j] ?? NaN;
       this.fr[i] = c.fr[j]; this.fl[i] = c.fl[j]; this.fc[i] = c.fc[j]; this.pt[i] = c.pt[j]; this.tm[i] = c.tm[j];
       this.val[i] = c.val[j] ?? NaN; this.dc[i] = c.dc[j] ?? NaN; this.mc[i] = c.mc[j] ?? NaN;
+      this.la[i] = c.la[j] ?? NaN; this.lo[i] = c.lo[j] ?? NaN;
       this.setModelYear(i);
     }
     this.sortOrder();
@@ -223,7 +228,7 @@ export class MeterStore {
       id: this.id[i], ts: this.ts[i], name: this.nm[i], eui: this.eu[i],
       app: ap >= 0 ? this.dict.ap[ap] ?? "" : "", gw: g >= 0 ? this.dict.gw[g] ?? null : null,
       rssi: nn(this.rssi[i]), snr: nn(this.snr[i]), freqKhz: this.fr[i], fl: this.fl[i], fc: this.fc[i], pt: this.pt[i], types,
-      val: nn(this.val[i]), bat: nn(this.bat[i]), dc: nn(this.dc[i]), mc: nn(this.mc[i]),
+      val: nn(this.val[i]), bat: nn(this.bat[i]), dc: nn(this.dc[i]), mc: nn(this.mc[i]), lat: nn(this.la[i]), lon: nn(this.lo[i]),
       branch: br >= 0 ? this.dict.br[br] ?? null : null, city: ct >= 0 ? this.dict.ct[ct] ?? null : null, profile: pf >= 0 ? this.dict.pf[pf] ?? null : null,
     };
   }

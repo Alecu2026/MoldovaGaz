@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { FLAG, METER_NAME, PROBLEM_FLAGS, isStatusOk, type RowView } from "@/lib/meter-shared";
 import { metersToCsv } from "@/lib/meter-csv";
@@ -10,6 +11,16 @@ import { ActiveChips, AdvancedFilters, MainSelects } from "./FilterPanel";
 import ColumnFilter, { type ColKey } from "./ColumnFilters";
 import MeterCharts from "./MeterCharts";
 import MeterDetail from "./MeterDetail";
+
+/** Harta (Leaflet) se încarcă doar când deschizi fila „Hartă”: nu încarcă pagina principală. */
+const MeterMap = dynamic(() => import("./MeterMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="empty">
+      <h2>Se încarcă harta…</h2>
+    </div>
+  ),
+});
 import { useMeterStore, type Origin, type SyncInfo } from "./useMeterStore";
 
 const ROW_H = 52;
@@ -38,7 +49,7 @@ type Props = {
   head: Head;
   initialFilters: Filters;
   initialSort: Sort;
-  initialView: "table" | "charts";
+  initialView: "table" | "charts" | "map";
 };
 
 const RANGES: [string, string][] = [
@@ -51,12 +62,12 @@ const RANGES: [string, string][] = [
 
 /** Filtrele care trăiesc în panoul „Mai multe filtre” (dacă vreunul e activ, panoul se deschide singur). */
 const hasAdvanced = (f: Filters) =>
-  !!(f.app || f.gw || f.type || f.fr || f.port || f.model || f.year || f.billed || f.valMin || f.valMax || f.dcMin || f.dcMax || f.batMin || f.batMax || f.rssiMin || f.rssiMax || f.snrMin || f.snrMax || f.fcMin || f.fcMax);
+  !!(f.app || f.gw || f.type || f.fr || f.port || f.model || f.year || f.billed || f.geo || f.valMin || f.valMax || f.dcMin || f.dcMax || f.batMin || f.batMax || f.rssiMin || f.rssiMax || f.snrMin || f.snrMax || f.fcMin || f.fcMax);
 
 export default function MetersTable({ userId, warm, head, initialFilters, initialSort, initialView }: Props) {
   const [filters, setFilters] = useState<Filters>(initialFilters);
   const [sort, setSort] = useState<Sort>(initialSort);
-  const [view, setView] = useState<"table" | "charts">(initialView);
+  const [view, setView] = useState<"table" | "charts" | "map">(initialView);
   const [advOpen, setAdvOpen] = useState(() => hasAdvanced(initialFilters));
   const [live, setLive] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -75,7 +86,7 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
 
   // filtrele (și fila) rămân în URL: refresh / link trimis cuiva păstrează vederea
   useEffect(() => {
-    const qs = toQuery(filters, sort, { view: view === "charts" ? "charts" : "" });
+    const qs = toQuery(filters, sort, { view: view === "table" ? "" : view });
     window.history.replaceState(window.history.state, "", qs ? `?${qs}` : window.location.pathname);
   }, [filters, sort, view]);
 
@@ -183,6 +194,9 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
         <button type="button" role="tab" id="tab-charts" aria-selected={view === "charts"} aria-controls="panel-view" onClick={() => setView("charts")}>
           Grafice
         </button>
+        <button type="button" role="tab" id="tab-map" aria-selected={view === "map"} aria-controls="panel-view" onClick={() => setView("map")}>
+          Hartă
+        </button>
       </div>
 
       {view === "table" ? (
@@ -207,6 +221,16 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
             filters={filters}
             patch={patch}
           />
+        </section>
+      ) : view === "map" ? (
+        <section className="mapbox" id="panel-view" role="tabpanel" aria-labelledby="tab-map" aria-label="Hartă">
+          {store && result ? (
+            <MeterMap store={store} idx={result.idx} rev={rev} fitKey={JSON.stringify(filters)} onOpen={setOpenId} />
+          ) : (
+            <div className="empty">
+              <h2>{status === "error" ? "Nu am putut încărca lista" : "Se încarcă lista…"}</h2>
+            </div>
+          )}
         </section>
       ) : (
         <section className="chartsbox" id="panel-view" role="tabpanel" aria-labelledby="tab-charts" aria-label="Grafice">

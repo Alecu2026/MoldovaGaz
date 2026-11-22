@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { branchLabel, FLAG, METER_NAME, type MeterSummary } from "./meter-shared";
+import { branchLabel, FLAG, METER_NAME, validCoords, type MeterSummary } from "./meter-shared";
 import { tbLatest, type TbEntity, type TbLatest } from "./thingsboard";
 
 /**
@@ -244,6 +244,7 @@ export function buildDocs(devices: Dev[], billing: Bill[], latest: Map<string, T
     }
     if (battery === null) battery = num(av(l, "CLIENT_ATTRIBUTE", "remCapacity"));
 
+    const geo = validCoords(av(l, "SERVER_ATTRIBUTE", "latitude"), av(l, "SERVER_ATTRIBUTE", "longitude"));
     const freq = num(tsv(l, "Frequency")?.v);
     const city = clean(bill?.CITY) || clean(av(l, "SERVER_ATTRIBUTE", "locationModule"));
     const eui = clean(av(l, "SERVER_ATTRIBUTE", "devEUI")).toLowerCase();
@@ -268,6 +269,8 @@ export function buildDocs(devices: Dev[], billing: Bill[], latest: Map<string, T
       b: battery,
       dc: num(tsv(l, "dailyConsumption")?.v),
       mc: num(tsv(l, "monthlyConsumption")?.v),
+      la: geo ? geo[0] : null,
+      lo: geo ? geo[1] : null,
       br: branchLabel(fil),
       ct: city || "—",
       pf: d.type || "—",

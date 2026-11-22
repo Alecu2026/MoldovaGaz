@@ -32,6 +32,8 @@ export type Filters = {
   year: string;
   /** "" | 1 (legat de facturare) | 0 (fără facturare) */
   billed: string;
+  /** coordonate GPS: "" | 1 (are) | 0 (nu are) */
+  geo: string;
   rssiMin: string; rssiMax: string;
   snrMin: string; snrMax: string;
   /** Volume (m3) */
@@ -49,7 +51,7 @@ export type Filters = {
 };
 
 export const NO_FILTERS: Filters = {
-  q: "", name: "", app: "", gw: "", type: "", dev: "", flag: "", branch: "", city: "", profile: "", fr: "", port: "", model: "", year: "", billed: "",
+  q: "", name: "", app: "", gw: "", type: "", dev: "", flag: "", branch: "", city: "", profile: "", fr: "", port: "", model: "", year: "", billed: "", geo: "",
   rssiMin: "", rssiMax: "", snrMin: "", snrMax: "", valMin: "", valMax: "", batMin: "", batMax: "", dcMin: "", dcMax: "", fcMin: "", fcMax: "",
   range: "", from: "", to: "",
 };
@@ -83,7 +85,7 @@ export type FilterResult = {
   volume: number;
 };
 
-const LIST_KEYS = ["app", "gw", "type", "dev", "flag", "branch", "city", "profile", "fr", "port", "model", "year", "billed"] as const;
+const LIST_KEYS = ["app", "gw", "type", "dev", "flag", "branch", "city", "profile", "fr", "port", "model", "year", "billed", "geo"] as const;
 /** Câte grupuri de filtre sunt active (intervalul de timp și fiecare interval numeric contează câte unul). */
 export function activeFilters(f: Filters): number {
   let n = 0;
@@ -158,6 +160,7 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
     }
   }
   const billedNeed = f.billed === "1" ? 1 : f.billed === "0" ? 2 : 0;
+  const geoNeed = f.geo === "1" ? 1 : f.geo === "0" ? 2 : 0;
   const rMin = num(f.rssiMin, -Infinity), rMax = num(f.rssiMax, Infinity), rOn = rMin > -Infinity || rMax < Infinity;
   const sMin = num(f.snrMin, -Infinity), sMax = num(f.snrMax, Infinity), sOn = sMin > -Infinity || sMax < Infinity;
   const vMin = num(f.valMin, -Infinity), vMax = num(f.valMax, Infinity), vOn = vMin > -Infinity || vMax < Infinity;
@@ -216,6 +219,7 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
     // stările bifate se combină cu SAU (inclusiv „OK” și „fără raport de stare”)
     if (flagOn && !((flagMask !== 0 && (flags & flagMask) !== 0) || (wantOk && isStatusOk(flags)) || (wantNoStatus && (flags & FLAG.STATUS) === 0))) continue;
     if (billedNeed !== 0 && (billedNeed === 1) !== ((flags & FLAG.BILLED) !== 0)) continue;
+    if (geoNeed !== 0 && (geoNeed === 1) !== (st.la[i] === st.la[i] && st.lo[i] === st.lo[i])) continue;
     if (frOk !== null && frOk[((fr[i] / 100) + 0.5) | 0] === 0) continue;
     if (ptOk !== null && ptOk[pt[i] + 1] === 0) continue;
     if (nameWords.length > 0) {
@@ -296,6 +300,7 @@ export function filtersFromParams(get: (k: string) => string | undefined): Filte
     branch: s("branch", 400), city: s("city", 800), profile: s("profile", 600),
     fr: digits("fr", 80), port: digits("port", 80), model: digits("model", 80), year: digits("year", 80),
     billed: s("billed", 1) === "1" ? "1" : s("billed", 1) === "0" ? "0" : "",
+    geo: s("geo", 1) === "1" ? "1" : s("geo", 1) === "0" ? "0" : "",
     rssiMin: numeric("rssiMin"), rssiMax: numeric("rssiMax"), snrMin: numeric("snrMin"), snrMax: numeric("snrMax"),
     valMin: numeric("valMin"), valMax: numeric("valMax"), batMin: numeric("batMin"), batMax: numeric("batMax"),
     dcMin: numeric("dcMin"), dcMax: numeric("dcMax"), fcMin: numeric("fcMin"), fcMax: numeric("fcMax"),
@@ -338,6 +343,7 @@ export function describeFilters(f: Filters, nameOf: (id: string) => string = (x)
   if (f.dev) add("dev", `Contor: ${nameOf(f.dev)}`, { dev: "" });
   if (f.flag) add("flag", `Stare: ${join(toList(f.flag).map((x) => FLAG_LABELS[x] ?? x))}`, { flag: "" });
   if (f.billed) add("billed", f.billed === "1" ? "Cu facturare" : "Fără facturare", { billed: "" });
+  if (f.geo) add("geo", f.geo === "1" ? "Cu coordonate GPS" : "Fără coordonate GPS", { geo: "" });
   if (f.fr) add("fr", `Frecvență: ${join(toList(f.fr).map((x) => (Number(x) === 0 ? "necunoscută" : `${(Number(x) / 1000).toFixed(1)} MHz`)))}`, { fr: "" });
   if (f.port) add("port", `Port: ${join(toList(f.port))}`, { port: "" });
   if (f.model) add("model", `Model: ${join(toList(f.model))}`, { model: "" });

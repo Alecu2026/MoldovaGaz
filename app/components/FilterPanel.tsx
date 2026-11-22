@@ -145,6 +145,14 @@ export function AdvancedFilters({ store, all, filters, patch }: PanelProps) {
           <option value="0">Fără facturare</option>
         </select>
       </label>
+      <label className="field">
+        <span>Coordonate GPS</span>
+        <select className="select" value={filters.geo} onChange={(e) => patch({ geo: e.target.value })}>
+          <option value="">Oricare</option>
+          <option value="1">Cu coordonate</option>
+          <option value="0">Fără coordonate</option>
+        </select>
+      </label>
       <Range label="Volume" unit="m³" min={filters.valMin} max={filters.valMax} onMin={(v) => patch({ valMin: v })} onMax={(v) => patch({ valMax: v })} />
       <Range label="Consum zilnic" unit="L" min={filters.dcMin} max={filters.dcMax} onMin={(v) => patch({ dcMin: v })} onMax={(v) => patch({ dcMax: v })} />
       <Range label="Baterie" unit="%" min={filters.batMin} max={filters.batMax} onMin={(v) => patch({ batMin: v })} onMax={(v) => patch({ batMax: v })} />

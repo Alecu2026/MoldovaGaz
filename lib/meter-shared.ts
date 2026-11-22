@@ -53,6 +53,9 @@ export type ColsWire = {
   /** consum zilnic / lunar, în litri */
   dc: (number | null)[];
   mc: (number | null)[];
+  /** coordonate (grade): latitudine / longitudine; null = fără coordonate */
+  la: (number | null)[];
+  lo: (number | null)[];
 };
 
 /** Lista completă (/api/meters/dataset). `head` = ultimul seq inclus. */
@@ -80,6 +83,8 @@ export type RowView = {
   bat: number | null;
   dc: number | null;
   mc: number | null;
+  lat: number | null;
+  lon: number | null;
   branch: string | null;
   city: string | null;
   profile: string | null;
@@ -104,6 +109,9 @@ export type MeterSummary = {
   b: number | null;
   dc: number | null;
   mc: number | null;
+  /** latitudine / longitudine din atributele ThingsBoard (null = lipsesc sau sunt invalide) */
+  la: number | null;
+  lo: number | null;
   br: string;
   ct: string;
   pf: string;
@@ -129,3 +137,11 @@ export const branchLabel = (fil: string | null | undefined): string => {
 
 /** Contorul → model și an din nume (ex. „S2154_00070948_2022” → model 2154, serie 00070948, an 2022). */
 export const METER_NAME = /^(?:S|SN)?(\d{4})_(\d{8})_(\d{4})$/;
+
+/** Coordonate valide: în limitele globului și nu (0, 0). Folosit la sincronizare și la corectarea documentelor existente. */
+export function validCoords(la: unknown, lo: unknown): [number, number] | null {
+  const a = typeof la === "number" ? la : typeof la === "string" && la.trim() !== "" ? Number(la) : NaN;
+  const b = typeof lo === "number" ? lo : typeof lo === "string" && lo.trim() !== "" ? Number(lo) : NaN;
+  if (!Number.isFinite(a) || !Number.isFinite(b) || Math.abs(a) > 90 || Math.abs(b) > 180 || (a === 0 && b === 0)) return null;
+  return [a, b];
+}

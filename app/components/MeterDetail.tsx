@@ -1,7 +1,12 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { validCoords } from "@/lib/meter-shared";
 import { ColumnChart, nf, type Bar } from "./charts/primitives";
+
+/** Harta contorului (Leaflet) se încarcă doar când se deschide detaliul. */
+const MeterLocation = dynamic(() => import("./MeterLocation"), { ssr: false, loading: () => <div className="skeleton" style={{ height: 230 }} aria-busy="true" /> });
 
 type Obj = Record<string, unknown>;
 type Detail = { id: string; updatedAt: string; tb: Obj; bill: Obj | null; attrs: Obj; tel: Record<string, { t: number; v: string }>; s: Obj };
@@ -142,6 +147,8 @@ export default function MeterDetail({ id, onClose }: { id: string; onClose: () =
   const bill = item?.bill;
   const tel = item?.tel ?? {};
   const attrs = item?.attrs ?? {};
+  const geo = item ? validCoords(s?.la ?? attrs.latitude, s?.lo ?? attrs.longitude) : null;
+  const address = bill ? [bill.CITY, bill.STREET, bill.HOUSE].map((x) => String(x ?? "").trim()).filter(Boolean).join(", ") : "";
 
   return (
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -237,6 +244,11 @@ export default function MeterDetail({ id, onClose }: { id: string; onClose: () =
                   </div>
                 </details>
               )}
+            </section>
+
+            <section>
+              <h3>Locație</h3>
+              <MeterLocation lat={geo ? geo[0] : null} lon={geo ? geo[1] : null} name={text(s.n)} address={address} />
             </section>
 
             <section>

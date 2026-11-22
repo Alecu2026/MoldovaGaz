@@ -4,6 +4,7 @@
  *   npm run sync:meters -- --dry              → doar citește și combină, afișează statistici (nu scrie nimic)
  *   npm run sync:meters -- --dry --out f.json → la fel + salvează documentele în fișier
  *   npm run sync:meters -- --limit 2000       → doar primele N dispozitive (pentru teste; fără ștergeri)
+ *   npm run sync:meters -- --patch-geo        → completează coordonatele (s.la / s.lo) pe documentele existente, din atributele lor (fără rețea)
  *   npm run sync:meters -- --patch-dup        → marchează „Serie repetată” pe documentele existente, doar din lorawandb (fără ThingsBoard)
  *   npm run sync:meters -- --load f.json      → scrie documentele dintr-un fișier produs cu --out (fără rețea; fără ștergeri) — pentru încărcarea inițială
  *                                               când serverul nu ajunge la ThingsBoard
@@ -12,7 +13,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { connectMongo } from "../lib/mongo-core";
 import { buildDocs, dupLabels, duplicateGroups, fetchLatest, fetchSources, type MeterDoc } from "../lib/meter-sync";
-import { FLAG } from "../lib/meter-shared";
+import { FLAG, validCoords } from "../lib/meter-shared";
 
 const log = (m: string) => console.log(`[${new Date().toISOString()}] ${m}`);
 
@@ -20,6 +21,37 @@ const log = (m: string) => console.log(`[${new Date().toISOString()}] ${m}`);
  * --patch-dup: marchează „Serie repetată” (FLAG.DUP + tb.dupWith) pe documentele deja existente, DOAR din lorawandb (fără ThingsBoard).
  * Atinge doar contoarele cu serie repetată (și scoate marcajul de la cele care nu mai sunt); următoarea sincronizare completă rescrie oricum aceste documente.
  */
+/**
+ * --patch-geo: pune `s.la` / `s.lo` (latitudine / longitudine) pe documentele existente, din `attrs.latitude` / `attrs.longitude`. Nu citește nimic din rețea.
+ * Atinge doar documentele care n-au încă aceste câmpuri; următoarea sincronizare completă le rescrie oricum.
+ */
+async function patchGeo() {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("DATABASE_URL lipsește.");
+  const client = await connectMongo(url);
+  try {
+    const coll = client.db().collection<{ _id: string; attrs?: Record<string, unknown> }>(process.env.METERS_COLLECTION || "meters");
+    const now = new Date();
+    let scanned = 0, withGeo = 0;
+    let ops: { updateOne: { filter: { _id: string }; update: { $set: Record<string, unknown> } } }[] = [];
+    const flush = async () => {
+      if (ops.length) await coll.bulkWrite(ops, { ordered: false });
+      ops = [];
+    };
+    for await (const d of coll.find({ "s.la": { $exists: false } }, { projection: { attrs: 1 } })) {
+      scanned++;
+      const c = validCoords(d.attrs?.latitude, d.attrs?.longitude);
+      if (c) withGeo++;
+      ops.push({ updateOne: { filter: { _id: d._id }, update: { $set: { "s.la": c ? c[0] : null, "s.lo": c ? c[1] : null, updatedAt: now, h: "patch-geo" } } } });
+      if (ops.length >= 1000) await flush();
+    }
+    await flush();
+    log(`coordonate: ${scanned} documente actualizate, din care ${withGeo} cu coordonate valide`);
+  } finally {
+    await client.close();
+  }
+}
+
 async function patchDup() {
   const { devices } = await fetchSources();
   const groups = duplicateGroups(devices);
@@ -54,6 +86,10 @@ async function main() {
   const out = args.includes("--out") ? args[args.indexOf("--out") + 1] : null;
   let limit = args.includes("--limit") ? Number(args[args.indexOf("--limit") + 1]) || 0 : 0;
   const loadFile = args.includes("--load") ? args[args.indexOf("--load") + 1] : null;
+  if (args.includes("--patch-geo")) {
+    await patchGeo();
+    return;
+  }
   if (args.includes("--patch-dup")) {
     await patchDup();
     return;

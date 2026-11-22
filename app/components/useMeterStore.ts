@@ -16,7 +16,7 @@ const IDB_BASE = "mg-cache-m";
 const IDB_KEY = "meters";
 const POLL_MS = 30_000;
 
-type Stored = { v: 3; s: Snapshot };
+type Stored = { v: 4; s: Snapshot };
 export type SyncKind = "noop" | "delta" | "full";
 export type Origin = "memorie" | "IndexedDB" | "server" | "";
 export type SyncInfo = { at: number; kind: SyncKind; added: number };
@@ -76,7 +76,7 @@ function schedulePersist(user: string, store: MeterStore, delay = 3000) {
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = setTimeout(() => {
     persistTimer = null;
-    const run = () => void idbSet(user, { v: 3, s: store.snapshot() });
+    const run = () => void idbSet(user, { v: 4, s: store.snapshot() });
     if (typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout: 5000 });
     else run();
   }, delay);
@@ -218,7 +218,7 @@ export function useMeterStore(opts: { userId: string; warm: { gen: string; head:
       if (!ref.current.store) {
         const saved = await idbGet(userId);
         if (!alive) return;
-        if (saved?.v === 3 && saved.s?.ts instanceof Float64Array && saved.s.n >= 0) {
+        if (saved?.v === 4 && saved.s?.ts instanceof Float64Array && saved.s.la instanceof Float64Array && saved.s.n >= 0) {
           try {
             const st = MeterStore.fromSnapshot(saved.s);
             ref.current.store = st;

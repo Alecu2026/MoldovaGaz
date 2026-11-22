@@ -21,6 +21,7 @@ npm run sync:meters                       # sincronizare completă
 npm run sync:meters -- --dry              # doar citește și combină; afișează statistici (nu scrie nimic)
 npm run sync:meters -- --dry --out f.json # la fel, + salvează documentele într-un fișier
 npm run sync:meters -- --load f.json      # scrie documentele din fișier (fără rețea) — încărcare inițială
+npm run sync:meters -- --patch-geo        # completează coordonatele pe documentele existente, din atributele lor (fără rețea)
 npm run check                             # verifică filtrele, agregările, actualizările pe loc și combinarea (date sintetice)
 ```
 
@@ -68,7 +69,8 @@ Același model ca „tasks” din StefanPWA, adaptat la rânduri care se modific
 
 - **Filtre** (toate optimiste, combinabile; între filtre diferite ȘI, între valorile aceluiași filtru SAU): căutare liberă (nume contor, devEUI, număr radio, cont, adresă, consumator), **filială**, oraș, profil, stare (alerte / offline / baterie / inactiv / buton / magnet), perioada ultimei citiri (presetată sau personalizată) și, în „Mai multe filtre”: aplicație, concentrator, tip mesaj, frecvență, fPort, model, an / cod lot, facturare, intervale pentru **Volume (m³)**, consum zilnic, baterie, RSSI, SNR și fCnt. Filtrele active apar ca etichete cu ✕ și se păstrează în URL.
 - **Grafice** (fila „Grafice”, același filtru ca tabelul): contoare după ultima citire, stare și alerte, contoare și **volum pe filială**, orașe, profile, aplicații, concentratoare, tipuri de mesaj, histograme pentru Volume / consum zilnic / baterie / RSSI / SNR, harta RSSI × SNR, frecvențe, fPort, model, an, ora și ziua ultimei citiri, prospețimea citirilor și topul consumurilor. Click pe o bară filtrează, glisarea alege un interval, contextul „toate” rămâne în gri, iar „Tabel” de pe fiecare card arată datele.
-- **Detaliu contor** (click pe rând): Volume (m³) cu consum pe zi / oră din `Volume_m3_Total_ts`, facturare completă, ThingsBoard, ultima telemetrie, atribute, JSON.
+- **Hartă** (fila „Hartă”, aceleași filtre ca tabelul): toate contoarele cu coordonate (latitude / longitude din atributele ThingsBoard, ~64% dintre contoare), colorate după stare, semnal, vechimea citirii sau baterie. Punctele se desenează pe un singur canvas și se grupează în bule (O(n), ~2 ms la 44.000 de puncte, recalculat doar la schimbarea zoom-ului): zoom și deplasare la 60 fps. Click pe o bulă = zoom, click pe un punct = popup cu datele contorului și butoane Google Maps / Waze / Apple Hărți. Harta de bază: dale OpenStreetMap (browserele utilizatorilor le cer direct de la tile.openstreetmap.org; pentru trafic mare folosește un furnizor de dale propriu).
+- **Detaliu contor** (click pe rând): **harta proprie a contorului** cu butoane de navigare (Google Maps, Waze, Apple Hărți, OpenStreetMap), Volume (m³) cu consum pe zi / oră din `Volume_m3_Total_ts`, facturare completă, ThingsBoard, ultima telemetrie, atribute, JSON.
 
 ## Limite și date personale
 

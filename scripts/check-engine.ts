@@ -8,10 +8,11 @@
 import { aggregate, makeCtx, FRESH_EDGES } from "../lib/meter-aggregate";
 import { NO_FILTERS, runFilter, type Filters, type Sort } from "../lib/meter-filter";
 import { MeterStore } from "../lib/meter-store";
-import { ALERT_FLAGS, FLAG, PROBLEM_FLAGS, isStatusOk, type ColsWire, type DatasetWire, type DeltaWire } from "../lib/meter-shared";
+import { ALERT_FLAGS, FLAG, PROBLEM_FLAGS, isStatusOk, validCoords, type ColsWire, type DatasetWire, type DeltaWire } from "../lib/meter-shared";
 import { buildDocs, type Bill, type Dev } from "../lib/meter-sync";
 import { assertReadOnly } from "../lib/thingsboard";
 import { pack, unpack, type Pts } from "../lib/meter-history";
+import { addressLinks, boundsOf, buildClusters, latFromY, lonFromX, mapLinks, mercX, mercY, worldSize } from "../lib/geo";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { TbLatest } from "../lib/thingsboard";
@@ -34,7 +35,7 @@ const dict = {
   ct: ["Comrat", "Orhei", "Cahul", "Chisinau", "Rezina"],
   pf: ["Comrat_Gas_Meter_DP", "Jooby_Gas_Meter_DP", "Defectate_Jooby_Gaz"],
 };
-const emptyCols = (): ColsWire => ({ id: [], ts: [], nm: [], eu: [], q: [], ap: [], gw: [], br: [], ct: [], pf: [], rssi: [], snr: [], fr: [], fl: [], fc: [], pt: [], tm: [], val: [], bat: [], dc: [], mc: [] });
+const emptyCols = (): ColsWire => ({ id: [], ts: [], nm: [], eu: [], q: [], ap: [], gw: [], br: [], ct: [], pf: [], rssi: [], snr: [], fr: [], fl: [], fc: [], pt: [], tm: [], val: [], bat: [], dc: [], mc: [], la: [], lo: [] });
 const t0 = Date.now() - 20 * 86400_000;
 const row = (c: ColsWire, i: number, id: string) => {
   const never = rnd() < 0.05;
@@ -59,6 +60,9 @@ const row = (c: ColsWire, i: number, id: string) => {
   c.bat.push(rnd() < 0.3 ? null : Math.round(rnd() * 1000) / 10);
   c.dc.push(rnd() < 0.3 ? null : Math.floor(rnd() * 3000));
   c.mc.push(rnd() < 0.3 ? null : Math.floor(rnd() * 90000));
+  const hasGeo = rnd() > 0.35;
+  c.la.push(hasGeo ? 45.5 + rnd() * 2.6 : null);
+  c.lo.push(hasGeo ? 27 + rnd() * 2.6 : null);
 };
 const cols = emptyCols();
 for (let i = 0; i < N; i++) row(cols, i, `id-${i}`);
@@ -98,6 +102,8 @@ const naive = (f: Filters): number[] => {
     }
     if (f.billed === "1" && !(v.fl & FLAG.BILLED)) continue;
     if (f.billed === "0" && v.fl & FLAG.BILLED) continue;
+    if (f.geo === "1" && v.lat === null) continue;
+    if (f.geo === "0" && v.lat !== null) continue;
     if (f.fr && !L(f.fr).includes(String(v.freqKhz))) continue;
     if (f.port && !L(f.port).includes(String(v.pt))) continue;
     if (f.model && !L(f.model).includes(model)) continue;
@@ -117,6 +123,7 @@ const naive = (f: Filters): number[] => {
 const cases: [string, Filters][] = [
   ["filială", F({ branch: "05 · Comrat" })], ["filiale multi", F({ branch: "05 · Comrat|20 · Orhei" })], ["oraș", F({ city: "Rezina" })], ["oraș multi", F({ city: "Cahul|Orhei" })],
   ["profil", F({ profile: "Defectate_Jooby_Gaz" })], ["aplicație", F({ app: "app1|app3" })], ["concentrator", F({ gw: "gwA|gwD" })], ["tip multi", F({ type: "DeviceStatus|CurrentData" })],
+  ["cu coordonate", F({ geo: "1" })], ["fără coordonate", F({ geo: "0" })], ["coordonate + filială", F({ geo: "1", branch: "05 · Comrat" })],
   ["stare OK", F({ flag: "ok" })], ["fără raport de stare", F({ flag: "nostatus" })], ["OK + offline", F({ flag: "ok|offline" })], ["OK + serie repetată", F({ flag: "ok|dup|nostatus" })],
   ["serie repetată", F({ flag: "dup" })], ["serie repetată + offline", F({ flag: "dup|offline" })],
   ["stare multi", F({ flag: "batt|button" })], ["stare alert", F({ flag: "alert" })], ["inactiv", F({ flag: "inactive" })], ["cu facturare", F({ billed: "1" })], ["fără facturare", F({ billed: "0" })],
@@ -226,7 +233,7 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   devices.push(dev("dupA", "SN2154_00001000_2022", "CUST-EDGE", "Edge_Gas_Meter_DP")); // aceeași serie ca c0, alt client (backup)
   billing.push({ NUM_RADIO: "00001000", FIL: "05", CITY: "Duplicat", UPDATED_DATE: "2025-01-01" }); // dublură de facturare, mai veche
   billing.push({ NUM_RADIO: "00007777", FIL: "05", CITY: "Fără modul" }); // facturare fără dispozitiv
-  const tel = (kv: Record<string, string>): TbLatest => ({ TIME_SERIES: Object.fromEntries(Object.entries(kv).map(([k, v]) => [k, { ts: 1_700_000_000_000, value: v }])), SERVER_ATTRIBUTE: { devEUI: { ts: 1, value: "001A798816000001" }, active: { ts: 1, value: "false" }, ContPersonal: { ts: 1, value: "0123" } }, CLIENT_ATTRIBUTE: {} });
+  const tel = (kv: Record<string, string>): TbLatest => ({ TIME_SERIES: Object.fromEntries(Object.entries(kv).map(([k, v]) => [k, { ts: 1_700_000_000_000, value: v }])), SERVER_ATTRIBUTE: { latitude: { ts: 1, value: "46.2967746" }, longitude: { ts: 1, value: "28.658967" }, devEUI: { ts: 1, value: "001A798816000001" }, active: { ts: 1, value: "false" }, ContPersonal: { ts: 1, value: "0123" } }, CLIENT_ATTRIBUTE: {} });
   const latest = new Map<string, TbLatest>([
     ["c0", tel({ Volume_m3_Total: "10413.347", rssi: "-110", loRaSNR: "-5.5", Frequency: "868.1", Concentrator: "M4_Comrat_Gaz", offline: "true", batteryTooLowVoltage: "false", battery: '{"remCapacity":99.61}', dailyConsumption: "260", ieType: "LastEventSeq", applicationName: "App_X", fCnt: "13872", fPort: "1" })],
   ]);
@@ -252,6 +259,7 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   check("sync: ambele dispozitive cu aceeași serie sunt marcate „Serie repetată”", !!(dupA.s.fl & FLAG.DUP) && !!(c0.s.fl & FLAG.DUP));
   check("sync: dupWith arată celălalt dispozitiv (nume + profil), nu pe el însuși", c0.tb.dupWith?.length === 1 && /^SN2154_00001000_2022 \(Edge_Gas_Meter_DP\)$/.test(c0.tb.dupWith[0]) && !!dupA.tb.dupWith?.[0].startsWith("S2154_00001000_2022"));
   check("sync: contoarele cu serie unică NU sunt marcate", !(by.get("c5")!.s.fl & FLAG.DUP) && by.get("c5")!.tb.dupWith === undefined && docs.filter((d) => d.s.fl & FLAG.DUP).length === 2);
+  check("sync: coordonatele din atribute ajung în rezumat (și lipsa lor = null)", c0.s.la === 46.2967746 && c0.s.lo === 28.658967 && by.get("c5")!.s.la === null && by.get("c5")!.s.lo === null);
   check("sync: fără chei LoRaWAN în documente", !JSON.stringify(docs).match(/APPKEY|NWKSKEY|APPSKEY/i));
 }
 
@@ -278,6 +286,54 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   const syncSrc = readFileSync("scripts/sync-meters.ts", "utf8");
   const syncCollections = syncSrc.match(/client\.db\(\)\.collection[^\n]*/g) ?? [];
   check("read-only: sync-meters scrie doar în colecția `meters` (METERS_COLLECTION)", syncCollections.length >= 1 && syncCollections.every((l) => /METERS_COLLECTION \|\| "meters"/.test(l)), `${syncCollections.length} accesări`);
+}
+
+/* ───────── 6) hartă: proiecție, grupare în bule, linkuri ───────── */
+{
+  const n = 40000;
+  const la = new Float64Array(n), lo = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const g = rnd() > 0.3;
+    la[i] = g ? 45.5 + rnd() * 2.6 : NaN;
+    lo[i] = g ? 27 + rnd() * 2.6 : NaN;
+  }
+  const idx = Int32Array.from({ length: n }, (_, i) => i);
+  const withGeo = Array.from(idx).filter((i) => la[i] === la[i]).length;
+  check("hartă: proiecție inversă (x,y → lat,lon) exactă", Math.abs(latFromY(mercY(46.2967746, worldSize(12)), worldSize(12)) - 46.2967746) < 1e-9 && Math.abs(lonFromX(mercX(28.658967, worldSize(12)), worldSize(12)) - 28.658967) < 1e-9);
+  check("hartă: (0°, 0°) la zoom 0 cade în centrul lumii de 256 px", Math.abs(mercX(0, 256) - 128) < 1e-9 && Math.abs(mercY(0, 256) - 128) < 1e-9);
+  for (const z of [6, 9, 12, 15]) {
+    const cell = 48, cl = buildClusters(la, lo, idx, z, cell);
+    const size = worldSize(z), cols = Math.ceil(size / cell);
+    const naiveCells = new Map<number, number[]>();
+    for (let i = 0; i < n; i++) if (la[i] === la[i]) {
+      const key = Math.floor(mercY(la[i], size) / cell) * cols + Math.floor(mercX(lo[i], size) / cell);
+      (naiveCells.get(key) ?? naiveCells.set(key, []).get(key)!).push(i);
+    }
+    let sum = 0, ok = true;
+    for (let c = 0; c < cl.n; c++) {
+      sum += cl.cnt[c];
+      const key = Math.floor(cl.y[c] / cell) * cols + Math.floor(cl.x[c] / cell);
+      const members = naiveCells.get(key);
+      if (!members || members.length !== cl.cnt[c] || !members.includes(cl.rep[c])) { ok = false; break; }
+      const mx = members.reduce((a, i) => a + mercX(lo[i], size), 0) / members.length;
+      if (Math.abs(mx - cl.x[c]) > 1e-6) { ok = false; break; }
+    }
+    check(`hartă: bule la zoom ${z} = celule naive (aceleași numărători, centre = medii)`, ok && sum === withGeo && cl.n === naiveCells.size, `${cl.n} bule din ${withGeo} puncte`);
+  }
+  const single = buildClusters(la, lo, idx, 17, 0);
+  check("hartă: fără grupare — fiecare punct cu coordonate e propria bulă", single.n === withGeo && Array.from(single.cnt).slice(0, single.n).every((c) => c === 1));
+  const sub = Int32Array.from(idx.filter((i) => i % 7 === 0));
+  check("hartă: respectă filtrul (doar indecșii dați)", buildClusters(la, lo, sub, 10, 48).cnt.reduce((a, b) => a + b, 0) === Array.from(sub).filter((i) => la[i] === la[i]).length);
+  const bb = boundsOf(la, lo, idx)!;
+  check("hartă: limitele geografice acoperă toate punctele", bb[0] >= 45.5 && bb[2] <= 48.1 && bb[1] >= 27 && bb[3] <= 29.6 && boundsOf(la, lo, [])=== null);
+  const t0 = performance.now();
+  for (let r = 0; r < 20; r++) buildClusters(la, lo, idx, 11, 48);
+  console.log(`INFO hartă: gruparea a ${withGeo} puncte durează în medie ${((performance.now() - t0) / 20).toFixed(1)} ms`);
+  const L = mapLinks(46.2967746, 28.658967);
+  check("linkuri: Waze (ll + navigate), Google (dir + destination), Apple (daddr + dirflg)", L.waze === "https://waze.com/ul?ll=46.296775,28.658967&navigate=yes&zoom=17" && L.google === "https://www.google.com/maps/dir/?api=1&destination=46.296775,28.658967&travelmode=driving" && L.apple === "https://maps.apple.com/?daddr=46.296775,28.658967&dirflg=d");
+  const A = addressLinks("Comrat, Zlatov str. 2");
+  check("linkuri după adresă: adresa e codificată în URL", A.google.endsWith("query=Comrat%2C%20Zlatov%20str.%202") && A.waze.includes("q=Comrat%2C%20Zlatov%20str.%202") && A.apple.endsWith("q=Comrat%2C%20Zlatov%20str.%202"));
+  check("coordonate valide: text și număr, respinge 0,0 / în afara globului / goale", JSON.stringify(validCoords("46.5", 28.1)) === "[46.5,28.1]" && validCoords(0, 0) === null && validCoords(91, 10) === null && validCoords("", "") === null && validCoords(null, 5) === null && validCoords("abc", "1") === null);
 }
 
 /* ───────── 5) istoric împachetat ───────── */

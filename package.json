@@ -14,6 +14,7 @@
     "history:load": "tsx scripts/load-history.ts"
   },
   "dependencies": {
+    "leaflet": "^1.9.4",
     "mongodb": "^7.9.1",
     "next": "16.4.6",
     "react": "19.3.0",
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "4.3.3",
+    "@types/leaflet": "^1.9.12",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
