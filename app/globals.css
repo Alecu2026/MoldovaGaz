@@ -1207,8 +1207,7 @@ button.badge-btn:hover {
 
 /* mâner de mutare + închidere pe widget, țintă de lăsare */
 .boardbar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
-.wchrome { display: flex; justify-content: space-between; align-items: center; height: 22px; margin: -6px -4px 4px; opacity: .55; transition: opacity .12s; }
-.widget:hover .wchrome, .wchrome:focus-within { opacity: 1; }
+.wchrome { display: flex; justify-content: space-between; align-items: center; height: 22px; margin: -6px -4px 4px; }
 .wdrag { cursor: grab; padding: 0 8px; font-size: 16px; line-height: 22px; border-radius: 6px; user-select: none; }
 .wdrag:active { cursor: grabbing; }
 .wdrag:hover, .wdrag:focus-visible, .wclose:hover, .wclose:focus-visible { background: var(--surface-2); outline: 1px solid var(--border-strong); }
@@ -1217,3 +1216,10 @@ button.badge-btn:hover {
 .widget { overflow: auto; }
 
 .wchrome { align-self: stretch; width: 100%; }
+
+/* widget: conținutul are scroll-ul lui; widgetul rămâne overflow: visible (mânerele ies puțin în afară și nu mai fac scrollbar-uri care „tremură”) */
+.widget { overflow: visible; }
+.wbody { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+.wbody > .kept-wrap { flex: 1 1 auto; min-height: 140px; display: flex; flex-direction: column; }
+.wdrag, .wclose { color: var(--muted); }
+.wdrag:hover, .wdrag:focus-visible, .wclose:hover, .wclose:focus-visible { color: var(--text); }

@@ -88,7 +88,7 @@ export default function Widget({ id, defaultH, minH = 240, expanded = false, ari
     <section ref={ref} className={`card widget${expanded ? " expanded" : ""}`} aria-label={ariaLabel} style={expanded ? undefined : { width: size.w ?? "100%", height: size.h > 0 ? size.h : undefined }}
       data-over={board?.overId === id && board.dragId !== id ? "1" : undefined}
       onDragOver={(e) => { if (board?.dragId && board.dragId !== id) { e.preventDefault(); if (board.overId !== id) board.setOver(id); } }}
-      onDragLeave={() => { if (board?.overId === id) board.setOver(null); }}
+      onDragLeave={(e) => { if (board?.overId === id && !e.currentTarget.contains(e.relatedTarget as Node | null)) board.setOver(null); }}
       onDrop={(e) => { if (board?.dragId) { e.preventDefault(); board.dropOn(id); } }}
     >
       {board && !expanded && (
@@ -112,7 +112,7 @@ export default function Widget({ id, defaultH, minH = 240, expanded = false, ari
           <button type="button" className="wclose" aria-label={`Închide widgetul: ${ariaLabel}`} title="Închide (îl readuci din „Widgeturi”)" onClick={() => board.hide(id)}>×</button>
         </div>
       )}
-      {children}
+      <div className="wbody">{children}</div>
       {!expanded && (
         <>
           {handle("r", "rz-r", "Schimbă lățimea")}
