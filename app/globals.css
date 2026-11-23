@@ -1159,3 +1159,8 @@ button.badge-btn:hover {
 .kept-clean { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 10px 12px; margin-top: 8px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface-2); }
 .kept-detail { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
 @media (max-width: 760px) { .kept-head, .kept-row { grid-template-columns: 100px 1fr 1fr; } .kept-head span:nth-child(n+4), .kept-row > span:nth-child(n+4) { display: none; } }
+
+/* bara de sus: Filtre / Totaluri se strâng ca să încapă mai multe rânduri */
+.topbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.topsum { font-size: 13px; padding: 0 4px; }
+.topsum b { font-weight: 700; }

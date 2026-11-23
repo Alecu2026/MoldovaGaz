@@ -83,6 +83,21 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
   }, []);
   const pickCols = (v: ColKey[]) => { setColKeys(v); saveCols(v); };
   const cols = useMemo(() => ALL_COLUMNS.filter((c) => colKeys.includes(c.col)), [colKeys]);
+  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [statsOpen, setStatsOpen] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        const v = JSON.parse(localStorage.getItem("mg:top:v1") ?? "null") as { f?: boolean; s?: boolean } | null;
+        if (v?.f === false) setFiltersOpen(false);
+        if (v?.s === false) setStatsOpen(false);
+      } catch { /* fără alegere reținută */ }
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  const saveTop = (f: boolean, st: boolean) => { try { localStorage.setItem("mg:top:v1", JSON.stringify({ f, s: st })); } catch { /* alegerea nu se reține */ } };
+  const toggleFilters = () => { const v = !filtersOpen; setFiltersOpen(v); saveTop(v, statsOpen); };
+  const toggleStats = () => { const v = !statsOpen; setStatsOpen(v); saveTop(filtersOpen, v); };
   const [advOpen, setAdvOpen] = useState(() => hasAdvanced(initialFilters));
   const [live, setLive] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -134,6 +149,35 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
 
   return (
     <div className="page">
+      <div className="topbar" role="toolbar" aria-label="Bara de sus">
+        <button type="button" className="btn" aria-expanded={filtersOpen} onClick={toggleFilters} title="Arată / ascunde filtrele ca să vezi mai multe rânduri">
+          Filtre {filtersOpen ? "▴" : "▾"}{nActive > 0 ? ` (${nActive})` : ""}
+        </button>
+        <button type="button" className="btn" aria-expanded={statsOpen} onClick={toggleStats} title="Arată / ascunde totalurile">
+          Totaluri {statsOpen ? "▴" : "▾"}
+        </button>
+        {!statsOpen && (
+          <span className="topsum" aria-live="polite">
+            <b>{nf.format(total)}</b> contoare · filtrate <b>{result ? nf.format(result.matched) : "—"}</b> · consum <b>{result ? nf.format(Math.round((consPeriod === "day" ? result.consDay : result.consMonth) / 1000)) : "—"} m³</b> ({consPeriod === "day" ? "azi" : "luna aceasta"}) · alerte <b>{result ? nf.format(result.alerts) : "—"}</b> · ultima citire <b>{newestTs ? fmtTime(newestTs).slice(11) : "—"}</b>
+          </span>
+        )}
+        <ColumnPicker value={colKeys} onChange={pickCols} />
+        <div style={{ flex: 1 }} />
+        {nActive > 0 && (
+          <button type="button" className="btn" onClick={reset}>
+            Resetează filtrele ({nActive})
+          </button>
+        )}
+        <button type="button" className="btn" onClick={exportCsv} disabled={!ready || result.matched === 0} title="Exportă contoarele filtrate">
+          Export CSV
+        </button>
+        <button type="button" className="btn" aria-pressed={live} onClick={() => setLive((v) => !v)} title="Actualizare automată la 30 de secunde">
+          <span className={`dot ${live ? "live" : ""}`} style={{ margin: 0 }} />
+          Live
+        </button>
+      </div>
+
+      {filtersOpen && (
       <section className="toolbar" aria-label="Filtre">
         <label className="field">
           <span>Căutare</span>
@@ -171,30 +215,21 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
           <button type="button" className="btn" aria-expanded={advOpen} aria-controls="adv-filters" onClick={() => setAdvOpen((v) => !v)}>
             Mai multe filtre {advOpen ? "▴" : "▾"}
           </button>
-          <ColumnPicker value={colKeys} onChange={pickCols} />
-          <div style={{ flex: 1 }} />
-          {nActive > 0 && (
-            <button type="button" className="btn" onClick={reset}>
-              Resetează filtrele ({nActive})
-            </button>
-          )}
-          <button type="button" className="btn" onClick={exportCsv} disabled={!ready || result.matched === 0} title="Exportă contoarele filtrate">
-            Export CSV
-          </button>
-          <button type="button" className="btn" aria-pressed={live} onClick={() => setLive((v) => !v)} title="Actualizare automată la 30 de secunde">
-            <span className={`dot ${live ? "live" : ""}`} style={{ margin: 0 }} />
-            Live
-          </button>
         </div>
         {advOpen && (
           <div id="adv-filters" style={{ gridColumn: "1 / -1" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+              <button type="button" className="btn btn-sm" onClick={() => setAdvOpen(false)}>Închide filtrele suplimentare ×</button>
+            </div>
             <AdvancedFilters store={store} all={allAgg} filters={filters} patch={patch} />
           </div>
         )}
       </section>
+      )}
 
       <ActiveChips filters={filters} patch={patch} reset={reset} nameOf={nameOf} />
 
+      {statsOpen && (
       <section className="stats" aria-label="Totaluri" aria-live="polite">
         <Stat k="Total contoare" v={nf.format(total)} s={store && store.total !== store.n ? `în baza de date: ${nf.format(store.total)}` : ready ? "toate încărcate" : "se încarcă…"} />
         <Stat k="Filtrate" v={result ? nf.format(result.matched) : "—"} s={result && store && store.n > 0 ? `${((result.matched / store.n) * 100).toFixed(result.matched === store.n ? 0 : 1)}% din total` : " "} busy={pending} />
@@ -207,6 +242,7 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
         <Stat k="Alerte" v={result ? nf.format(result.alerts) : "—"} s="baterie slabă / inactiv în SCADA" alert={!!result && result.alerts > 0} busy={pending} />
         <Stat k="Ultima citire" v={newestTs ? fmtTime(newestTs).slice(11) : "—"} s={newestTs ? <Ago ts={newestTs} /> : " "} />
       </section>
+      )}
 
       <div className="tabs" role="tablist" aria-label="Vedere">
         <button type="button" role="tab" id="tab-table" aria-selected={view === "table"} aria-controls="panel-view" onClick={() => setView("table")}>
