@@ -4,6 +4,7 @@ import { appendReadingsFor } from "../meter-readings";
 import { mergeDerive, mergeMsgs, parseMessage, type IntegrationMsg, type MeterDocIng } from "../integration";
 import { nameKey } from "../integration-uplink";
 import { COLLECTIONS, col, getDb } from "../mongo";
+import { trackCounters } from "./counters";
 import { recordGateways } from "./gateways";
 import { bumpMeterEpoch, getStore } from "./meter-dataset";
 
@@ -32,7 +33,7 @@ const IDLE_MS = 250;
 type InboxDoc = { _id: ObjectId; id: string; at: number; m: IntegrationMsg };
 type Ev = { at: number; id: string; name: string; status: string };
 type State = {
-  started: boolean; running: boolean; timer: ReturnType<typeof setTimeout> | null; failDelay: number; lastError: string | null;
+  started: boolean; running: boolean; reprocessing: boolean; timer: ReturnType<typeof setTimeout> | null; failDelay: number; lastError: string | null;
   received: number; rejected: number; kept: number; processed: number; created: number; updated: number; unchanged: number; dead: number; busy: number;
   sec: Map<number, { rx: number; ok: number }>; events: Ev[]; lastBatch: { n: number; ms: number; at: number } | null; batchMs: number[];
   depth: { at: number; n: number }; maps: { gen: string; n: number; names: Map<string, string>; euis: Map<string, string>; keys: Map<string, string | null> } | null; indexed: boolean;
@@ -40,7 +41,7 @@ type State = {
 const g = globalThis as unknown as { __integ?: State };
 function st(): State {
   return (g.__integ ??= {
-    started: false, running: false, timer: null, failDelay: 0, lastError: null,
+    started: false, running: false, reprocessing: false, timer: null, failDelay: 0, lastError: null,
     received: 0, rejected: 0, kept: 0, processed: 0, created: 0, updated: 0, unchanged: 0, dead: 0, busy: 0,
     sec: new Map(), events: [], lastBatch: null, batchMs: [], depth: { at: 0, n: 0 }, maps: null, indexed: false,
   });
@@ -155,6 +156,8 @@ export async function accept(items: unknown[]): Promise<AcceptResult> {
     }
     if (docs.length) kick();
   }
+  // numerele de pe mesaje (verificarea continuității): abia după ce TOATE mesajele sunt salvate, înainte de răspunsul „primit”
+  await trackCounters(items, now);
   s.rejected += kept.length;
   b.ok += docs.length;
   for (const d of docs.slice(0, 20)) pushEv(s, { at: now, id: d.id, name: d.m.name ?? "", status: "primit" });
@@ -165,31 +168,48 @@ export async function accept(items: unknown[]): Promise<AcceptResult> {
 
 /**
  * Reia din `integration_raw` ce se poate aplica acum (de ex. după ce a apărut contorul sau am adaptat formatul): ce trece validarea merge în cutia de intrare și se
- * șterge din păstrare; restul rămâne cu motivul actualizat. Întoarce câte s-au mutat și câte au rămas.
+ * șterge din păstrare; restul rămâne. Parcurge TOT ce e păstrat, pagină cu pagină (nu doar primele mesaje: cele de la contoare necunoscute rămân în față și nu au voie
+ * să blocheze restul). O singură rulare pe moment. Întoarce câte s-au mutat și câte au rămas.
  */
-export async function reprocessKept(limit = 1000): Promise<{ moved: number; remaining: number }> {
+const PAGE = 2000;
+export async function reprocessKept(maxScan = 200_000): Promise<{ moved: number; remaining: number }> {
+  const s = st();
   const raw = await col<Document>(RAW);
-  const now = Date.now();
-  const batch = await raw.find({}).sort({ _id: 1 }).limit(limit).toArray();
-  const r = await resolver();
-  const moveIds: unknown[] = [];
-  const docs: { id: string; at: number; m: IntegrationMsg }[] = [];
-  for (const k of batch) {
-    const p = parseMessage(k.raw, now);
-    if (!p.ok) continue;
-    const id = resolveId(p.msg, r);
-    if (!id) continue;
-    docs.push({ id, at: now, m: { ...p.msg, id } });
-    moveIds.push(k._id);
-  }
-  if (docs.length) {
+  if (s.reprocessing) return { moved: 0, remaining: await raw.estimatedDocumentCount() };
+  s.reprocessing = true;
+  let moved = 0;
+  try {
+    const now = Date.now();
+    const r = await resolver();
     const inbox = await col<Document>(INBOX);
-    for (let i = 0; i < docs.length; i += 1000) await inbox.insertMany(docs.slice(i, i + 1000) as never, { ordered: false, writeConcern: { w: 1, j: true } });
-    await raw.deleteMany({ _id: { $in: moveIds } as never });
-    st().depth.n += docs.length;
-    kick();
+    let after: unknown = null, scanned = 0;
+    while (scanned < maxScan) {
+      const page = await raw.find(after ? { _id: { $gt: after } as never } : {}).sort({ _id: 1 }).limit(PAGE).toArray();
+      if (!page.length) break;
+      after = page[page.length - 1]._id;
+      scanned += page.length;
+      const moveIds: unknown[] = [];
+      const docs: { id: string; at: number; m: IntegrationMsg }[] = [];
+      for (const k of page) {
+        const p = parseMessage(k.raw, now);
+        if (!p.ok) continue;
+        const id = resolveId(p.msg, r);
+        if (!id) continue;
+        docs.push({ id, at: now, m: { ...p.msg, id } });
+        moveIds.push(k._id);
+      }
+      if (docs.length) {
+        await inbox.insertMany(docs as never, { ordered: false, writeConcern: { w: 1, j: true } });
+        await raw.deleteMany({ _id: { $in: moveIds } as never });
+        s.depth.n += docs.length;
+        moved += docs.length;
+        kick();
+      }
+    }
+  } finally {
+    s.reprocessing = false;
   }
-  return { moved: docs.length, remaining: await raw.estimatedDocumentCount() };
+  return { moved, remaining: await raw.estimatedDocumentCount() };
 }
 
 /* ───────── procesul care golește cutia ───────── */
@@ -315,10 +335,10 @@ export function startIntegrationWorker(): void {
       console.error("[integration] indecși:", (e as Error).message);
     }
     kick();
-    // datele păstrate (alt format / contor necunoscut) se reiau la pornire și apoi la fiecare 10 minute: contorul poate apărea între timp
-    const retry = () => void reprocessKept(2000).catch((e) => console.error("[integration] reluarea datelor păstrate:", (e as Error).message));
-    setTimeout(retry, 15_000).unref?.();
-    setInterval(retry, 10 * 60_000).unref?.();
+    // datele păstrate (alt format / contor necunoscut) se reiau automat: la 5 s după pornire și apoi în fiecare minut: contorul poate apărea între timp
+    const retry = () => void reprocessKept().catch((e) => console.error("[integration] reluarea datelor păstrate:", (e as Error).message));
+    setTimeout(retry, 5_000).unref?.();
+    setInterval(retry, 60_000).unref?.();
   })();
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { CounterRow } from "@/lib/services/counters";
 import type { IntegrationDevices, IntegrationStats } from "@/lib/services/integration";
 import { ColumnChart, type Bar } from "./charts/primitives";
 
@@ -35,6 +36,7 @@ export default function IntegrationPanel() {
   const [busy, setBusy] = useState(false);
   const [reMsg, setReMsg] = useState<string | null>(null);
   const [dev, setDev] = useState<IntegrationDevices | null>(null);
+  const [cnt, setCnt] = useState<CounterRow[] | null>(null);
 
   useEffect(() => {
     const t0 = setTimeout(() => setOrigin(window.location.origin), 0);
@@ -64,8 +66,18 @@ export default function IntegrationPanel() {
         /* lista se reîncearcă la următoarea citire */
       }
     };
+    const loadCnt = async () => {
+      try {
+        const r = await fetch("/api/integration/counters", { cache: "no-store" });
+        if (r.ok && alive) setCnt(((await r.json()) as { streams: CounterRow[] }).streams);
+      } catch {
+        /* se reîncearcă la următoarea citire */
+      }
+    };
     void load();
     void loadDev();
+    void loadCnt();
+    const tc = setInterval(() => document.visibilityState === "visible" && void loadCnt(), 3000);
     const td = setInterval(() => document.visibilityState === "visible" && void loadDev(), 10_000);
     const t = setInterval(() => document.visibilityState === "visible" && void load(), 2000);
     return () => {
@@ -73,6 +85,7 @@ export default function IntegrationPanel() {
       clearTimeout(t0);
       clearInterval(t);
       clearInterval(td);
+      clearInterval(tc);
     };
   }, []);
 
@@ -162,6 +175,54 @@ export default function IntegrationPanel() {
         </section>
       </div>
 
+      <section className="card" aria-label="Verificare continuitate" style={{ marginBottom: 14 }}>
+        <header className="card-h">
+          <div>
+            <h3>Verificare continuitate: se pierde vreun mesaj?</h3>
+            <p>
+              Expeditorul pune un număr crescător pe fiecare mesaj, în câmpul <span className="mono">counter</span> (sau <span className="mono">cnt</span>, <span className="mono">seq</span>) de la rădăcina mesajului;
+              dacă sunt mai mulți expeditori, în plus <span className="mono">stream</span> cu numele lui. Numărăm la primire: un salt înseamnă numere care nu au ajuns la noi.
+            </p>
+          </div>
+          <button type="button" className="btn" disabled={!cnt || cnt.length === 0} onClick={async () => { if (window.confirm("Ștergi numerele urmărite și începi un test nou?")) { await fetch("/api/integration/counters", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reset: "all" }) }); setCnt([]); } }}>Test nou</button>
+        </header>
+        {cnt === null ? (
+          <p className="cell-sub" style={{ padding: 12 }}>se încarcă…</p>
+        ) : cnt.length === 0 ? (
+          <p className="cell-sub" style={{ padding: 12 }}>Încă nu a venit niciun mesaj cu număr (counter). Când vine, apare aici.</p>
+        ) : (
+          cnt.map((c) => (
+            <div key={c.id} style={{ padding: "8px 0", borderTop: "1px solid var(--border)" }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 18px", alignItems: "baseline" }}>
+                <strong>{c.id === "implicit" ? "Expeditor" : c.id}</strong>
+                <span className="cell-sub">câmp <span className="mono">{c.field}</span> · de la {nf.format(c.first)} la {nf.format(c.last)} · ultimul mesaj {clock(c.lastAt)}</span>
+                <span className={c.lost === 0 ? "badge ok" : "badge warn"}>{c.lost === 0 ? "nu lipsește nimic" : `lipsesc ${nf.format(c.lost)}`}</span>
+              </div>
+              <div className="gw-stats" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}>
+                <div><b>{nf.format(c.expected)}</b><span>numere trebuiau să vină</span></div>
+                <div><b>{nf.format(c.received)}</b><span>au venit</span></div>
+                <div><b style={{ color: c.lost ? "#d03b3b" : undefined }}>{nf.format(c.lost)}</b><span>lipsesc acum</span></div>
+                <div><b>{nf.format(c.late)}</b><span>au venit târziu (altă ordine)</span></div>
+                <div><b>{nf.format(c.dup)}</b><span>duplicate (reîncercări)</span></div>
+              </div>
+              {c.gaps.length > 0 && (
+                <div className="card-table" style={{ maxHeight: 200 }}>
+                  <table className="mini">
+                    <thead><tr><th>Lipsesc numerele</th><th className="num">A sărit peste</th><th>Observat la</th></tr></thead>
+                    <tbody>
+                      {c.gaps.map((g, k) => (
+                        <tr key={k}><td className="mono">{g.from === g.to ? nf.format(g.from) : `${nf.format(g.from)} – ${nf.format(g.to)}`}</td><td className="num mono">{nf.format(g.size)}</td><td className="mono">{clock(g.at)}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {c.hiddenGaps > 0 && <p className="cell-sub">Mai sunt goluri mai vechi, necuprinse în listă (totalul „lipsesc acum” le include).</p>}
+            </div>
+          ))
+        )}
+      </section>
+
       <div className="grid">
         <section className="card" aria-label="Contoare care trimit">
           <header className="card-h">
@@ -187,7 +248,7 @@ export default function IntegrationPanel() {
           <header className="card-h">
             <div>
               <h3>Păstrate pentru procesare ulterioară, pe dispozitiv</h3>
-              <p>{dev ? `${nf.format(dev.keptMessages)} mesaje de la ${nf.format(dev.keptDevices)} dispozitive; ${nf.format(dev.keptMatched)} se potrivesc cu un contor și se aplică la „Reia acum”` : "se încarcă…"}</p>
+              <p>{dev ? `${nf.format(dev.keptMessages)} mesaje de la ${nf.format(dev.keptDevices)} dispozitive; ${nf.format(dev.keptMatched)} se potrivesc cu un contor și se aplică singure (se reiau automat în cel mult un minut)` : "se încarcă…"}</p>
             </div>
           </header>
           <div className="card-table" style={{ maxHeight: 360 }}>

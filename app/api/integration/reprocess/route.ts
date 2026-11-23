@@ -6,7 +6,7 @@ export async function POST() {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
   try {
-    return Response.json(await reprocessKept(5000), { headers: { "Cache-Control": "private, no-store" } });
+    return Response.json(await reprocessKept(), { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
     console.error("[integration/reprocess] eșuat:", e);
     return Response.json({ error: "Nu am putut relua datele păstrate." }, { status: 500 });

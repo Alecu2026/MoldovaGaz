@@ -89,8 +89,41 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
   const [sel, setSel] = useState<number | null>(null);
   const [mapObj, setMapObj] = useState<L.Map | null>(null);
   const [gwOn, setGwOn] = useState(true);
+  const [legendOn, setLegendOn] = useState(true);
+  const [full, setFull] = useState(false);
+  const [pseudo, setPseudo] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [now] = useState(() => Date.now());
   const pickGateway = useCallback(() => setSel(null), []);
+  const closeLegend = useCallback(() => setLegendOn(false), []);
+
+  /* ecran complet: API-ul browserului (Esc iese); unde nu există (ex. iPhone), harta acoperă pagina */
+  useEffect(() => {
+    const onChange = () => setFull(document.fullscreenElement !== null && document.fullscreenElement === wrapRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  useEffect(() => {
+    if (!pseudo) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPseudo(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pseudo]);
+  useEffect(() => {
+    const t = setTimeout(() => mapRef.current?.invalidateSize(), 120);
+    return () => clearTimeout(t);
+  }, [full, pseudo]);
+  const toggleFull = () => {
+    const el = wrapRef.current;
+    if (!el) return;
+    if (full || pseudo) {
+      setPseudo(false);
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+      return;
+    }
+    if (el.requestFullscreen) el.requestFullscreen().catch(() => setPseudo(true));
+    else setPseudo(true);
+  };
   // starea citită de funcția de desenare (se actualizează în efecte, nu la randare)
   const live = useRef({ store, idx, by, now, sel: null as number | null });
   const cache = useRef<{ zoom: number; cl: Clusters }[]>([]);
@@ -296,7 +329,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
   const gwMeter = useMemo(() => (pid !== null && plat !== null && plon !== null ? { id: pid, name: pname, la: plat, lo: plon } : null), [pid, pname, plat, plon]);
 
   return (
-    <div className="mapwrap">
+    <div ref={wrapRef} className={`mapwrap${pseudo ? " map-pseudo" : ""}`}>
       <div className="map-bar">
         <label className="field" style={{ width: 190 }}>
           <span>Colorează punctele după</span>
@@ -314,6 +347,12 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
         <label className="chk" style={{ alignSelf: "center" }}>
           <input type="checkbox" checked={gwOn} onChange={(e) => setGwOn(e.target.checked)} /> Arată antenele
         </label>
+        <label className="chk" style={{ alignSelf: "center" }}>
+          <input type="checkbox" checked={legendOn} onChange={(e) => setLegendOn(e.target.checked)} /> Legendă
+        </label>
+        <button type="button" className="btn" onClick={toggleFull} aria-pressed={full || pseudo}>
+          {full || pseudo ? "Ieși din ecranul complet" : "Ecran complet"}
+        </button>
         <div className="map-count" role="status" aria-live="polite">
           <strong>{nf.format(stats.withGeo)}</strong> contoare pe hartă
           {stats.without > 0 && <span className="cell-sub"> · {nf.format(stats.without)} filtrate fără coordonate (nu apar pe hartă)</span>}
@@ -332,7 +371,9 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
           </div>
         )}
 
+        {legendOn && (
         <div className="map-legend" aria-label="Legendă">
+          <button type="button" className="map-x" aria-label="Închide legenda" onClick={closeLegend}>×</button>
           {LABELS[by].map((l, k) => (
             <div key={l} className="map-leg-row">
               <span className="map-dot" style={{ background: PALETTE[k] }} aria-hidden="true" />
@@ -345,6 +386,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
             <span>Grup de contoare (click = zoom)</span>
           </div>
         </div>
+        )}
 
         <GatewayLayer
           map={mapObj}
@@ -352,6 +394,8 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
           meter={gwMeter}
           onOpen={onOpen}
           onPickGateway={pickGateway}
+          legend={legendOn}
+          onCloseLegend={closeLegend}
         />
 
         {picked && (

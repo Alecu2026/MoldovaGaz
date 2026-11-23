@@ -20,6 +20,7 @@ import { NO_SFILTERS, activeCount, binsToDays, describeFilters, dictCounts, filt
 import { sourceToCsv } from "../lib/source-csv";
 import { writeSource } from "../lib/source-sync";
 import * as NA from "../lib/night-analysis";
+import { counterOf, lostOf, newStream, observe } from "../lib/integration-counter";
 import { distanceKm as kmDist } from "../lib/geo";
 import { gatewaysOf, looksLikeUplink, nameKey, uplinkToMsg } from "../lib/integration-uplink";
 import { MAX_BATCH, isStaleFcnt, isStaleUplink, ingestIsNewer, mergeDerive, mergeMsgs, normTs, parseMessage, type MeterDocIng } from "../lib/integration";
@@ -311,7 +312,7 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   check("read-only: fetch() doar în fișierele așteptate", fetches.every((f) => allowedFetch.has(f)), [...new Set(fetches)].join(", "));
   const mutating = files.filter((f) => /method:\s*"(PUT|DELETE|PATCH)"|\.(deleteOne|deleteMany|drop|updateMany|updateOne|insertOne|insertMany|replaceOne|bulkWrite)\(/.test(readFileSync(f, "utf8"))).map((f) => f.replace(/\\/g, "/"));
   // scrieri în baza NOASTRĂ: doar sesiuni / utilizator (login, seed) și colecția `meters` (sincronizare); niciodată în surse
-  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts", "lib/services/gateways.ts"]);
+  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts", "lib/services/gateways.ts", "lib/services/counters.ts"]);
   check("read-only: scrieri în baza de date doar în sesiuni, seed:user, sync-meters, load-history și lib/source-sync", mutating.every((f) => allowedWrites.has(f)), mutating.join(", "));
   const syncSrc = readFileSync("scripts/sync-meters.ts", "utf8");
   const syncCollections = syncSrc.match(/client\.db\(\)\.collection[^\n]*/g) ?? [];
@@ -491,6 +492,18 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   check("antene: poziția (0, 0) sau în afara Moldovei ⇒ fără poziție; poziția validă se păstrează", gw.find((g) => g.id === "BB22")?.la === null && gw.find((g) => g.id === "CC33")?.la === null && gw[0].la === 47.3972 && gw[0].lo === 28.8104);
   check("antene: fără rxInfo ⇒ fără câmpul gws; id cu $ sau . se ignoră", U(up({ rxInfo: [] })).gws === undefined && gatewaysOf([{ gatewayID: "a.b", name: "x" }, { gatewayID: "$x", name: "y" }]).length === 0);
   check("antene: distanța pe sferă (Chișinău–Comrat ≈ 81 km, aceeași poziție = 0)", Math.abs(kmDist(47.0105, 28.8638, 46.2922, 28.676) - 81) < 6 && kmDist(47, 28, 47, 28) === 0);
+  // continuitatea mesajelor (counter)
+  const cs = newStream("implicit", "counter", 100, 1);
+  const seqOut = [101, 102, 105, 103, 103, 106, 110].map((n) => observe(cs, n, 2));
+  check("counter: 105 după 102 ⇒ gol 103–104; 110 după 106 ⇒ gol 107–109", seqOut[2] === "gap" && seqOut[6] === "gap" && cs.max === 110 && JSON.stringify(cs.missing.map((g) => [g[0], g[1]])) === "[[104,104],[107,109]]");
+  check("counter: 103 sosit târziu închide golul, al doilea 103 e duplicat", seqOut[3] === "late" && seqOut[4] === "dup" && cs.late === 1 && cs.dup === 1 && lostOf(cs) === 4);
+  check("counter: unice primite + lipsă = câte trebuiau (100..110)", cs.received + lostOf(cs) === cs.max - cs.first + 1);
+  const mid = newStream("x", "counter", 1, 1); [2, 3, 4, 5, 6, 7, 8, 9, 10].forEach((n) => observe(mid, n, 2)); observe(mid, 20, 3);
+  const o5 = observe(mid, 15, 4);
+  check("counter: număr sosit în mijlocul unui gol îl împarte în două", o5 === "late" && JSON.stringify(mid.missing.map((g) => [g[0], g[1]])) === "[[11,14],[16,19]]" && lostOf(mid) === 8);
+  check("counter: câmpuri recunoscute (counter, cnt, seq, text cu cifre), flux din stream; fără număr / negativ / zecimal ⇒ null", counterOf({ counter: 7 })?.value === 7 && counterOf({ cnt: "42", stream: "A" })?.stream === "A" && counterOf({ seq: 3 })?.field === "seq" && counterOf({ a: 1 }) === null && counterOf({ counter: -1 }) === null && counterOf({ counter: 1.5 }) === null && counterOf("text") === null && counterOf([1]) === null);
+  const big = newStream("b", "counter", 0, 1); for (let i = 1; i <= 3000; i++) observe(big, i * 2, 2);
+  check("counter: cu multe goluri lista rămâne limitată, dar numărul pierdut rămâne exact", big.missing.length <= 1000 && lostOf(big) === 3000 && big.received === 3001 && big.received + lostOf(big) === big.max - big.first + 1);
   const pm = parseMessage(up(), NOW);
   check("uplink: parseMessage îl recunoaște singur; devEUI greșit ⇒ respins cu motiv", pm.ok && pm.msg.eui === "001a798816011d62" && !uplinkToMsg({ devEUI: "xyz", object: {} } as never, NOW).ok);
 

@@ -976,6 +976,11 @@ button.badge-btn:hover {
 /* ───────── Hartă ───────── */
 .mapbox { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .mapwrap { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.mapwrap:fullscreen, .mapwrap.map-pseudo { padding: 12px; background: var(--surface); }
+.mapwrap.map-pseudo { position: fixed; inset: 0; z-index: 2000; }
+.mapwrap:fullscreen .map-stage, .mapwrap.map-pseudo .map-stage { min-height: 0; }
+.map-legend .map-x, .gw-legend .map-x { top: 4px; right: 4px; }
+.map-legend, .gw-legend { padding-right: 26px; }
 .map-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; }
 .map-count { align-self: center; font-size: 13.5px; }
 .map-stage {

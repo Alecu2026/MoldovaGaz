@@ -46,9 +46,12 @@ type Props = {
   onOpen: (id: string) => void;
   /** a fost aleasă o antenă: harta închide popup-ul contorului */
   onPickGateway: () => void;
+  /** legenda antenelor se vede / se poate închide */
+  legend: boolean;
+  onCloseLegend: () => void;
 };
 
-export default function GatewayLayer({ map, enabled, meter, onOpen, onPickGateway }: Props) {
+export default function GatewayLayer({ map, enabled, meter, onOpen, onPickGateway, legend, onCloseLegend }: Props) {
   const [sum, setSum] = useState<GwSummary | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [det, setDet] = useState<GwDetail | null>(null);
@@ -182,8 +185,9 @@ export default function GatewayLayer({ map, enabled, meter, onOpen, onPickGatewa
           ))}
         </div>
       )}
-      {sum && (
+      {sum && legend && (
         <div className="gw-legend" aria-label="Legenda antenelor">
+          <button type="button" className="map-x" aria-label="Închide legenda" onClick={onCloseLegend}>×</button>
           <div className="gw-leg-t">Antene: {nf.format(sum.located)} pe hartă din {nf.format(sum.total)}</div>
           {(["on", "slow", "off"] as const).map((s) => (
             <div key={s} className="map-leg-row">
