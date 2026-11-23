@@ -1,5 +1,5 @@
 import { DEFECT_PROFILE } from "./meter-scope";
-import { ALERT_FLAGS, FLAG, activityOf, isStatusOk } from "./meter-shared";
+import { ALERT_FLAGS, FLAG, XSTR, activityOf, isStatusOk } from "./meter-shared";
 import type { MeterStore } from "./meter-store";
 
 /**
@@ -38,6 +38,12 @@ export type Filters = {
   /** contoare marcate „Defectate_*” în SCADA (după profil): "" | 1 (doar ele) | 0 (fără ele) */
   defect: string;
   /** treapta de activitate (a|b), după momentul ultimei citiri: act (< 24 h, verde) | warn (1–7 zile, galben) | crit (> 7 zile, roșu) | noact (fără citire) */
+  /** coloanele text din SCADA (conține, fără diferență majuscule / minuscule): SPID, cont personal, serie contor, stradă, bloc / casă, apartament */
+  xsp: string; xcp: string; xsn: string; xsr: string; xhs: string; xap: string;
+  /** Aragaz / Cazan / Încălzire: "" | 1 (da) | 0 (nu sau necunoscut) */
+  xar: string; xcz: string; xin: string;
+  /** litri la instalare, latitudine, longitudine: interval numeric; data calibrării: interval de date "YYYY-MM-DD" */
+  ilMin: string; ilMax: string; laMin: string; laMax: string; loMin: string; loMax: string; calFrom: string; calTo: string;
   band: string;
   /** atributul `active` din SCADA: "" | 1 (activ) | 0 (inactiv) */
   actv: string;
@@ -62,7 +68,7 @@ export type Filters = {
 };
 
 export const NO_FILTERS: Filters = {
-  q: "", name: "", app: "", gw: "", type: "", dev: "", flag: "", branch: "", city: "", profile: "", fr: "", port: "", model: "", year: "", billed: "", geo: "", defect: "", band: "", actv: "", acFrom: "", acTo: "", iaFrom: "", iaTo: "", iaHas: "",
+  q: "", name: "", app: "", gw: "", type: "", dev: "", flag: "", branch: "", city: "", profile: "", fr: "", port: "", model: "", year: "", billed: "", geo: "", defect: "", xsp: "", xcp: "", xsn: "", xsr: "", xhs: "", xap: "", xar: "", xcz: "", xin: "", ilMin: "", ilMax: "", laMin: "", laMax: "", loMin: "", loMax: "", calFrom: "", calTo: "", band: "", actv: "", acFrom: "", acTo: "", iaFrom: "", iaTo: "", iaHas: "",
   rssiMin: "", rssiMax: "", snrMin: "", snrMax: "", valMin: "", valMax: "", batMin: "", batMax: "", dcMin: "", dcMax: "", fcMin: "", fcMax: "",
   range: "", from: "", to: "",
 };
@@ -101,14 +107,14 @@ export type FilterResult = {
   consDay: number; consDayN: number; consMonth: number; consMonthN: number;
 };
 
-const LIST_KEYS = ["app", "gw", "type", "dev", "flag", "branch", "city", "profile", "fr", "port", "model", "year", "billed", "geo", "defect", "iaHas", "band", "actv"] as const;
+const LIST_KEYS = ["app", "gw", "type", "dev", "flag", "branch", "city", "profile", "fr", "port", "model", "year", "billed", "geo", "defect", "iaHas", "band", "actv", "xsp", "xcp", "xsn", "xsr", "xhs", "xap", "xar", "xcz", "xin"] as const;
 /** Câte grupuri de filtre sunt active (intervalul de timp și fiecare interval numeric contează câte unul). */
 export function activeFilters(f: Filters): number {
   let n = 0;
   if (f.q.trim()) n++;
   if (f.name.trim()) n++;
   for (const k of LIST_KEYS) if (f[k]) n++;
-  for (const [a, b] of [["rssiMin", "rssiMax"], ["snrMin", "snrMax"], ["valMin", "valMax"], ["batMin", "batMax"], ["dcMin", "dcMax"], ["fcMin", "fcMax"], ["acFrom", "acTo"], ["iaFrom", "iaTo"]] as const) if (f[a] || f[b]) n++;
+  for (const [a, b] of [["rssiMin", "rssiMax"], ["snrMin", "snrMax"], ["valMin", "valMax"], ["batMin", "batMax"], ["dcMin", "dcMax"], ["fcMin", "fcMax"], ["acFrom", "acTo"], ["iaFrom", "iaTo"], ["ilMin", "ilMax"], ["laMin", "laMax"], ["loMin", "loMax"], ["calFrom", "calTo"]] as const) if (f[a] || f[b]) n++;
   if (f.from || f.to || f.range) n++;
   return n;
 }
@@ -187,6 +193,14 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
   const dtMs = (v: string, dflt: number): number => { if (!v) return dflt; const t = Date.parse(v); return t === t ? t : dflt; };
   const acFrom = dtMs(f.acFrom, -Infinity), acTo = dtMs(f.acTo, Infinity), acOn = acFrom > -Infinity || acTo < Infinity;
   const iaFrom = dtMs(f.iaFrom, -Infinity), iaTo = dtMs(f.iaTo, Infinity), iaOn = iaFrom > -Infinity || iaTo < Infinity;
+  const xText = XSTR.map((k) => [k, f[k].trim().toLowerCase()] as const).filter(([, v]) => v !== "");
+  const xFlags = ([["xar", FLAG.ARAGAZ], ["xcz", FLAG.CAZAN], ["xin", FLAG.INCALZ]] as const).filter(([k]) => f[k] === "1" || f[k] === "0").map(([k, bit]) => [bit, f[k] === "1"] as const);
+  const ilMin = num(f.ilMin, -Infinity), ilMax = num(f.ilMax, Infinity), ilOn = ilMin > -Infinity || ilMax < Infinity;
+  const laMin = num(f.laMin, -Infinity), laMax = num(f.laMax, Infinity), laOn = laMin > -Infinity || laMax < Infinity;
+  const loMin = num(f.loMin, -Infinity), loMax = num(f.loMax, Infinity), loOn = loMin > -Infinity || loMax < Infinity;
+  const calFrom = f.calFrom && dtMs(f.calFrom, NaN) === dtMs(f.calFrom, NaN) ? dtMs(f.calFrom, -Infinity) : -Infinity;
+  const calTo = f.calTo && dtMs(f.calTo, NaN) === dtMs(f.calTo, NaN) ? dtMs(f.calTo, Infinity) + 86_399_999 : Infinity;
+  const calOn = calFrom > -Infinity || calTo < Infinity;
   let bandWant = 0;
   for (const k of toList(f.band)) bandWant |= ACT_TOKENS[k] ?? 0;
   const actvNeed = f.actv === "1" ? FLAG.ACTIVE : f.actv === "0" ? FLAG.INACTIVE : 0;
@@ -255,6 +269,20 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
     if (billedNeed !== 0 && (billedNeed === 1) !== ((flags & FLAG.BILLED) !== 0)) continue;
     if (geoNeed !== 0 && (geoNeed === 1) !== (st.la[i] === st.la[i] && st.lo[i] === st.lo[i])) continue;
     if (defectPf !== null && (defectPf[st.pf[i] + 1] === 1) !== (defectNeed === 1)) continue;
+    if (xText.length) {
+      let ok = true;
+      for (const [k, v] of xText) if (!st.x[k][i].toLowerCase().includes(v)) { ok = false; break; }
+      if (!ok) continue;
+    }
+    if (xFlags.length) {
+      let ok = true;
+      for (const [bit, want] of xFlags) if (((flags & bit) !== 0) !== want) { ok = false; break; }
+      if (!ok) continue;
+    }
+    if (ilOn && !(st.il[i] >= ilMin && st.il[i] <= ilMax)) continue;
+    if (laOn && !(st.la[i] >= laMin && st.la[i] <= laMax)) continue;
+    if (loOn && !(st.lo[i] >= loMin && st.lo[i] <= loMax)) continue;
+    if (calOn && !(st.cal[i] >= calFrom && st.cal[i] <= calTo)) continue;
     if (bandWant !== 0 && (bandWant & (1 << activityOf(t, now))) === 0) continue;
     if (actvNeed !== 0 && (flags & actvNeed) === 0) continue;
     if (acOn && !(st.ac[i] >= acFrom && st.ac[i] <= acTo)) continue;
@@ -339,6 +367,10 @@ export function filtersFromParams(get: (k: string) => string | undefined): Filte
     name: s("name", 80),
     app: s("app", 600), gw: s("gw", 800), type: s("type", 400), dev: s("dev", 80),
     flag: fromList(toList(s("flag", 80)).filter((x) => x in FLAG_MASK || x in ACT_TOKENS || x === "ok" || x === "nostatus")),
+    xsp: s("xsp", 60), xcp: s("xcp", 60), xsn: s("xsn", 60), xsr: s("xsr", 80), xhs: s("xhs", 30), xap: s("xap", 30),
+    xar: s("xar", 1) === "1" ? "1" : s("xar", 1) === "0" ? "0" : "", xcz: s("xcz", 1) === "1" ? "1" : s("xcz", 1) === "0" ? "0" : "", xin: s("xin", 1) === "1" ? "1" : s("xin", 1) === "0" ? "0" : "",
+    ilMin: numeric("ilMin"), ilMax: numeric("ilMax"), laMin: numeric("laMin"), laMax: numeric("laMax"), loMin: numeric("loMin"), loMax: numeric("loMax"),
+    calFrom: /^\d{4}-\d{2}-\d{2}$/.test(s("calFrom", 10)) ? s("calFrom", 10) : "", calTo: /^\d{4}-\d{2}-\d{2}$/.test(s("calTo", 10)) ? s("calTo", 10) : "",
     band: fromList(toList(s("band", 40)).filter((x) => x in ACT_TOKENS)),
     actv: s("actv", 1) === "1" ? "1" : s("actv", 1) === "0" ? "0" : "",
     branch: s("branch", 400), city: s("city", 800), profile: s("profile", 600),
@@ -395,6 +427,12 @@ export function describeFilters(f: Filters, nameOf: (id: string) => string = (x)
   if (f.acFrom || f.acTo) add("ac", `Ultima activitate (SCADA): ${when(f.acFrom, f.acTo)}`, { acFrom: "", acTo: "" });
   if (f.iaFrom || f.iaTo) add("ia", `Alarmă de inactivitate: ${when(f.iaFrom, f.iaTo)}`, { iaFrom: "", iaTo: "" });
   if (f.iaHas) add("iaHas", f.iaHas === "1" ? "Cu alarmă de inactivitate" : "Fără alarmă de inactivitate", { iaHas: "" });
+  for (const [k, label] of [["xsp", "SPID"], ["xcp", "Cont personal"], ["xsn", "Contor SN"], ["xsr", "Adresă"], ["xhs", "Bloc / casă"], ["xap", "Apartament"]] as const) if (f[k].trim()) add(k, `${label}: ${f[k].trim()}`, { [k]: "" });
+  for (const [k, label] of [["xar", "Aragaz"], ["xcz", "Cazan"], ["xin", "Încălzire"]] as const) if (f[k]) add(k, `${label}: ${f[k] === "1" ? "da" : "nu / necunoscut"}`, { [k]: "" });
+  if (f.ilMin || f.ilMax) add("il", `Litri la instalare: ${range(f.ilMin, f.ilMax, " L")}`, { ilMin: "", ilMax: "" });
+  if (f.laMin || f.laMax) add("la", `Latitudine: ${range(f.laMin, f.laMax, "°")}`, { laMin: "", laMax: "" });
+  if (f.loMin || f.loMax) add("lo", `Longitudine: ${range(f.loMin, f.loMax, "°")}`, { loMin: "", loMax: "" });
+  if (f.calFrom || f.calTo) add("cal", `Data calibrării: ${f.calFrom || "…"} → ${f.calTo || "…"}`, { calFrom: "", calTo: "" });
   if (f.band) add("band", `Activitate: ${toList(f.band).map((k) => ({ act: "< 24 h", warn: "1–7 zile", crit: "> 7 zile", noact: "fără citire" } as Record<string, string>)[k] ?? k).join(" sau ")}`, { band: "" });
   if (f.actv) add("actv", f.actv === "1" ? "Activ în SCADA" : "Inactiv în SCADA", { actv: "" });
   if (f.geo) add("geo", f.geo === "1" ? "Cu coordonate GPS" : "Fără coordonate GPS", { geo: "" });

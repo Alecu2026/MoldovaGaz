@@ -6,9 +6,9 @@
  *  - combinarea facturare ↔ dispozitive ↔ ThingsBoard (lib/meter-sync.ts).
  */
 import { aggregate, makeCtx, FRESH_EDGES } from "../lib/meter-aggregate";
-import { NO_FILTERS, periodStarts, runFilter, type Filters, type Sort } from "../lib/meter-filter";
+import { NO_FILTERS, filtersFromParams, periodStarts, runFilter, type Filters, type Sort } from "../lib/meter-filter";
 import { MeterStore } from "../lib/meter-store";
-import { ALERT_FLAGS, FLAG, PROBLEM_FLAGS, activityOf, isStatusOk, validCoords, type ColsWire, type DatasetWire, type DeltaWire } from "../lib/meter-shared";
+import { ALERT_FLAGS, FLAG, PROBLEM_FLAGS, XSTR, activityOf, isStatusOk, validCoords, type ColsWire, type DatasetWire, type DeltaWire } from "../lib/meter-shared";
 import { buildDocs, fetchDevices, type Bill, type Dev } from "../lib/meter-sync";
 import { assertReadOnly, tbCustomerDevices } from "../lib/thingsboard";
 import { pack, unpack, type Pts } from "../lib/meter-history";
@@ -49,7 +49,7 @@ const dict = {
   ct: ["Comrat", "Orhei", "Cahul", "Chisinau", "Rezina"],
   pf: ["Comrat_Gas_Meter_DP", "Jooby_Gas_Meter_DP", "Defectate_Jooby_Gaz"],
 };
-const emptyCols = (): ColsWire => ({ id: [], ts: [], nm: [], eu: [], q: [], ap: [], gw: [], br: [], ct: [], pf: [], rssi: [], snr: [], fr: [], fl: [], fc: [], pt: [], tm: [], val: [], bat: [], dc: [], mc: [], ac: [], ia: [], dt: [], mt: [], la: [], lo: [] });
+const emptyCols = (): ColsWire => ({ id: [], ts: [], nm: [], eu: [], q: [], ap: [], gw: [], br: [], ct: [], pf: [], rssi: [], snr: [], fr: [], fl: [], fc: [], pt: [], tm: [], val: [], bat: [], dc: [], mc: [], ac: [], ia: [], il: [], cal: [], xsp: [], xcp: [], xsn: [], xsr: [], xhs: [], xap: [], dt: [], mt: [], la: [], lo: [] });
 const t0 = Date.now() - 20 * 86400_000;
 const row = (c: ColsWire, i: number, id: string) => {
   const never = rnd() < 0.05;
@@ -66,7 +66,10 @@ const row = (c: ColsWire, i: number, id: string) => {
   c.rssi.push(rnd() < 0.1 ? null : -Math.floor(70 + rnd() * 60));
   c.snr.push(rnd() < 0.1 ? null : Math.round((rnd() * 30 - 18) * 10) / 10);
   c.fr.push([868100, 868300, 868500, 0][Math.floor(rnd() * 4)]);
-  c.fl.push(Math.floor(rnd() * 512));
+  c.fl.push(Math.floor(rnd() * 4096));
+  c.il.push(rnd() < 0.3 ? null : Math.floor(rnd() * 20_000_000)); c.cal.push(rnd() < 0.6 ? null : Date.UTC(2020 + Math.floor(rnd() * 6), Math.floor(rnd() * 12), 1 + Math.floor(rnd() * 27)));
+  c.xsp.push(rnd() < 0.2 ? "" : `47${String(i % 90).padStart(3, "0")}15`); c.xcp.push(rnd() < 0.2 ? "" : `2572${String(i % 70).padStart(4, "0")}`); c.xsn.push(rnd() < 0.2 ? "" : `SN${i % 40}`);
+  c.xsr.push(["Strada Mare, str.", "Gavrilov, str.", "Libertatii, bd.", ""][i % 4]); c.xhs.push(rnd() < 0.3 ? "" : String(1 + (i % 60))); c.xap.push(rnd() < 0.5 ? "" : String(1 + (i % 90)));
   { const ps = Date.now(); c.ac.push(rnd() < 0.2 ? null : ps - Math.floor(rnd() * 40 * 86400_000)); c.ia.push(rnd() < 0.4 ? null : ps - Math.floor(rnd() * 90 * 86400_000)); }
   c.fc.push(rnd() < 0.05 ? -1 : Math.floor(rnd() * 50000));
   c.pt.push(rnd() < 0.9 ? 1 : Math.floor(rnd() * 200));
@@ -124,6 +127,10 @@ const naive = (f: Filters): number[] => {
     if (f.band) { const k = ["act", "warn", "crit", "noact"][activityOf(v.ts, now)]; if (!L(f.band).includes(k)) continue; }
     if (f.actv === "1" && !(v.fl & FLAG.ACTIVE)) continue;
     if (f.actv === "0" && !(v.fl & FLAG.INACTIVE)) continue;
+    if (XSTR.some((k) => f[k].trim() && !v[k].toLowerCase().includes(f[k].trim().toLowerCase()))) continue;
+    if ((f.xar && !!(v.fl & FLAG.ARAGAZ) !== (f.xar === "1")) || (f.xcz && !!(v.fl & FLAG.CAZAN) !== (f.xcz === "1")) || (f.xin && !!(v.fl & FLAG.INCALZ) !== (f.xin === "1"))) continue;
+    { const rg = (x: number | null, a: string, b: string) => !(a || b) || (x !== null && x >= num(a, -Infinity) && x <= num(b, Infinity)); if (!rg(v.il, f.ilMin, f.ilMax) || !rg(v.lat, f.laMin, f.laMax) || !rg(v.lon, f.loMin, f.loMax)) continue; }
+    if ((f.calFrom || f.calTo) && (v.cal === null || v.cal < (f.calFrom ? Date.parse(f.calFrom) : -Infinity) || v.cal > (f.calTo ? Date.parse(f.calTo) + 86_399_999 : Infinity))) continue;
     if (f.geo === "1" && v.lat === null) continue;
     if (f.geo === "0" && v.lat !== null) continue;
     if (f.fr && !L(f.fr).includes(String(v.freqKhz))) continue;
@@ -145,7 +152,7 @@ const naive = (f: Filters): number[] => {
 const cases: [string, Filters][] = [
   ["filială", F({ branch: "05 · Comrat" })], ["filiale multi", F({ branch: "05 · Comrat|20 · Orhei" })], ["oraș", F({ city: "Rezina" })], ["oraș multi", F({ city: "Cahul|Orhei" })],
   ["profil", F({ profile: "Defectate_Jooby_Gaz" })], ["aplicație", F({ app: "app1|app3" })], ["concentrator", F({ gw: "gwA|gwD" })], ["tip multi", F({ type: "DeviceStatus|CurrentData" })],
-  ["activitate în interval", F({ acFrom: "" + new Date(Date.now() - 10 * 86400_000).toISOString().slice(0, 16), acTo: new Date(Date.now() - 2 * 86400_000).toISOString().slice(0, 16) })], ["activitate de la", F({ acFrom: new Date(Date.now() - 5 * 86400_000).toISOString().slice(0, 16) })], ["alarmă: are", F({ iaHas: "1" })], ["alarmă: nu are", F({ iaHas: "0" })], ["alarmă în interval + filială", F({ iaFrom: new Date(Date.now() - 60 * 86400_000).toISOString().slice(0, 16), iaTo: new Date(Date.now() - 20 * 86400_000).toISOString().slice(0, 16), branch: "05 · Comrat" })], ["treapta verde", F({ band: "act" })], ["treapta galbenă + roșie", F({ band: "warn|crit" })], ["fără citire", F({ band: "noact" })], ["activ (coloana)", F({ actv: "1" })], ["inactiv (coloana)", F({ actv: "0" })], ["roșu + inactiv + filială", F({ band: "crit", actv: "0", branch: "05 · Comrat" })], ["verde + activ + stare OK", F({ band: "act", actv: "1", flag: "ok" })], ["doar defectate", F({ defect: "1" })], ["fără defectate", F({ defect: "0" })], ["defectate + filială", F({ defect: "1", branch: "05 · Comrat" })], ["cu coordonate", F({ geo: "1" })], ["fără coordonate", F({ geo: "0" })], ["coordonate + filială", F({ geo: "1", branch: "05 · Comrat" })],
+  ["activitate în interval", F({ acFrom: "" + new Date(Date.now() - 10 * 86400_000).toISOString().slice(0, 16), acTo: new Date(Date.now() - 2 * 86400_000).toISOString().slice(0, 16) })], ["activitate de la", F({ acFrom: new Date(Date.now() - 5 * 86400_000).toISOString().slice(0, 16) })], ["alarmă: are", F({ iaHas: "1" })], ["alarmă: nu are", F({ iaHas: "0" })], ["alarmă în interval + filială", F({ iaFrom: new Date(Date.now() - 60 * 86400_000).toISOString().slice(0, 16), iaTo: new Date(Date.now() - 20 * 86400_000).toISOString().slice(0, 16), branch: "05 · Comrat" })], ["SPID conține", F({ xsp: "4701" })], ["cont personal", F({ xcp: "2572001" })], ["serie SN", F({ xsn: "sn1" })], ["adresă", F({ xsr: "gavrilov" })], ["bloc + apartament", F({ xhs: "1", xap: "7" })], ["aragaz da", F({ xar: "1" })], ["cazan nu", F({ xcz: "0" })], ["încălzire da + aragaz nu", F({ xin: "1", xar: "0" })], ["litri instalare", F({ ilMin: "1000000", ilMax: "9000000" })], ["latitudine", F({ laMin: "46", laMax: "46.8" })], ["longitudine + filială", F({ loMin: "28", loMax: "28.9", branch: "05 · Comrat" })], ["calibrare în interval", F({ calFrom: "2022-01-01", calTo: "2023-12-31" })], ["toate coloanele noi", F({ xsr: "str", xar: "1", ilMin: "0", laMin: "45", calFrom: "2020-01-01" })], ["treapta verde", F({ band: "act" })], ["treapta galbenă + roșie", F({ band: "warn|crit" })], ["fără citire", F({ band: "noact" })], ["activ (coloana)", F({ actv: "1" })], ["inactiv (coloana)", F({ actv: "0" })], ["roșu + inactiv + filială", F({ band: "crit", actv: "0", branch: "05 · Comrat" })], ["verde + activ + stare OK", F({ band: "act", actv: "1", flag: "ok" })], ["doar defectate", F({ defect: "1" })], ["fără defectate", F({ defect: "0" })], ["defectate + filială", F({ defect: "1", branch: "05 · Comrat" })], ["cu coordonate", F({ geo: "1" })], ["fără coordonate", F({ geo: "0" })], ["coordonate + filială", F({ geo: "1", branch: "05 · Comrat" })],
   ["stare OK", F({ flag: "ok" })], ["fără raport de stare", F({ flag: "nostatus" })], ["OK + activ", F({ flag: "ok|active" })], ["OK + serie repetată", F({ flag: "ok|dup|nostatus" })],
   ["serie repetată", F({ flag: "dup" })], ["serie repetată + activ", F({ flag: "dup|active" })],
   ["stare multi", F({ flag: "batt|button" })], ["stare alert", F({ flag: "alert" })], ["inactiv", F({ flag: "inactive" })], ["cu facturare", F({ billed: "1" })], ["fără facturare", F({ billed: "0" })],
@@ -296,6 +303,12 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
     tt.SERVER_ATTRIBUTE.active = { ts: 1, value: "true" }; tt.SERVER_ATTRIBUTE.lastActivityTime = { ts: 1, value: "1700000500000" }; tt.SERVER_ATTRIBUTE.inactivityAlarmTime = { ts: 1, value: "1699000000000" };
     const b2 = buildDocs(devices, billing, new Map([["c1", tt]]), new Date(0)).docs.find((d) => d._id === "c1")!.s;
     check("sync: «Ultima citire» = momentul CITIRII de volum (Volume_m3_Total_ts), nu al sosirii (Volume_m3_Total); lastActivityTime / inactivityAlarmTime / active ajung în rezumat", b2.t === 1_700_000_100_000 && b2.ac === 1_700_000_500_000 && b2.ia === 1_699_000_000_000 && !!(b2.fl & FLAG.ACTIVE) && !(b2.fl & FLAG.INACTIVE));
+    { const t2 = tel({ Volume_m3_Total: "1.000" }); const A = t2.SERVER_ATTRIBUTE;
+      A.Aragaz = { ts: 1, value: "true" }; A.Cazan = { ts: 1, value: "false" }; A.Incalzire = { ts: 1, value: "true" }; A.Instalation_Litres = { ts: 1, value: "14098843" };
+      A.ContorNr = { ts: 1, value: "4624641" }; A.ContPersonal = { ts: 1, value: "0580200708" }; A.Data_Calibrarii = { ts: 1, value: "1700000000000" };
+      const b3 = buildDocs(devices, billing, new Map([["c2", t2]]), new Date(0)).docs.find((d) => d._id === "c2")!.s;
+      check("sync: coloanele din SCADA (aragaz / cazan / încălzire ca biți, litri la instalare, contor SN, cont personal, data calibrării, stradă din facturare)", !!(b3.fl & FLAG.ARAGAZ) && !(b3.fl & FLAG.CAZAN) && !!(b3.fl & FLAG.INCALZ) && b3.il === 14098843 && b3.sn2 === "4624641" && b3.cp === "0580200708" && b3.cl === 1700000000000 && b3.sr === "Str. Mare");
+      check("sync: fără acele atribute ⇒ câmpuri goale / null, fără biți", !(s.fl & FLAG.ARAGAZ) && !(s.fl & FLAG.INCALZ) && s.il === null && s.cl === null && s.sn2 === ""); }
     check("sync: fără Volume_m3_Total_ts ⇒ momentul lui Volume_m3_Total; fără atributele de timp ⇒ null", s.t === 1_700_000_000_000 && s.ac === null && s.ia === null); }
   check("sync: contor fără telemetrie → fără citire (nu zero)", by.get("c5")!.s.v === null && by.get("c5")!.s.t === 0 && by.get("c5")!.s.r === null);
   check("sync: ContPersonal rămâne text (zerouri păstrate), devEUI cu litere mici", by.get("c0")!.attrs.ContPersonal === "0123" && by.get("c0")!.s.e === "001a798816000001");
@@ -324,11 +337,11 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   const walk = (d: string): string[] => readdirSync(d).flatMap((n) => (n === "node_modules" || n === ".next" || n.startsWith(".") ? [] : statSync(join(d, n)).isDirectory() ? walk(join(d, n)) : /\.(ts|tsx)$/.test(n) ? [join(d, n)] : []));
   const files = ["app", "lib", "scripts"].flatMap(walk).filter((f) => !f.endsWith("check-engine.ts"));
   const fetches = files.flatMap((f) => (readFileSync(f, "utf8").match(/\bfetch\(/g) ?? []).map(() => f.replace(/\\/g, "/")));
-  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "app/components/GatewayLayer.tsx", "scripts/bench-integration.ts"]);
+  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "app/components/GatewayLayer.tsx", "app/components/KeptBrowser.tsx", "scripts/bench-integration.ts"]);
   check("read-only: fetch() doar în fișierele așteptate", fetches.every((f) => allowedFetch.has(f)), [...new Set(fetches)].join(", "));
   const mutating = files.filter((f) => /method:\s*"(PUT|DELETE|PATCH)"|\.(deleteOne|deleteMany|drop|updateMany|updateOne|insertOne|insertMany|replaceOne|bulkWrite)\(/.test(readFileSync(f, "utf8"))).map((f) => f.replace(/\\/g, "/"));
   // scrieri în baza NOASTRĂ: doar sesiuni / utilizator (login, seed) și colecția `meters` (sincronizare); niciodată în surse
-  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts", "lib/services/gateways.ts", "lib/services/counters.ts"]);
+  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts", "lib/services/gateways.ts", "lib/services/counters.ts", "lib/services/kept.ts"]);
   check("read-only: scrieri în baza de date doar în sesiuni, seed:user, sync-meters, load-history și lib/source-sync", mutating.every((f) => allowedWrites.has(f)), mutating.join(", "));
   const syncSrc = readFileSync("scripts/sync-meters.ts", "utf8");
   const syncCollections = syncSrc.match(/client\.db\(\)\.collection[^\n]*/g) ?? [];
@@ -441,6 +454,9 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
     },
   });
   const P = (x: unknown) => { const r = parseMessage(x, NOW); if (!r.ok) throw new Error(r.error); return r.msg; };
+  check("integrare: momente date ca TEXT numeric (ms și secunde, cu zecimale) se recunosc, nu doar numerele", normTs("1795464061182") === 1795464061182 && normTs("1795464061") === 1795464061000 && normTs(" 1795464061182 ") === 1795464061182 && normTs("17954a") === null);
+  { const g = (o: Record<string, string>) => (k: string) => o[k]; const p = filtersFromParams(g({ calFrom: "2022-01-01", calTo: "2023-12-31", ilMin: "100", xar: "1", xsr: "Gavrilov", band: "act|crit|zzz", actv: "0", iaHas: "1", acFrom: "2026-11-01T10:00" }));
+    check("filtre din adresă: datele (calibrare), numerele, da / nu, textele, treptele (token necunoscut ignorat) se citesc corect", p.calFrom === "2022-01-01" && p.calTo === "2023-12-31" && p.ilMin === "100" && p.xar === "1" && p.xsr === "Gavrilov" && p.band === "act|crit" && p.actv === "0" && p.iaHas === "1" && p.acFrom === "2026-11-01T10:00" && filtersFromParams(g({ calFrom: "ieri" })).calFrom === ""); }
   check("integrare: momente — milisecunde, secunde și text ISO; altceva e invalid", normTs(1795464061182) === 1795464061182 && normTs(1795464061) === 1795464061000 && normTs("2026-11-23T20:01:01.182Z") === Date.parse("2026-11-23T20:01:01.182Z") && normTs("nu") === null && normTs(5) === null && normTs(null) === null);
   const bad = (x: unknown) => { const r = parseMessage(x, NOW); return r.ok ? "" : r.error; };
   check("integrare: mesaj invalid respins cu motiv (nu obiect, id greșit, fără identificare, fără date, moment în viitor / invalid, valoare invalidă)", bad(5) !== "" && bad({ id: "x", tel: {} }) !== "" && bad({ tel: { a: tl("1") } }) !== "" && bad({ tb: { name: "S1" } }) !== "" && bad({ tb: { name: "S1" }, tel: { a: { t: NOW + 5 * 86_400_000, v: "1" } } }) !== "" && bad({ tb: { name: "S1" }, tel: { a: { t: "ieri", v: "1" } } }) !== "" && bad({ tb: { name: "S1" }, tel: { a: { t: T, v: null } } }) !== "");

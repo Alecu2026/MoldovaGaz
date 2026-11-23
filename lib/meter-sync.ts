@@ -24,7 +24,7 @@ export const TS_KEYS = [
 export const SERVER_KEYS = [
   "FIL", "OTDELEN", "KOD_AB", "active", "lastActivityTime", "inactivityAlarmTime", "locationModule", "latitude", "longitude", "Aragaz", "Cazan",
   "Instalation_Litres", "ModuleInitialValue", "ContorNr", "ContPersonal", "OrderNr", "activation", "lorawan_registered", "emc_activation_count",
-  "dev_SN", "devEUI", "METCITIRE:", "CONTROLOR", "UPDATED_DATE",
+  "dev_SN", "devEUI", "METCITIRE:", "CONTROLOR", "UPDATED_DATE", "Incalzire", "Data_Calibrarii",
 ];
 export const CLIENT_KEYS = ["fCnt", "model", "version", "remCapacity", "applicationName", "Volume_m3", "couterPulse", "integrationName"];
 
@@ -276,6 +276,9 @@ export function buildDocs(devices: Dev[], billing: Bill[], latest: Map<string, T
     const activeAttr = av(l, "SERVER_ATTRIBUTE", "active");
     if (activeAttr === "false") fl |= FLAG.INACTIVE;
     else if (activeAttr === "true") fl |= FLAG.ACTIVE;
+    if (av(l, "SERVER_ATTRIBUTE", "Aragaz") === "true") fl |= FLAG.ARAGAZ;
+    if (av(l, "SERVER_ATTRIBUTE", "Cazan") === "true") fl |= FLAG.CAZAN;
+    if (av(l, "SERVER_ATTRIBUTE", "Incalzire") === "true") fl |= FLAG.INCALZ;
     const attrTime = (k: string): number | null => { const n = num(av(l, "SERVER_ATTRIBUTE", k)); return n !== null && n >= 1e11 && n <= 4e12 ? Math.round(n) : null; };
     if (bill) fl |= FLAG.BILLED;
     const group = dupGroup.get(id);
@@ -313,6 +316,9 @@ export function buildDocs(devices: Dev[], billing: Bill[], latest: Map<string, T
       b: battery,
       dc: num(tsv(l, "dailyConsumption")?.v),
       mc: num(tsv(l, "monthlyConsumption")?.v),
+      sp: clean(bill?.SP_ID), cp: clean(av(l, "SERVER_ATTRIBUTE", "ContPersonal")), sn2: clean(av(l, "SERVER_ATTRIBUTE", "ContorNr")) || clean(bill?.CONTOR_SN),
+      sr: clean(bill?.STREET), hs: clean(bill?.HOUSE), apt: clean(bill?.APARTMENT),
+      il: num(av(l, "SERVER_ATTRIBUTE", "Instalation_Litres")), cl: attrTime("Data_Calibrarii"),
       ac: attrTime("lastActivityTime"),
       ia: attrTime("inactivityAlarmTime"),
       la: geo ? geo[0] : null,

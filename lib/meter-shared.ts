@@ -8,7 +8,11 @@
  */
 
 /** Biți din `fl` (stare a rândului, 16 biți). DUP = seria (numărul radio) apare la mai multe dispozitive din ThingsBoard. ACTIVE = atributul `active` = true în SCADA (INACTIVE = false; fără niciunul = necunoscut). Bitul 16 a fost „offline raportat de contor”, scos: nu se mai folosește. */
-export const FLAG = { DUP: 1, BATT: 2, BTN: 4, MAG: 8, STATUS: 32, INACTIVE: 64, BILLED: 128, ACTIVE: 256 } as const;
+export const FLAG = { DUP: 1, BATT: 2, BTN: 4, MAG: 8, STATUS: 32, INACTIVE: 64, BILLED: 128, ACTIVE: 256, ARAGAZ: 512, CAZAN: 1024, INCALZ: 2048 } as const;
+/** Coloanele text suplimentare ca în lista din SCADA: SPID, ContPersonal, Contor SN, adresa (strada), bloc / casă, apartament. */
+export const XSTR = ["xsp", "xcp", "xsn", "xsr", "xhs", "xap"] as const;
+export type XKey = (typeof XSTR)[number];
+export const emptyX = (): Record<XKey, string[]> => ({ xsp: [], xcp: [], xsn: [], xsr: [], xhs: [], xap: [] });
 /**
  * „Alertă” = baterie slabă sau contor INACTIV în SCADA (atributul `active` = false, calculat de platformă din activitate), ca în SCADA.
  * Câmpul `offline` din mesajul contorului nu se mai afișează și nu se filtrează (nu spune nimic despre activitate); activitatea = momentul citirii de volum (Volume_m3_Total_ts).
@@ -67,10 +71,13 @@ export type ColsWire = {
   /** începutul perioadei (ms, ca în SCADA) la care se referă dc / mc: ziua / luna calendaristică; null = necunoscut. Doar valorile din perioada CURENTĂ se adună în „Consum”. */
   dt: (number | null)[];
   mt: (number | null)[];
+  /** litri la instalare (Instalation_Litres) și data calibrării (ms, Data_Calibrarii); null = lipsesc */
+  il: (number | null)[];
+  cal: (number | null)[];
   /** coordonate (grade): latitudine / longitudine; null = fără coordonate */
   la: (number | null)[];
   lo: (number | null)[];
-};
+} & { [K in XKey]: string[] };
 
 /** Lista completă (/api/meters/dataset). `head` = ultimul seq inclus. */
 export type DatasetWire = { v: 3; gen: string; head: number; total: number; dict: Dict; cols: ColsWire };
@@ -99,6 +106,9 @@ export type RowView = {
   mc: number | null;
   ac: number | null;
   ia: number | null;
+  xsp: string; xcp: string; xsn: string; xsr: string; xhs: string; xap: string;
+  il: number | null;
+  cal: number | null;
   lat: number | null;
   lon: number | null;
   branch: string | null;
@@ -128,6 +138,8 @@ export type MeterSummary = {
   /** lastActivityTime / inactivityAlarmTime din SCADA (ms), opționale în rezumatele vechi */
   ac?: number | null;
   ia?: number | null;
+  /** SPID, cont personal, serie contor, stradă, bloc / casă, apartament, litri la instalare, data calibrării (ms): opționale în rezumatele vechi */
+  sp?: string; cp?: string; sn2?: string; sr?: string; hs?: string; apt?: string; il?: number | null; cl?: number | null;
   /** latitudine / longitudine din atributele ThingsBoard (null = lipsesc sau sunt invalide) */
   la: number | null;
   lo: number | null;

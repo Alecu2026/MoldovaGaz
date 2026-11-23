@@ -399,8 +399,8 @@ body {
   overscroll-behavior: contain;
 }
 .tbl {
-  min-width: 1960px;
-  --cols: 132px 92px 128px minmax(220px, 1.3fr) 150px 130px minmax(160px, 1fr) 132px 122px 140px 140px 150px minmax(170px, 1fr);
+  min-width: 1700px; /* se suprascrie din cod după coloanele alese */
+  --cols: 132px minmax(220px, 1.3fr) 150px 130px minmax(160px, 1fr) 132px 122px 140px 140px 150px minmax(170px, 1fr);
 }
 /* antetul în două rânduri, lipit sus: numele coloanelor (sortare) + filtrul fiecărei coloane chiar dedesubt */
 .hdrs {
@@ -1120,3 +1120,42 @@ button.badge-btn:hover {
 .adot.g { background: #0ca30c; }
 .adot.y { background: #fab219; }
 .adot.r { background: #d03b3b; }
+
+/* culori ca în lista din SCADA: verde sub 24 h, galben 1–7 zile, roșu peste 7 zile */
+.adot { width: 14px; height: 14px; border: 0; box-shadow: none; margin: 0; }
+.adot.g { background: #1fbf3b; }
+.adot.y { background: #f2c21b; }
+.adot.r { background: #ee3b2f; }
+.atime.a0 { color: #14892a; }
+.atime.a1 { color: #c79500; }
+.atime.a2 { color: #d8322a; }
+.yes { color: #14892a; font-weight: 700; }
+.no { color: #d8322a; font-weight: 700; opacity: .85; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .atime.a0, :root:not([data-theme="light"]) .yes { color: #4cd964; }
+  :root:not([data-theme="light"]) .atime.a1 { color: #f5c542; }
+  :root:not([data-theme="light"]) .atime.a2, :root:not([data-theme="light"]) .no { color: #ff7b72; }
+}
+:root[data-theme="dark"] .atime.a0, :root[data-theme="dark"] .yes { color: #4cd964; }
+:root[data-theme="dark"] .atime.a1 { color: #f5c542; }
+:root[data-theme="dark"] .atime.a2, :root[data-theme="dark"] .no { color: #ff7b72; }
+
+/* butonul „Coloane” */
+.colpick { position: relative; }
+.colpick-panel { position: absolute; z-index: 900; top: calc(100% + 6px); left: 0; width: min(340px, 92vw); max-height: 70dvh; overflow: auto; padding: 10px 12px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: var(--shadow); }
+.colpick-top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.colpick-panel fieldset { border: 0; border-top: 1px solid var(--border); margin: 8px 0 0; padding: 6px 0 0; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
+.colpick-panel legend { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; opacity: .7; padding: 0 4px 0 0; }
+
+/* ───────── Date păstrate: listă cu fereastră derulantă ───────── */
+.kept-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-top: 8px; }
+.kept-head, .kept-row { display: grid; grid-template-columns: 110px minmax(180px, 2fr) minmax(150px, 1.3fr) 150px minmax(150px, 1.2fr); gap: 10px; align-items: center; padding: 0 12px; }
+.kept-head { height: 32px; background: var(--surface-2); border-bottom: 1px solid var(--border-strong); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+.kept-vp { position: relative; overflow: auto; overscroll-behavior: contain; }
+.kept-row { position: absolute; left: 0; right: 0; border-bottom: 1px solid var(--border); font-size: 12.5px; cursor: pointer; }
+.kept-row:hover, .kept-row[aria-selected="true"] { background: var(--surface-2); }
+.kept-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kept-reason { opacity: .8; }
+.kept-clean { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 10px 12px; margin-top: 8px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface-2); }
+.kept-detail { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+@media (max-width: 760px) { .kept-head, .kept-row { grid-template-columns: 100px 1fr 1fr; } .kept-head span:nth-child(n+4), .kept-row > span:nth-child(n+4) { display: none; } }

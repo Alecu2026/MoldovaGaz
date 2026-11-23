@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { CounterRow } from "@/lib/services/counters";
 import type { IntegrationDevices, IntegrationStats } from "@/lib/services/integration";
 import { ColumnChart, type Bar } from "./charts/primitives";
+import KeptBrowser from "./KeptBrowser";
 
 const nf = new Intl.NumberFormat("ro-RO");
 const p2 = (n: number) => String(n).padStart(2, "0");
@@ -37,6 +38,12 @@ export default function IntegrationPanel() {
   const [reMsg, setReMsg] = useState<string | null>(null);
   const [dev, setDev] = useState<IntegrationDevices | null>(null);
   const [cnt, setCnt] = useState<CounterRow[] | null>(null);
+  const [help, setHelp] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => { try { if (localStorage.getItem("mg:intHelp") === "0") setHelp(false); } catch { /* fără alegere reținută */ } }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  const toggleHelp = (open: boolean) => { setHelp(open); try { localStorage.setItem("mg:intHelp", open ? "1" : "0"); } catch { /* alegerea nu se reține */ } };
 
   useEffect(() => {
     const t0 = setTimeout(() => setOrigin(window.location.origin), 0);
@@ -120,6 +127,13 @@ export default function IntegrationPanel() {
 
   return (
     <div className="page" style={{ overflow: "auto" }}>
+      {!help && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span className={`badge ${s?.enabled ? "ok" : "danger"}`}>{s ? (s.enabled ? "integrare activă" : "dezactivată: lipsește INTEGRATION_TOKEN") : "se verifică…"}</span>
+          <button type="button" className="btn btn-sm" onClick={() => toggleHelp(true)}>Arată instrucțiunile de trimitere</button>
+        </div>
+      )}
+      {help && (
       <section className="card" aria-label="Cum se trimite">
         <header className="card-h">
           <div>
@@ -129,6 +143,7 @@ export default function IntegrationPanel() {
               Un răspuns <b>200</b> înseamnă că datele sunt salvate <b>durabil</b>. Mesajele în formatul de contor se aplică în câteva secunde; <b>orice altceva se păstrează</b> pentru procesare ulterioară (nu dă eroare). Dacă primești altceva decât 200 (503, timeout), <b>reîncearcă</b>: reîncercarea nu strică nimic.
             </p>
           </div>
+          <button type="button" className="btn btn-sm" onClick={() => toggleHelp(false)} aria-label="Închide instrucțiunile de trimitere">Închide ×</button>
         </header>
         <pre className="json" style={{ maxHeight: 220 }}>{`curl -X POST ${origin}/api/integration \\
   -H "Authorization: Bearer <INTEGRATION_TOKEN>" \\
@@ -140,6 +155,7 @@ export default function IntegrationPanel() {
 # răspuns: { "received": 1, "accepted": 1, "kept": 0 }  (accepted = se aplică pe contoare · kept = păstrat pentru procesare ulterioară)
 # 401 token greșit (cu motivul)   ·   503 ocupat (Retry-After): reîncearcă`}</pre>
       </section>
+      )}
 
       <section className="stats auto" aria-label="Stare" aria-live="polite">
         <div className="stat"><div className="k">Primite / secundă</div><div className="v">{s ? nf.format(s.rateRx10) : "—"}</div><div className="s">media ultimelor 10 s</div></div>
@@ -269,6 +285,8 @@ export default function IntegrationPanel() {
           </div>
         </section>
       </div>
+
+      <KeptBrowser />
 
       <section className="tablebox" aria-label="Ultimele mesaje" style={{ minHeight: 160, flex: "none" }}>
         <div className="vp" style={{ maxHeight: 320 }}>

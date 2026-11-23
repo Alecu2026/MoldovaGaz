@@ -8,7 +8,9 @@ import { aggregate, makeCtx, type Agg } from "@/lib/meter-aggregate";
 import { NO_FILTERS, activeFilters, runFilter, toQuery, type Filters, type Sort, type SortKey } from "@/lib/meter-filter";
 import type { MeterStore } from "@/lib/meter-store";
 import { ActiveChips, AdvancedFilters, MainSelects } from "./FilterPanel";
-import ColumnFilter, { type ColKey } from "./ColumnFilters";
+import ColumnFilter from "./ColumnFilters";
+import ColumnPicker from "./ColumnPicker";
+import { ALL_COLUMNS, DEFAULT_COLS, readCols, saveCols, type ColDef, type ColKey } from "./meter-columns";
 import MeterCharts from "./MeterCharts";
 import MeterDetail from "./MeterDetail";
 
@@ -74,6 +76,13 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
     return () => clearTimeout(t);
   }, []);
   const pickPeriod = (p: "month" | "day") => { setConsPeriod(p); try { localStorage.setItem("mg:consPeriod", p); } catch { /* alegerea nu se reține */ } };
+  const [colKeys, setColKeys] = useState<ColKey[]>(DEFAULT_COLS);
+  useEffect(() => {
+    const t = setTimeout(() => setColKeys(readCols()), 0);
+    return () => clearTimeout(t);
+  }, []);
+  const pickCols = (v: ColKey[]) => { setColKeys(v); saveCols(v); };
+  const cols = useMemo(() => ALL_COLUMNS.filter((c) => colKeys.includes(c.col)), [colKeys]);
   const [advOpen, setAdvOpen] = useState(() => hasAdvanced(initialFilters));
   const [live, setLive] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -162,6 +171,7 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
           <button type="button" className="btn" aria-expanded={advOpen} aria-controls="adv-filters" onClick={() => setAdvOpen((v) => !v)}>
             Mai multe filtre {advOpen ? "▴" : "▾"}
           </button>
+          <ColumnPicker value={colKeys} onChange={pickCols} />
           <div style={{ flex: 1 }} />
           {nActive > 0 && (
             <button type="button" className="btn" onClick={reset}>
@@ -228,6 +238,7 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
             onReset={reset}
             onRetry={refresh}
             hasFilters={nActive > 0}
+            cols={cols}
             all={allAgg}
             filters={filters}
             patch={patch}
@@ -313,22 +324,6 @@ function StatusBar({ live, syncing, offline, origin, info, store }: { live: bool
 
 /* ───────────────────────── grila virtualizată ───────────────────────── */
 
-const COLUMNS: { key: SortKey | null; col: ColKey; label: string; cls?: string }[] = [
-  { key: "ts", col: "ts", label: "Ultima citire" },
-  { key: null, col: "ac", label: "Activ" },
-  { key: null, col: "at", label: "Activitate" },
-  { key: "dev", col: "dev", label: "Contor" },
-  { key: "br", col: "br", label: "Filială" },
-  { key: null, col: "ct", label: "Oraș" },
-  { key: "gw", col: "gw", label: "Concentrator" },
-  { key: "rssi", col: "rssi", label: "Semnal" },
-  { key: "bat", col: "bat", label: "Baterie" },
-  { key: "val", col: "val", label: "Volume (m³)", cls: "num" },
-  { key: "dc", col: "dc", label: "Consum zi (L)", cls: "num" },
-  { key: null, col: "ty", label: "Tip mesaj" },
-  { key: null, col: "st", label: "Stare" },
-];
-
 type GridProps = {
   store: MeterStore | null;
   idx: Int32Array | null;
@@ -346,6 +341,8 @@ type GridProps = {
   onReset: () => void;
   onRetry: () => void;
   hasFilters: boolean;
+  /** coloanele vizibile, în ordinea afișării */
+  cols: ColDef[];
   /** filtrele din antet (aceeași stare ca bara de sus) */
   all: Agg | null;
   filters: Filters;
@@ -358,7 +355,8 @@ type GridProps = {
  * derularea nu re-randează bara de filtre.
  */
 function Grid(p: GridProps) {
-  const { store, idx, head, sort } = p;
+  const { store, idx, head, sort, cols } = p;
+  const gridStyle = useMemo(() => ({ "--cols": cols.map((c) => c.w).join(" "), minWidth: cols.reduce((a, c) => a + c.min, 0) }) as React.CSSProperties, [cols]);
   const vpRef = useRef<HTMLDivElement>(null);
   const [vp, setVp] = useState({ top: 0, h: 600 });
   // „acum” pentru treptele de activitate; se reîmprospătează la un minut (re-randează doar rândurile vizibile)
@@ -401,7 +399,7 @@ function Grid(p: GridProps) {
 
   const rows: React.ReactNode[] = [];
   if (store && idx) {
-    for (let i = first; i < last; i++) rows.push(<Row key={store.id[idx[i]]} r={store.view(idx[i])} i={i} top={i * ROW_H} selected={store.id[idx[i]] === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} onSerial={p.onSerial} now={now} />);
+    for (let i = first; i < last; i++) rows.push(<Row key={store.id[idx[i]]} r={store.view(idx[i])} i={i} top={i * ROW_H} selected={store.id[idx[i]] === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} onSerial={p.onSerial} now={now} cols={cols} />);
   }
 
   const headMode = !idx; // lista completă încă nu e gata: primele rânduri vin din HTML
@@ -409,10 +407,10 @@ function Grid(p: GridProps) {
 
   return (
     <div className="vp" ref={vpRef} role="table" aria-label="Contoare" aria-rowcount={count + 1} aria-busy={p.loading}>
-      <div className="tbl">
+      <div className="tbl" style={gridStyle}>
         <div className="hdrs">
           <div className="hdr" role="row">
-            {COLUMNS.map((c) => (
+            {cols.map((c) => (
               <div key={c.label} role="columnheader" aria-sort={c.key && sort.key === c.key ? (sort.dir === 1 ? "ascending" : "descending") : undefined} className={c.cls}>
                 {c.key ? (
                   <button type="button" data-on={sort.key === c.key ? 1 : 0} onClick={() => p.onSort(c.key as SortKey)} style={c.cls === "num" ? { justifyContent: "flex-end", width: "100%" } : undefined}>
@@ -426,7 +424,7 @@ function Grid(p: GridProps) {
             ))}
           </div>
           <div className="fltr" role="row" aria-label="Filtre pe coloane">
-            {COLUMNS.map((c) => (
+            {cols.map((c) => (
               <div key={c.label} role="cell">
                 <ColumnFilter col={c.col} store={store} all={p.all} filters={p.filters} patch={p.patch} />
               </div>
@@ -437,9 +435,9 @@ function Grid(p: GridProps) {
         {headMode && !p.error && (
           <div role="rowgroup">
             {head.map((r, i) => (
-              <Row key={r.id} r={r} i={i} top={0} selected={r.id === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} onSerial={p.onSerial} flow now={now} />
+              <Row key={r.id} r={r} i={i} top={0} selected={r.id === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} onSerial={p.onSerial} flow now={now} cols={cols} />
             ))}
-            {head.length === 0 && p.loading && <SkeletonRows />}
+            {head.length === 0 && p.loading && <SkeletonRows n={cols.length} />}
             {p.loading && head.length > 0 && <div className="cell-sub" style={{ padding: 14 }}>Se încarcă lista completă…</div>}
           </div>
         )}
@@ -482,12 +480,12 @@ function Grid(p: GridProps) {
   );
 }
 
-function SkeletonRows() {
+function SkeletonRows({ n }: { n: number }) {
   return (
     <div aria-hidden="true">
       {Array.from({ length: 9 }, (_, i) => (
         <div key={i} className="row static" style={{ height: ROW_H, cursor: "default" }}>
-          {COLUMNS.map((_, j) => (
+          {Array.from({ length: n }, (_, j) => (
             <div key={j}>
               <div className="skeleton" style={{ height: 12, width: `${55 + ((i * 7 + j * 13) % 40)}%` }} />
             </div>
@@ -503,12 +501,135 @@ function sigClass(rssi: number | null): string {
   return rssi >= -105 ? "good" : rssi >= -115 ? "mid" : "bad";
 }
 
-function Row({ r, i, top, selected, onOpen, onDevice, onSerial, flow, now }: { r: RowView; i: number; top: number; selected: boolean; onOpen: (id: string) => void; onDevice: (id: string) => void; onSerial: (serial: string) => void; flow?: boolean; now: number }) {
+const dmy = (ms: number) => {
+  const d = new Date(ms);
+  return `${String(d.getUTCDate()).padStart(2, "0")}.${String(d.getUTCMonth() + 1).padStart(2, "0")}.${d.getUTCFullYear()}`;
+};
+const dash = <span className="cell-sub">—</span>;
+const yesNo = (on: boolean, what: string) => (on ? <span className="yes" title={`${what}: da`}>✓</span> : <span className="no" title={`${what}: nu / necunoscut`}>✕</span>);
+
+function Row({ r, i, top, selected, onOpen, onDevice, onSerial, flow, now, cols }: { r: RowView; i: number; top: number; selected: boolean; onOpen: (id: string) => void; onDevice: (id: string) => void; onSerial: (serial: string) => void; flow?: boolean; now: number; cols: ColDef[] }) {
   const f = r.fl;
   const act = activityOf(r.ts, now); // 0 activ 24 h · 1 avertizare 1–7 zile · 2 critic > 7 zile · 3 fără citire (ca în SCADA)
   const statusOk = isStatusOk(f); // „OK” = raport de stare fără probleme (inactiv / serie repetată se afișează în plus)
   const anyBadge = statusOk || (f & (PROBLEM_FLAGS | FLAG.INACTIVE | FLAG.DUP)) !== 0 || act === 1 || act === 2;
   const serial = METER_NAME.exec(r.name)?.[2];
+  // ca în SCADA: punctul „Activ” are culoarea treptei de activitate (verde sub 24 h, galben 1–7 zile, roșu peste 7 zile); contor marcat inactiv ⇒ roșu
+  const band = f & FLAG.INACTIVE ? "r" : act === 0 ? "g" : act === 1 ? "y" : act === 2 ? "r" : "n";
+  const cell = (c: ColKey): React.ReactNode => {
+    switch (c) {
+      case "ts":
+        return (
+          <div key={c} role="cell" title={`Citirea de volum: ${r.ts > 0 ? fmtTime(r.ts) : "—"}\nUltima activitate în SCADA: ${r.ac !== null ? fmtTime(r.ac) : "—"}\nAlarmă de inactivitate: ${r.ia !== null ? fmtTime(r.ia) : "—"}`}>
+            {r.ts > 0 ? (
+              <>
+                <div className="mono cell-main" suppressHydrationWarning>{fmtTime(r.ts).slice(11)}</div>
+                <div className="cell-sub mono" suppressHydrationWarning>{fmtTime(r.ts).slice(0, 10)}</div>
+              </>
+            ) : (
+              <div className="cell-sub">fără citiri</div>
+            )}
+          </div>
+        );
+      case "ac":
+        return (
+          <div key={c} role="cell" title={`active în SCADA: ${f & FLAG.ACTIVE ? "true" : f & FLAG.INACTIVE ? "false" : "lipsește"}\nActivitate: ${act === 0 ? "sub 24 h" : act === 1 ? "1–7 zile" : act === 2 ? "peste 7 zile" : "fără citire"}`}>
+            <span className={`adot ${band}`} role="img" aria-label={band === "g" ? "activ" : band === "y" ? "avertizare" : band === "r" ? "inactiv sau critic" : "fără citire"} />
+          </div>
+        );
+      case "at":
+        return (
+          <div key={c} role="cell" title={`Citirea de volum: ${r.ts > 0 ? fmtTime(r.ts) : "—"}`}>
+            <span className={`cell-main atime a${act}`}>{act === 0 ? "<1 zi" : act === 1 ? "1<7 zile" : act === 2 ? ">7 zile" : "fără citire"}</span>
+          </div>
+        );
+      case "dev":
+        return (
+          <div key={c} role="cell">
+            <button type="button" className="dev-link" title={`Filtrează după ${r.name}`} onClick={(e) => { e.stopPropagation(); onDevice(r.id); }}>
+              {r.name || r.eui || "—"}
+            </button>
+            <div className="cell-sub mono">{r.eui || " "}</div>
+          </div>
+        );
+      case "xsp": return <div key={c} role="cell" className="mono cell-main" title={r.xsp || undefined}>{r.xsp || dash}</div>;
+      case "xcp": return <div key={c} role="cell" className="mono cell-main" title={r.xcp || undefined}>{r.xcp || dash}</div>;
+      case "xsn": return <div key={c} role="cell" className="mono cell-main" title={r.xsn || undefined}>{r.xsn || dash}</div>;
+      case "il": return <div key={c} role="cell" className="num mono cell-main">{r.il !== null ? nf.format(r.il) : dash}</div>;
+      case "xar": return <div key={c} role="cell">{yesNo((f & FLAG.ARAGAZ) !== 0, "Aragaz")}</div>;
+      case "xcz": return <div key={c} role="cell">{yesNo((f & FLAG.CAZAN) !== 0, "Cazan")}</div>;
+      case "xin": return <div key={c} role="cell">{yesNo((f & FLAG.INCALZ) !== 0, "Încălzire")}</div>;
+      case "cal": return <div key={c} role="cell" className="mono cell-main">{r.cal !== null && r.cal > 946_684_800_000 ? dmy(r.cal) : dash}</div>;
+      case "br":
+        return <div key={c} role="cell"><div className="cell-main" title={r.branch ?? undefined}>{r.branch ?? "—"}</div></div>;
+      case "ct":
+        return <div key={c} role="cell"><div className="cell-main" title={r.city ?? undefined}>{r.city && r.city !== "—" ? r.city : <span className="cell-sub">—</span>}</div></div>;
+      case "xsr": return <div key={c} role="cell"><div className="cell-main" title={r.xsr || undefined}>{r.xsr || dash}</div></div>;
+      case "xhs": return <div key={c} role="cell" className="cell-main">{r.xhs || dash}</div>;
+      case "xap": return <div key={c} role="cell" className="cell-main">{r.xap || dash}</div>;
+      case "gw":
+        return (
+          <div key={c} role="cell">
+            <div className="cell-main" title={r.gw ?? undefined}>{r.gw ?? "—"}</div>
+            <div className="cell-sub mono">{r.freqKhz ? `${(r.freqKhz / 1000).toFixed(1)} MHz` : " "}</div>
+          </div>
+        );
+      case "rssi":
+        return (
+          <div key={c} role="cell">
+            <div className="mono cell-main">
+              <span className={`sig ${sigClass(r.rssi)}`} aria-hidden="true" />
+              {r.rssi != null ? `${r.rssi} dBm` : "—"}
+            </div>
+            <div className="cell-sub mono">{r.snr != null ? `SNR ${Math.round(r.snr * 10) / 10}` : " "}</div>
+          </div>
+        );
+      case "bat":
+        return <div key={c} role="cell"><div className={`mono cell-main ${r.bat != null && r.bat < 20 ? "low" : ""}`}>{r.bat != null ? `${Math.round(r.bat)}%` : "—"}</div></div>;
+      case "val":
+        return <div key={c} role="cell" className="num mono cell-main">{r.val != null ? nf3.format(r.val) : <span className="cell-sub">—</span>}</div>;
+      case "dc":
+        return (
+          <div key={c} role="cell" className="num mono">
+            {r.dc != null ? nf.format(r.dc) : <span className="cell-sub">—</span>}
+            {r.mc != null && <div className="cell-sub">lună: {nf.format(r.mc)}</div>}
+          </div>
+        );
+      case "la": return <div key={c} role="cell" className="mono cell-main">{r.lat !== null ? r.lat.toFixed(5) : dash}</div>;
+      case "lo": return <div key={c} role="cell" className="mono cell-main">{r.lon !== null ? r.lon.toFixed(5) : dash}</div>;
+      case "ty":
+        return (
+          <div key={c} role="cell">
+            {r.types.length === 0 ? <span className="cell-sub">—</span> : (
+              <div className="badges" title={r.types.join(", ")}>
+                <span className="badge type">{r.types[0]}</span>
+                {r.types.length > 1 && <span className="badge">+{r.types.length - 1}</span>}
+              </div>
+            )}
+          </div>
+        );
+      case "st":
+        return (
+          <div key={c} role="cell">
+            <div className="badges">
+              {act === 1 ? <span className="badge warn" title="Ultima citire acum 1–7 zile">Avertizare</span> : null}
+              {act === 2 ? <span className="badge danger" title="Ultima citire acum mai mult de 7 zile">Critic</span> : null}
+              {f & FLAG.BATT ? <span className="badge danger">Baterie slabă</span> : null}
+              {f & FLAG.INACTIVE ? <span className="badge danger" title="Inactiv în SCADA (atributul active = false)">Inactiv</span> : null}
+              {f & FLAG.DUP ? (
+                <button type="button" className="badge warn badge-btn" title={`Același număr radio (${serial ?? "?"}) apare la mai multe dispozitive. Click: arată-le împreună.`} onClick={(e) => { e.stopPropagation(); if (serial) onSerial(serial); }}>
+                  Serie repetată
+                </button>
+              ) : null}
+              {f & FLAG.BTN ? <span className="badge warn">Buton</span> : null}
+              {f & FLAG.MAG ? <span className="badge warn">Magnet</span> : null}
+              {statusOk ? <span className="badge ok">OK</span> : null}
+              {!anyBadge ? <span className="cell-sub">—</span> : null}
+            </div>
+          </div>
+        );
+    }
+  };
   return (
     <div
       className={`row ${flow ? "static" : ""}`}
@@ -525,92 +646,7 @@ function Row({ r, i, top, selected, onOpen, onDevice, onSerial, flow, now }: { r
         }
       }}
     >
-      <div role="cell" title={`Citirea de volum: ${r.ts > 0 ? fmtTime(r.ts) : "—"}
-Ultima activitate în SCADA: ${r.ac !== null ? fmtTime(r.ac) : "—"}
-Alarmă de inactivitate: ${r.ia !== null ? fmtTime(r.ia) : "—"}`}>
-        {r.ts > 0 ? (
-          <>
-            <div className="mono cell-main" suppressHydrationWarning>{fmtTime(r.ts).slice(11)}</div>
-            <div className="cell-sub mono" suppressHydrationWarning>{fmtTime(r.ts).slice(0, 10)}</div>
-          </>
-        ) : (
-          <div className="cell-sub">fără citiri</div>
-        )}
-      </div>
-      <div role="cell" title={f & FLAG.ACTIVE ? "active = true în SCADA" : f & FLAG.INACTIVE ? "active = false în SCADA" : "atributul active lipsește"}>
-        <span className={`adot ${f & FLAG.ACTIVE ? "g" : f & FLAG.INACTIVE ? "r" : "n"}`} aria-hidden="true" />
-        <span className="cell-main">{f & FLAG.ACTIVE ? "Activ" : f & FLAG.INACTIVE ? "Inactiv" : "—"}</span>
-      </div>
-      <div role="cell" title={`Citirea de volum: ${r.ts > 0 ? fmtTime(r.ts) : "—"}`}>
-        <span className={`adot ${act === 0 ? "g" : act === 1 ? "y" : act === 2 ? "r" : "n"}`} aria-hidden="true" />
-        <span className="cell-main">{act === 0 ? "sub 24 h" : act === 1 ? "1–7 zile" : act === 2 ? "peste 7 zile" : "fără citire"}</span>
-      </div>
-      <div role="cell">
-        <button
-          type="button"
-          className="dev-link"
-          title={`Filtrează după ${r.name}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDevice(r.id);
-          }}
-        >
-          {r.name || r.eui || "—"}
-        </button>
-        <div className="cell-sub mono">{r.eui || " "}</div>
-      </div>
-      <div role="cell">
-        <div className="cell-main" title={r.branch ?? undefined}>{r.branch ?? "—"}</div>
-      </div>
-      <div role="cell">
-        <div className="cell-main" title={r.city ?? undefined}>{r.city && r.city !== "—" ? r.city : <span className="cell-sub">—</span>}</div>
-      </div>
-      <div role="cell">
-        <div className="cell-main" title={r.gw ?? undefined}>{r.gw ?? "—"}</div>
-        <div className="cell-sub mono">{r.freqKhz ? `${(r.freqKhz / 1000).toFixed(1)} MHz` : " "}</div>
-      </div>
-      <div role="cell">
-        <div className="mono cell-main">
-          <span className={`sig ${sigClass(r.rssi)}`} aria-hidden="true" />
-          {r.rssi != null ? `${r.rssi} dBm` : "—"}
-        </div>
-        <div className="cell-sub mono">{r.snr != null ? `SNR ${Math.round(r.snr * 10) / 10}` : " "}</div>
-      </div>
-      <div role="cell">
-        <div className={`mono cell-main ${r.bat != null && r.bat < 20 ? "low" : ""}`}>{r.bat != null ? `${Math.round(r.bat)}%` : "—"}</div>
-      </div>
-      <div role="cell" className="num mono cell-main">
-        {r.val != null ? nf3.format(r.val) : <span className="cell-sub">—</span>}
-      </div>
-      <div role="cell" className="num mono">
-        {r.dc != null ? nf.format(r.dc) : <span className="cell-sub">—</span>}
-        {r.mc != null && <div className="cell-sub">lună: {nf.format(r.mc)}</div>}
-      </div>
-      <div role="cell">
-        {r.types.length === 0 ? <span className="cell-sub">—</span> : (
-          <div className="badges" title={r.types.join(", ")}>
-            <span className="badge type">{r.types[0]}</span>
-            {r.types.length > 1 && <span className="badge">+{r.types.length - 1}</span>}
-          </div>
-        )}
-      </div>
-      <div role="cell">
-        <div className="badges">
-          {act === 1 ? <span className="badge warn" title="Ultima citire acum 1–7 zile">Avertizare</span> : null}
-          {act === 2 ? <span className="badge danger" title="Ultima citire acum mai mult de 7 zile">Critic</span> : null}
-          {f & FLAG.BATT ? <span className="badge danger">Baterie slabă</span> : null}
-          {f & FLAG.INACTIVE ? <span className="badge danger" title="Inactiv în SCADA (atributul active = false)">Inactiv</span> : null}
-          {f & FLAG.DUP ? (
-            <button type="button" className="badge warn badge-btn" title={`Același număr radio (${serial ?? "?"}) apare la mai multe dispozitive. Click: arată-le împreună.`} onClick={(e) => { e.stopPropagation(); if (serial) onSerial(serial); }}>
-              Serie repetată
-            </button>
-          ) : null}
-          {f & FLAG.BTN ? <span className="badge warn">Buton</span> : null}
-          {f & FLAG.MAG ? <span className="badge warn">Magnet</span> : null}
-          {statusOk ? <span className="badge ok">OK</span> : null}
-          {!anyBadge ? <span className="cell-sub">—</span> : null}
-        </div>
-      </div>
+      {cols.map((c) => cell(c.col))}
     </div>
   );
 }

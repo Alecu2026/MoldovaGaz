@@ -19,7 +19,7 @@ import type { GwHit, IntegrationMsg, Parsed } from "./integration";
 export function normTs(x: unknown): number | null {
   let t: number;
   if (typeof x === "number") t = x;
-  else if (typeof x === "string" && x.trim() !== "") t = /^d+(.d+)?$/.test(x.trim()) ? Number(x) : Date.parse(x);
+  else if (typeof x === "string" && x.trim() !== "") t = /^\d+(\.\d+)?$/.test(x.trim()) ? Number(x) : Date.parse(x);
   else return null;
   if (!Number.isFinite(t)) return null;
   if (t >= 1e9 && t < 1e11) t *= 1000; // secunde

@@ -9,7 +9,8 @@ import { MultiSelect, type Opt } from "./FilterPanel";
  * Filtrele din antetul tabelului: câte unul chiar sub numele fiecărei coloane. Folosesc ACEEAȘI stare ca bara de filtre de sus
  * (aceleași câmpuri din `Filters`), deci o schimbare făcută într-un loc apare și în celălalt, în URL și în etichetele filtrelor active.
  */
-export type ColKey = "ts" | "ac" | "at" | "dev" | "br" | "ct" | "gw" | "rssi" | "bat" | "val" | "dc" | "ty" | "st";
+import type { ColKey } from "./meter-columns";
+export type { ColKey };
 
 type P = { col: ColKey; store: MeterStore | null; all: Agg | null; filters: Filters; patch: (p: Partial<Filters>) => void };
 
@@ -62,6 +63,33 @@ export default function ColumnFilter({ col, store, all, filters: f, patch }: P) 
       return <MultiSelect compact label="Activ" options={[{ value: "1", label: "Activ", count: all?.flags.active }, { value: "0", label: "Inactiv", count: all?.flags.inactive }]} selected={f.actv ? [f.actv] : []} onChange={(v) => patch({ actv: v.length === 1 ? v[0] : "" })} />;
     case "at":
       return <MultiSelect compact label="Activitate" options={[{ value: "act", label: "Verde · sub 24 h", count: all?.flags.act }, { value: "warn", label: "Galben · 1–7 zile", count: all?.flags.warn }, { value: "crit", label: "Roșu · peste 7 zile", count: all?.flags.crit }, { value: "noact", label: "Fără citire", count: all?.flags.noact }]} selected={toList(f.band)} onChange={(v) => patch({ band: fromList(v) })} />;
+    case "xsp": case "xcp": case "xsn": case "xsr": case "xhs": case "xap": {
+      const lab = { xsp: "SPID", xcp: "Cont personal", xsn: "Contor SN", xsr: "Adresă", xhs: "Bloc / casă", xap: "Apartament" }[col];
+      return <input className="input cf-in" type="search" placeholder="conține" aria-label={lab} value={f[col]} onChange={(e) => patch({ [col]: e.target.value })} autoComplete="off" spellCheck={false} />;
+    }
+    case "il":
+      return <Range label="Litri la instalare" min={f.ilMin} max={f.ilMax} onMin={(v) => patch({ ilMin: v })} onMax={(v) => patch({ ilMax: v })} />;
+    case "xar": case "xcz": case "xin": {
+      const lab = { xar: "Aragaz", xcz: "Cazan", xin: "Încălzire" }[col];
+      return (
+        <select className="select cf-in" aria-label={lab} value={f[col]} onChange={(e) => patch({ [col]: e.target.value })}>
+          <option value="">Toate</option>
+          <option value="1">Da ✓</option>
+          <option value="0">Nu / necunoscut</option>
+        </select>
+      );
+    }
+    case "cal":
+      return (
+        <div className="cf-range" role="group" aria-label="Data calibrării">
+          <input className="input cf-in" type="date" value={f.calFrom} max={f.calTo || undefined} onChange={(e) => patch({ calFrom: e.target.value })} aria-label="Data calibrării, de la" />
+          <input className="input cf-in" type="date" value={f.calTo} min={f.calFrom || undefined} onChange={(e) => patch({ calTo: e.target.value })} aria-label="Data calibrării, până la" />
+        </div>
+      );
+    case "la":
+      return <Range label="Latitudine" step="0.0001" min={f.laMin} max={f.laMax} onMin={(v) => patch({ laMin: v })} onMax={(v) => patch({ laMax: v })} />;
+    case "lo":
+      return <Range label="Longitudine" step="0.0001" min={f.loMin} max={f.loMax} onMin={(v) => patch({ loMin: v })} onMax={(v) => patch({ loMax: v })} />;
     case "dev":
       return <input className="input cf-in" type="search" placeholder="nume sau devEUI" aria-label="Contor: nume sau devEUI" value={f.name} onChange={(e) => patch({ name: e.target.value })} autoComplete="off" spellCheck={false} />;
     case "br":
