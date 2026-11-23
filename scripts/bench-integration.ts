@@ -95,7 +95,7 @@ async function main() {
     const badJson = await post("nu e json".repeat(1) as never, {}).catch(() => null);
     const invalid = await post({ ceva: 1 });
     const empty = await post([]);
-    console.log(`fără token: ${no.status} (așteptat 401) · token greșit: ${bad.status} (401) · mesaj invalid: ${invalid.status} (422) · listă goală: ${empty.status} (200) · corp text: ${badJson?.status}`);
+    console.log(`fără token: ${no.status} (așteptat 401) · token greșit: ${bad.status} (401) · alt format: ${invalid.status} (200, păstrat) · listă goală: ${empty.status} (200) · text oarecare: ${badJson?.status} (200, păstrat)`);
     return;
   }
 

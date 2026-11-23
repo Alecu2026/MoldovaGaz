@@ -1,26 +1,29 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { MAX_BATCH, MAX_BODY_BYTES } from "@/lib/integration";
-import { isBlocked, recordFail } from "@/lib/rate-limit";
+import { MAX_BODY_BYTES } from "@/lib/integration";
 import { BusyError, accept, startIntegrationWorker } from "@/lib/services/integration";
 
 /**
- * INTEGRARE — `POST /api/integration`: primește mesaje de contor direct de la rețeaua LoRaWAN / antene (un obiect sau o listă, cel mult 1000), în forma documentului
- * unui contor: { id?, tb: { name, type, … }, bill?, attrs?, tel: { <cheie>: { t, v } } }. Autentificare: `Authorization: Bearer <INTEGRATION_TOKEN>` (sau antetul
- * `X-Integration-Token`). Corpul poate fi trimis comprimat (`Content-Encoding: gzip`).
+ * INTEGRARE — `POST /api/integration`: primește date direct de la rețeaua LoRaWAN / antene. Orice a trimis expeditorul se SALVEAZĂ durabil și se răspunde 200:
+ * mesajele în forma documentului unui contor ({ id?, tb: { name, … }, bill?, attrs?, tel: { <cheie>: { t, v } } }) se aplică pe contoare în câteva secunde;
+ * orice altceva (alt format, contor necunoscut, text care nu e JSON) se PĂSTREAZĂ pentru procesare ulterioară (colecția `integration_raw`, cu motivul) și NU dă eroare.
+ * Autentificare: `Authorization: Bearer <INTEGRATION_TOKEN>` (sau antetul `X-Integration-Token`). Corpul poate fi comprimat (`Content-Encoding: gzip`), maximum 8 MB.
  *
- * GARANȚIE: un răspuns 200 înseamnă că mesajele sunt salvate DURABIL (cutia de intrare, cu jurnal) și vor fi aplicate pe contoare în cel mult câteva secunde. Dacă nu
- * s-a putut salva (503 / 5xx / fără răspuns), expeditorul trebuie să REÎNCERCE: aplicarea e idempotentă, deci reîncercarea nu strică nimic. Dacă serverul e supraîncărcat,
- * răspunde 503 cu `Retry-After` (nu pierde mesaje și nu le acceptă pe jumătate).
- * Răspunsuri: 200 {received, accepted, errors[]} · 400 JSON invalid · 401 token · 413 prea mare · 422 niciun mesaj valid · 429 prea multe încercări greșite · 503 ocupat / dezactivat.
+ * GARANȚIE: 200 = datele sunt salvate DURABIL. Dacă nu s-au putut salva (503 / eroare / fără răspuns), expeditorul REÎNCEARCĂ: aplicarea e idempotentă.
+ * Răspunsuri: 200 {received, accepted, kept} · 401 token lipsă / greșit (cu motivul) · 413 mai mare de 8 MB · 503 ocupat / dezactivat (cu Retry-After).
+ * Nu există blocare pe adresă: un token corect trece oricând.
  */
 const digest = (s: string) => createHash("sha256").update(s).digest();
-const clientKey = (req: Request) => `integration:${(req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? "local").split(",")[0].trim()}`;
 const json = (body: unknown, status = 200, headers?: Record<string, string>) => Response.json(body, { status, headers: { "Cache-Control": "no-store", ...headers } });
 
-function authorized(req: Request, token: string): boolean {
+/** Verifică tokenul. Dacă nu e corect, spune CE e greșit (fără să dezvăluie tokenul), ca expeditorul să-și poată repara cererea. */
+function check(req: Request, token: string): { ok: true } | { ok: false; why: string } {
   const h = req.headers.get("authorization");
-  const given = (h && /^Bearer\s+/i.test(h) ? h.replace(/^Bearer\s+/i, "") : req.headers.get("x-integration-token") ?? "").trim();
-  return given.length > 0 && timingSafeEqual(digest(given), digest(token));
+  const x = req.headers.get("x-integration-token");
+  if (!h && !x) return { ok: false, why: "lipsește antetul Authorization (se așteaptă: Authorization: Bearer <token>)" };
+  const given = (h ? (/^Bearer\s+/i.test(h) ? h.replace(/^Bearer\s+/i, "") : "") : x ?? "").trim().replace(/^"(.*)"$/, "$1");
+  if (!given) return { ok: false, why: 'antetul Authorization nu are forma "Bearer <token>"' };
+  if (given.length !== token.length) return { ok: false, why: `tokenul are ${given.length} caractere, iar cel așteptat ${token.length}: verifică dacă a fost copiat întreg, fără spații sau ghilimele` };
+  return timingSafeEqual(digest(given), digest(token)) ? { ok: true } : { ok: false, why: "tokenul nu e cel corect" };
 }
 
 /** Citește corpul cu limită de dimensiune (și după decomprimare, ca să nu fie „bombă” gzip). */
@@ -49,37 +52,33 @@ async function readBody(req: Request): Promise<string | "too-large"> {
 export async function POST(req: Request) {
   const token = (process.env.INTEGRATION_TOKEN ?? "").trim();
   if (token.length < 24) return json({ error: "Integrarea nu e activată (INTEGRATION_TOKEN lipsește sau e prea scurt: minimum 24 de caractere)." }, 503);
-  const key = clientKey(req);
-  if (isBlocked(key)) return json({ error: "Prea multe încercări greșite. Reîncearcă mai târziu." }, 429, { "Retry-After": "900" });
-  if (!authorized(req, token)) {
-    recordFail(key);
-    return json({ error: "Token invalid." }, 401);
-  }
+  const auth = check(req, token);
+  if (!auth.ok) return json({ error: "Token invalid.", reason: auth.why }, 401);
   startIntegrationWorker(); // sigur de apelat din nou: pornește procesul doar o dată
 
   let text: string | "too-large";
   try {
     text = await readBody(req);
   } catch {
-    return json({ error: "Corp invalid (gzip stricat?)." }, 400);
+    text = ""; // gzip stricat: nu e o eroare a expeditorului pe care s-o refuzăm; păstrăm ce avem (nimic) și răspundem normal
   }
   if (text === "too-large") return json({ error: "Cererea e prea mare (maximum 8 MB).", maxBytes: MAX_BODY_BYTES }, 413);
-  let data: unknown;
+
+  // orice conținut: JSON (obiect sau listă) sau text oarecare, care se păstrează ca atare
+  let items: unknown[];
   try {
-    data = JSON.parse(text);
+    const data: unknown = JSON.parse(text);
+    items = Array.isArray(data) ? data : [data];
   } catch {
-    return json({ error: "JSON invalid." }, 400);
+    items = text.trim() === "" ? [] : [{ __raw: text }];
   }
-  const items = Array.isArray(data) ? data : [data];
-  if (items.length === 0) return json({ received: 0, accepted: 0, errors: [] });
-  if (items.length > MAX_BATCH) return json({ error: `Prea multe mesaje într-o cerere (maximum ${MAX_BATCH}).`, max: MAX_BATCH }, 413);
+  if (items.length === 0) return json({ received: 0, accepted: 0, kept: 0 });
 
   try {
-    const r = await accept(items);
-    return json(r, r.accepted === 0 && r.errors.length > 0 ? 422 : 200);
+    return json(await accept(items));
   } catch (e) {
     if (e instanceof BusyError) return json({ error: "Server ocupat: reîncearcă.", retryAfter: e.retryAfter }, 503, { "Retry-After": String(e.retryAfter) });
-    console.error("[integration] salvarea în cutia de intrare a eșuat:", (e as Error).message);
-    return json({ error: "Nu am putut salva mesajele: reîncearcă." }, 503, { "Retry-After": "2" });
+    console.error("[integration] salvarea a eșuat:", (e as Error).message);
+    return json({ error: "Nu am putut salva datele: reîncearcă." }, 503, { "Retry-After": "2" });
   }
 }

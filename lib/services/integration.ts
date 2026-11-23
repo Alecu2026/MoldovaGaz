@@ -18,6 +18,9 @@ import { bumpMeterEpoch, getStore } from "./meter-dataset";
  */
 export const INBOX = process.env.INTEGRATION_INBOX_COLLECTION || "integration_inbox";
 export const DEAD = process.env.INTEGRATION_DEAD_COLLECTION || "integration_dead";
+/** tot ce nu se potrivește cu formatul de contor (sau contorul nu se cunoaște), păstrat pentru procesare ulterioară */
+export const RAW = process.env.INTEGRATION_RAW_COLLECTION || "integration_raw";
+const RAW_MAX_CHARS = 256 * 1024;
 const MAX_INBOX = Number(process.env.INTEGRATION_MAX_INBOX) > 0 ? Number(process.env.INTEGRATION_MAX_INBOX) : 500_000;
 const BATCH = 1000;
 const IDLE_MS = 250;
@@ -26,7 +29,7 @@ type InboxDoc = { _id: ObjectId; id: string; at: number; m: IntegrationMsg };
 type Ev = { at: number; id: string; name: string; status: string };
 type State = {
   started: boolean; running: boolean; timer: ReturnType<typeof setTimeout> | null; failDelay: number; lastError: string | null;
-  received: number; rejected: number; processed: number; created: number; updated: number; unchanged: number; dead: number; busy: number;
+  received: number; rejected: number; kept: number; processed: number; created: number; updated: number; unchanged: number; dead: number; busy: number;
   sec: Map<number, { rx: number; ok: number }>; events: Ev[]; lastBatch: { n: number; ms: number; at: number } | null; batchMs: number[];
   depth: { at: number; n: number }; maps: { gen: string; n: number; names: Map<string, string>; euis: Map<string, string> } | null; indexed: boolean;
 };
@@ -34,7 +37,7 @@ const g = globalThis as unknown as { __integ?: State };
 function st(): State {
   return (g.__integ ??= {
     started: false, running: false, timer: null, failDelay: 0, lastError: null,
-    received: 0, rejected: 0, processed: 0, created: 0, updated: 0, unchanged: 0, dead: 0, busy: 0,
+    received: 0, rejected: 0, kept: 0, processed: 0, created: 0, updated: 0, unchanged: 0, dead: 0, busy: 0,
     sec: new Map(), events: [], lastBatch: null, batchMs: [], depth: { at: 0, n: 0 }, maps: null, indexed: false,
   });
 }
@@ -70,7 +73,7 @@ async function resolver(): Promise<{ byName: (n: string) => string | null; byEui
   return { byName: (n) => m.names.get(n) ?? null, byEui: (e) => m.euis.get(e) ?? null };
 }
 
-export type AcceptResult = { received: number; accepted: number; errors: { index: number; error: string }[] };
+export type AcceptResult = { received: number; accepted: number; kept: number; reasons?: string[] };
 export class BusyError extends Error {
   constructor(public retryAfter: number) { super("cutia de intrare e plină"); }
 }
@@ -83,43 +86,99 @@ async function depth(): Promise<number> {
   return n;
 }
 
-/** Validează și salvează durabil mesajele. Aruncă (⇒ fără răspuns de succes) dacă salvarea eșuează sau cutia e plină. */
+/** Un element păstrat pentru procesare ulterioară: conținutul original (tăiat dacă e foarte mare) și motivul. */
+function keptDoc(raw: unknown, reason: string, at: number): { at: number; reason: string; raw: unknown; truncated?: true } {
+  let body: unknown = raw;
+  let truncated = false;
+  try {
+    const t = typeof raw === "string" ? raw : JSON.stringify(raw);
+    if (t !== undefined && t.length > RAW_MAX_CHARS) { body = t.slice(0, RAW_MAX_CHARS); truncated = true; }
+  } catch {
+    body = String(raw).slice(0, RAW_MAX_CHARS);
+    truncated = true;
+  }
+  return { at, reason, raw: body, ...(truncated ? { truncated: true as const } : {}) };
+}
+
+/**
+ * Salvează DURABIL tot ce a primit. Mesajele valide merg în cutia de intrare (se aplică pe contoare); orice altceva (alt format, contor necunoscut, text) se păstrează
+ * în `integration_raw`, cu motivul, pentru procesare ulterioară — nu se refuză. Aruncă (⇒ fără răspuns de succes) doar dacă salvarea eșuează sau cutia e plină.
+ */
 export async function accept(items: unknown[]): Promise<AcceptResult> {
   const s = st();
   const now = Date.now();
   const b = bucket(s, now);
   s.received += items.length;
   b.rx += items.length;
-  const errors: AcceptResult["errors"] = [];
-  const parsed: { index: number; msg: IntegrationMsg }[] = [];
-  for (let i = 0; i < items.length; i++) {
-    const p = parseMessage(items[i], now);
-    if (p.ok) parsed.push({ index: i, msg: p.msg });
-    else errors.push({ index: i, error: p.error });
+  const kept: { at: number; reason: string; raw: unknown; truncated?: true }[] = [];
+  const parsed: { msg: IntegrationMsg; raw: unknown }[] = [];
+  for (const it of items) {
+    const p = parseMessage(it, now);
+    if (p.ok) parsed.push({ msg: p.msg, raw: it });
+    else kept.push(keptDoc(it, p.error, now));
   }
   const docs: { id: string; at: number; m: IntegrationMsg }[] = [];
   if (parsed.length) {
     const r = parsed.some((x) => !x.msg.id) ? await resolver() : null;
-    for (const { index, msg } of parsed) {
+    for (const { msg, raw } of parsed) {
       const id = msg.id ?? (msg.name && r?.byName(msg.name)) ?? (msg.eui && r?.byEui(msg.eui)) ?? null;
-      if (!id) errors.push({ index, error: "contor necunoscut: trimite id (UUID) sau un nume / devEUI existent în aplicație" });
+      if (!id) kept.push(keptDoc(raw, "contor necunoscut (nu există în aplicație după id, nume sau devEUI)", now));
       else docs.push({ id, at: now, m: { ...msg, id } });
     }
   }
-  if (docs.length) {
-    if ((await depth()) + docs.length > MAX_INBOX) {
+  if (docs.length || kept.length) {
+    if (docs.length && (await depth()) + docs.length > MAX_INBOX) {
       s.busy++;
       throw new BusyError(Math.min(30, 2 + Math.floor((await depth()) / 20_000)));
     }
-    const inbox = await col<Document>(INBOX);
-    await inbox.insertMany(docs as never, { ordered: false, writeConcern: { w: 1, j: true } });
-    s.depth.n += docs.length;
-    kick();
+    const wc = { w: 1 as const, j: true };
+    if (docs.length) {
+      const inbox = await col<Document>(INBOX);
+      for (let i = 0; i < docs.length; i += 1000) await inbox.insertMany(docs.slice(i, i + 1000) as never, { ordered: false, writeConcern: wc });
+      s.depth.n += docs.length;
+    }
+    if (kept.length) {
+      const raw = await col<Document>(RAW);
+      for (let i = 0; i < kept.length; i += 1000) await raw.insertMany(kept.slice(i, i + 1000).map((k) => ({ ...k, createdAt: new Date(now) })) as never, { ordered: false, writeConcern: wc });
+      s.kept += kept.length;
+    }
+    if (docs.length) kick();
   }
-  s.rejected += errors.length;
+  s.rejected += kept.length;
   b.ok += docs.length;
   for (const d of docs.slice(0, 20)) pushEv(s, { at: now, id: d.id, name: d.m.name ?? "", status: "primit" });
-  return { received: items.length, accepted: docs.length, errors };
+  for (const k of kept.slice(0, 5)) pushEv(s, { at: now, id: "", name: k.reason.slice(0, 60), status: "păstrat" });
+  const reasons = [...new Set(kept.map((k) => k.reason))].slice(0, 5);
+  return { received: items.length, accepted: docs.length, kept: kept.length, ...(reasons.length ? { reasons } : {}) };
+}
+
+/**
+ * Reia din `integration_raw` ce se poate aplica acum (de ex. după ce a apărut contorul sau am adaptat formatul): ce trece validarea merge în cutia de intrare și se
+ * șterge din păstrare; restul rămâne cu motivul actualizat. Întoarce câte s-au mutat și câte au rămas.
+ */
+export async function reprocessKept(limit = 1000): Promise<{ moved: number; remaining: number }> {
+  const raw = await col<Document>(RAW);
+  const now = Date.now();
+  const batch = await raw.find({}).sort({ _id: 1 }).limit(limit).toArray();
+  const r = await resolver();
+  const moveIds: unknown[] = [];
+  const docs: { id: string; at: number; m: IntegrationMsg }[] = [];
+  for (const k of batch) {
+    const p = parseMessage(k.raw, now);
+    if (!p.ok) continue;
+    const id = p.msg.id ?? (p.msg.name && r.byName(p.msg.name)) ?? (p.msg.eui && r.byEui(p.msg.eui)) ?? null;
+    if (!id) continue;
+    docs.push({ id, at: now, m: { ...p.msg, id } });
+    moveIds.push(k._id);
+  }
+  if (docs.length) {
+    const inbox = await col<Document>(INBOX);
+    for (let i = 0; i < docs.length; i += 1000) await inbox.insertMany(docs.slice(i, i + 1000) as never, { ordered: false, writeConcern: { w: 1, j: true } });
+    await raw.deleteMany({ _id: { $in: moveIds } as never });
+    st().depth.n += docs.length;
+    kick();
+  }
+  return { moved: docs.length, remaining: await raw.estimatedDocumentCount() };
 }
 
 /* ───────── procesul care golește cutia ───────── */
@@ -221,25 +280,30 @@ export function startIntegrationWorker(): void {
       const inbox = await col<Document>(INBOX);
       await inbox.createIndex({ id: 1 }); // pentru diagnostic; golirea se face după _id
       await (await col<Document>(DEAD)).createIndex({ createdAt: 1 }, { expireAfterSeconds: 30 * 86_400 });
+      await (await col<Document>(RAW)).createIndex({ createdAt: 1 }, { expireAfterSeconds: 90 * 86_400 });
       s.indexed = true;
     } catch (e) {
       console.error("[integration] indecși:", (e as Error).message);
     }
     kick();
+    // datele păstrate (alt format / contor necunoscut) se reiau la pornire și apoi la fiecare 10 minute: contorul poate apărea între timp
+    const retry = () => void reprocessKept(2000).catch((e) => console.error("[integration] reluarea datelor păstrate:", (e as Error).message));
+    setTimeout(retry, 15_000).unref?.();
+    setInterval(retry, 10 * 60_000).unref?.();
   })();
 }
 
 export type IntegrationStats = {
   enabled: boolean; startedWorker: boolean; depth: number; oldestAgeMs: number | null; lastError: string | null;
-  totals: { received: number; rejected: number; processed: number; created: number; updated: number; unchanged: number; dead: number; busy: number };
+  totals: { received: number; kept: number; rejected: number; processed: number; created: number; updated: number; unchanged: number; dead: number; busy: number };
   perSecond: { rx: number[]; ok: number[] }; rateRx10: number; rateOk10: number;
   lastBatch: { n: number; ms: number; at: number } | null; batchP50: number | null; batchP95: number | null;
-  events: Ev[]; maxInbox: number; deadCount: number;
+  events: Ev[]; maxInbox: number; deadCount: number; keptCount: number;
 };
 export async function integrationStats(): Promise<IntegrationStats> {
   const s = st();
   const inbox = await col<InboxDoc>(INBOX);
-  const [n, oldest, deadCount] = await Promise.all([inbox.estimatedDocumentCount(), inbox.find({}, { projection: { at: 1 } }).sort({ _id: 1 }).limit(1).next(), (await col<Document>(DEAD)).estimatedDocumentCount()]);
+  const [n, oldest, deadCount, keptCount] = await Promise.all([inbox.estimatedDocumentCount(), inbox.find({}, { projection: { at: 1 } }).sort({ _id: 1 }).limit(1).next(), (await col<Document>(DEAD)).estimatedDocumentCount(), (await col<Document>(RAW)).estimatedDocumentCount()]);
   const nowK = Math.floor(Date.now() / 1000);
   const rx: number[] = [], ok: number[] = [];
   for (let k = nowK - 59; k <= nowK; k++) {
@@ -252,9 +316,9 @@ export async function integrationStats(): Promise<IntegrationStats> {
   const pct = (p: number) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] : null);
   return {
     enabled: (process.env.INTEGRATION_TOKEN ?? "").trim().length >= 24, startedWorker: s.started, depth: n, oldestAgeMs: oldest?.at ? Date.now() - oldest.at : null, lastError: s.lastError,
-    totals: { received: s.received, rejected: s.rejected, processed: s.processed, created: s.created, updated: s.updated, unchanged: s.unchanged, dead: s.dead, busy: s.busy },
+    totals: { received: s.received, kept: s.kept, rejected: s.rejected, processed: s.processed, created: s.created, updated: s.updated, unchanged: s.unchanged, dead: s.dead, busy: s.busy },
     perSecond: { rx, ok }, rateRx10: Math.round((sum(rx.slice(-10)) / 10) * 10) / 10, rateOk10: Math.round((sum(ok.slice(-10)) / 10) * 10) / 10,
-    lastBatch: s.lastBatch, batchP50: pct(0.5), batchP95: pct(0.95), events: s.events.slice(-40).reverse(), maxInbox: MAX_INBOX, deadCount,
+    lastBatch: s.lastBatch, batchP50: pct(0.5), batchP95: pct(0.95), events: s.events.slice(-40).reverse(), maxInbox: MAX_INBOX, deadCount, keptCount,
   };
 }
 

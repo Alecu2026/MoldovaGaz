@@ -33,6 +33,7 @@ export default function IntegrationPanel() {
   const [text, setText] = useState(SAMPLE);
   const [check, setCheck] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reMsg, setReMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const t0 = setTimeout(() => setOrigin(window.location.origin), 0);
@@ -76,6 +77,17 @@ export default function IntegrationPanel() {
     }
   };
 
+  const reprocess = async () => {
+    setReMsg("se reia…");
+    try {
+      const r = await fetch("/api/integration/reprocess", { method: "POST" });
+      const j = (await r.json()) as { moved?: number; remaining?: number; error?: string };
+      setReMsg(r.ok ? `${j.moved} aplicate acum, ${j.remaining} rămase păstrate` : j.error ?? "Nu am putut relua.");
+    } catch {
+      setReMsg("Nu am putut relua.");
+    }
+  };
+
   const bars: Bar[] = (s?.perSecond.rx ?? Array(60).fill(0)).map((v, i) => ({ label: `acum ${59 - i} s`, axis: i % 10 === 0 ? `−${59 - i} s` : "", value: v, ghost: 0 }));
   const lagBad = !!s && s.oldestAgeMs !== null && s.oldestAgeMs > 30_000;
 
@@ -87,7 +99,7 @@ export default function IntegrationPanel() {
             <h3>Integrare: mesaje direct de la LoRaWAN / antene</h3>
             <p>
               <span className={`badge ${s?.enabled ? "ok" : "danger"}`}>{s ? (s.enabled ? "activă" : "dezactivată: lipsește INTEGRATION_TOKEN") : "se verifică…"}</span>{" "}
-              Un răspuns <b>200</b> înseamnă că mesajele sunt salvate <b>durabil</b> și se aplică pe contoare în câteva secunde. Dacă primești altceva (503, timeout), <b>reîncearcă</b>: reîncercarea nu strică nimic.
+              Un răspuns <b>200</b> înseamnă că datele sunt salvate <b>durabil</b>. Mesajele în formatul de contor se aplică în câteva secunde; <b>orice altceva se păstrează</b> pentru procesare ulterioară (nu dă eroare). Dacă primești altceva decât 200 (503, timeout), <b>reîncearcă</b>: reîncercarea nu strică nimic.
             </p>
           </div>
         </header>
@@ -96,9 +108,10 @@ export default function IntegrationPanel() {
   -H "Content-Type: application/json" \\
   -d '[ { "tb": { "name": "S2154_00186354_2024" }, "tel": { "Volume_m3_Total": { "t": 1795464061182, "v": "4118.935" } } } ]'
 
-# un obiect sau o listă (cel mult 1000 de mesaje, 8 MB); corpul poate fi comprimat: Content-Encoding: gzip
+# se poate trimite orice (obiect, listă, text), cel mult 8 MB; corpul poate fi comprimat: Content-Encoding: gzip
 # contorul se identifică prin "id" (UUID), "tb.name" sau "attrs.devEUI"
-# răspuns: { "received": 1, "accepted": 1, "errors": [] }   ·   401 token   ·   422 niciun mesaj valid   ·   503 ocupat (Retry-After)`}</pre>
+# răspuns: { "received": 1, "accepted": 1, "kept": 0 }  (accepted = se aplică pe contoare · kept = păstrat pentru procesare ulterioară)
+# 401 token greșit (cu motivul)   ·   503 ocupat (Retry-After): reîncearcă`}</pre>
       </section>
 
       <section className="stats auto" aria-label="Stare" aria-live="polite">
@@ -107,6 +120,7 @@ export default function IntegrationPanel() {
         <div className={`stat ${s && s.depth > 1000 ? "alert" : ""}`}><div className="k">În cutia de intrare</div><div className="v">{s ? nf.format(s.depth) : "—"}</div><div className="s">{s ? `cel mai vechi: ${age(s.oldestAgeMs)} · limita ${nf.format(s.maxInbox)}` : " "}</div></div>
         <div className="stat"><div className="k">Ultimul pachet aplicat</div><div className="v">{s?.lastBatch ? `${nf.format(s.lastBatch.n)}` : "—"}</div><div className="s">{s?.lastBatch ? `${s.lastBatch.ms} ms · ${clock(s.lastBatch.at)}` : "încă niciunul"}</div></div>
         <div className="stat"><div className="k">Durată pachet (p50 / p95)</div><div className="v" style={{ fontSize: 18 }}>{s?.batchP50 != null ? `${s.batchP50} / ${s.batchP95} ms` : "—"}</div><div className="s">ultimele 100 de pachete</div></div>
+        <div className={`stat ${s && s.keptCount > 0 ? "alert" : ""}`}><div className="k">Păstrate pentru procesare ulterioară</div><div className="v">{s ? nf.format(s.keptCount) : "—"}</div><div className="s"><button type="button" className="btn btn-sm" onClick={reprocess}>Reia acum</button> {reMsg ?? "alt format / contor necunoscut"}</div></div>
         <div className={`stat ${s && s.deadCount > 0 ? "alert" : ""}`}><div className="k">Respinse la aplicare</div><div className="v">{s ? nf.format(s.deadCount) : "—"}</div><div className="s">în „integration_dead” (30 de zile)</div></div>
       </section>
 
@@ -119,7 +133,7 @@ export default function IntegrationPanel() {
           <header className="card-h"><div><h3>Mesaje primite pe secundă</h3><p>ultimele 60 de secunde (de la acest proces)</p></div></header>
           <ColumnChart unit="mesaje" bars={bars} ariaLabel="Mesaje primite pe secundă în ultimul minut" height={140} labelWidth={44} />
           <p className="cell-sub" style={{ margin: "6px 0 0", whiteSpace: "normal" }}>
-            De la pornirea procesului: {s ? `${nf.format(s.totals.received)} primite · ${nf.format(s.totals.rejected)} respinse la validare · ${nf.format(s.totals.processed)} aplicate (${nf.format(s.totals.created)} contoare noi, ${nf.format(s.totals.updated)} actualizate, ${nf.format(s.totals.unchanged)} fără schimbări) · ${nf.format(s.totals.busy)} refuzate din cauza cutiei pline` : "—"}.
+            De la pornirea procesului: {s ? `${nf.format(s.totals.received)} primite · ${nf.format(s.totals.kept)} păstrate pentru procesare ulterioară · ${nf.format(s.totals.processed)} aplicate (${nf.format(s.totals.created)} contoare noi, ${nf.format(s.totals.updated)} actualizate, ${nf.format(s.totals.unchanged)} fără schimbări) · ${nf.format(s.totals.busy)} refuzate din cauza cutiei pline` : "—"}.
           </p>
         </section>
 
