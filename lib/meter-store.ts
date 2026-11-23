@@ -17,7 +17,7 @@ export type Snapshot = {
   ap: Int32Array; gw: Int32Array; br: Int32Array; ct: Int32Array; pf: Int32Array;
   rssi: Float32Array; snr: Float32Array; bat: Float32Array;
   fr: Int32Array; fl: Uint8Array; fc: Float64Array; pt: Int16Array; tm: Int32Array;
-  val: Float64Array; dc: Float64Array; mc: Float64Array;
+  val: Float64Array; dc: Float64Array; mc: Float64Array; dt: Float64Array; mt: Float64Array;
   la: Float64Array; lo: Float64Array;
 };
 
@@ -52,7 +52,7 @@ export class MeterStore {
   ap: I32 = new Int32Array(0); gw: I32 = new Int32Array(0); br: I32 = new Int32Array(0); ct: I32 = new Int32Array(0); pf: I32 = new Int32Array(0);
   rssi: F32 = new Float32Array(0); snr: F32 = new Float32Array(0); bat: F32 = new Float32Array(0);
   fr: I32 = new Int32Array(0); fl: U8 = new Uint8Array(0); fc: F64 = new Float64Array(0); pt: I16 = new Int16Array(0); tm: I32 = new Int32Array(0);
-  val: F64 = new Float64Array(0); dc: F64 = new Float64Array(0); mc: F64 = new Float64Array(0);
+  val: F64 = new Float64Array(0); dc: F64 = new Float64Array(0); mc: F64 = new Float64Array(0); dt: F64 = new Float64Array(0); mt: F64 = new Float64Array(0);
   /** latitudine / longitudine în grade (NaN = fără coordonate) */
   la: F64 = new Float64Array(0); lo: F64 = new Float64Array(0);
   /** modelul și anul din nume (ex. S2154_00070948_2022 → 2154 / 2022), ca indici în `models` / `years` */
@@ -86,7 +86,7 @@ export class MeterStore {
     s.id = p.id; s.nm = p.nm; s.eu = p.eu; s.q = p.q;
     s.ts = p.ts; s.ap = p.ap; s.gw = p.gw; s.br = p.br; s.ct = p.ct; s.pf = p.pf;
     s.rssi = p.rssi; s.snr = p.snr; s.bat = p.bat; s.fr = p.fr; s.fl = p.fl; s.fc = p.fc; s.pt = p.pt; s.tm = p.tm;
-    s.val = p.val; s.dc = p.dc; s.mc = p.mc; s.la = p.la; s.lo = p.lo;
+    s.val = p.val; s.dc = p.dc; s.mc = p.mc; s.dt = p.dt ?? new Float64Array(p.n).fill(NaN); s.mt = p.mt ?? new Float64Array(p.n).fill(NaN); s.la = p.la; s.lo = p.lo;
     s.model = new Int16Array(p.n);
     s.year = new Int16Array(p.n);
     for (let i = 0; i < p.n; i++) {
@@ -108,7 +108,7 @@ export class MeterStore {
       id: this.id.slice(0, n), nm: this.nm.slice(0, n), eu: this.eu.slice(0, n), q: this.q.slice(0, n),
       ts: this.ts.slice(0, n), ap: this.ap.slice(0, n), gw: this.gw.slice(0, n), br: this.br.slice(0, n), ct: this.ct.slice(0, n), pf: this.pf.slice(0, n),
       rssi: this.rssi.slice(0, n), snr: this.snr.slice(0, n), bat: this.bat.slice(0, n), fr: this.fr.slice(0, n), fl: this.fl.slice(0, n),
-      fc: this.fc.slice(0, n), pt: this.pt.slice(0, n), tm: this.tm.slice(0, n), val: this.val.slice(0, n), dc: this.dc.slice(0, n), mc: this.mc.slice(0, n), la: this.la.slice(0, n), lo: this.lo.slice(0, n),
+      fc: this.fc.slice(0, n), pt: this.pt.slice(0, n), tm: this.tm.slice(0, n), val: this.val.slice(0, n), dc: this.dc.slice(0, n), mc: this.mc.slice(0, n), dt: this.dt.slice(0, n), mt: this.mt.slice(0, n), la: this.la.slice(0, n), lo: this.lo.slice(0, n),
     };
   }
 
@@ -136,7 +136,7 @@ export class MeterStore {
     this.rssi = grow(Float32Array, this.rssi, n, cap); this.snr = grow(Float32Array, this.snr, n, cap); this.bat = grow(Float32Array, this.bat, n, cap);
     this.fr = grow(Int32Array, this.fr, n, cap); this.fl = grow(Uint8Array, this.fl, n, cap); this.fc = grow(Float64Array, this.fc, n, cap);
     this.pt = grow(Int16Array, this.pt, n, cap); this.tm = grow(Int32Array, this.tm, n, cap);
-    this.val = grow(Float64Array, this.val, n, cap); this.dc = grow(Float64Array, this.dc, n, cap); this.mc = grow(Float64Array, this.mc, n, cap);
+    this.val = grow(Float64Array, this.val, n, cap); this.dc = grow(Float64Array, this.dc, n, cap); this.mc = grow(Float64Array, this.mc, n, cap); this.dt = grow(Float64Array, this.dt, n, cap); this.mt = grow(Float64Array, this.mt, n, cap);
     this.la = grow(Float64Array, this.la, n, cap); this.lo = grow(Float64Array, this.lo, n, cap);
     this.model = grow(Int16Array, this.model, n, cap); this.year = grow(Int16Array, this.year, n, cap);
     this.cap = cap;
@@ -172,7 +172,7 @@ export class MeterStore {
       this.ts[i] = c.ts[j]; this.ap[i] = c.ap[j]; this.gw[i] = c.gw[j]; this.br[i] = c.br[j]; this.ct[i] = c.ct[j]; this.pf[i] = c.pf[j];
       this.rssi[i] = c.rssi[j] ?? NaN; this.snr[i] = c.snr[j] ?? NaN; this.bat[i] = c.bat[j] ?? NaN;
       this.fr[i] = c.fr[j]; this.fl[i] = c.fl[j]; this.fc[i] = c.fc[j]; this.pt[i] = c.pt[j]; this.tm[i] = c.tm[j];
-      this.val[i] = c.val[j] ?? NaN; this.dc[i] = c.dc[j] ?? NaN; this.mc[i] = c.mc[j] ?? NaN;
+      this.val[i] = c.val[j] ?? NaN; this.dc[i] = c.dc[j] ?? NaN; this.mc[i] = c.mc[j] ?? NaN; this.dt[i] = c.dt?.[j] ?? NaN; this.mt[i] = c.mt?.[j] ?? NaN;
       this.la[i] = c.la[j] ?? NaN; this.lo[i] = c.lo[j] ?? NaN;
       this.setModelYear(i);
     }

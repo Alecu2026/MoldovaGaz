@@ -61,6 +61,9 @@ export type ColsWire = {
   /** consum zilnic / lunar, în litri */
   dc: (number | null)[];
   mc: (number | null)[];
+  /** începutul perioadei (ms, ca în SCADA) la care se referă dc / mc: ziua / luna calendaristică; null = necunoscut. Doar valorile din perioada CURENTĂ se adună în „Consum”. */
+  dt: (number | null)[];
+  mt: (number | null)[];
   /** coordonate (grade): latitudine / longitudine; null = fără coordonate */
   la: (number | null)[];
   lo: (number | null)[];

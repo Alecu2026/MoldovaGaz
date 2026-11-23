@@ -6,7 +6,7 @@
  *  - combinarea facturare ↔ dispozitive ↔ ThingsBoard (lib/meter-sync.ts).
  */
 import { aggregate, makeCtx, FRESH_EDGES } from "../lib/meter-aggregate";
-import { NO_FILTERS, runFilter, type Filters, type Sort } from "../lib/meter-filter";
+import { NO_FILTERS, periodStarts, runFilter, type Filters, type Sort } from "../lib/meter-filter";
 import { MeterStore } from "../lib/meter-store";
 import { ALERT_FLAGS, FLAG, PROBLEM_FLAGS, activityOf, isStatusOk, validCoords, type ColsWire, type DatasetWire, type DeltaWire } from "../lib/meter-shared";
 import { buildDocs, fetchDevices, type Bill, type Dev } from "../lib/meter-sync";
@@ -49,7 +49,7 @@ const dict = {
   ct: ["Comrat", "Orhei", "Cahul", "Chisinau", "Rezina"],
   pf: ["Comrat_Gas_Meter_DP", "Jooby_Gas_Meter_DP", "Defectate_Jooby_Gaz"],
 };
-const emptyCols = (): ColsWire => ({ id: [], ts: [], nm: [], eu: [], q: [], ap: [], gw: [], br: [], ct: [], pf: [], rssi: [], snr: [], fr: [], fl: [], fc: [], pt: [], tm: [], val: [], bat: [], dc: [], mc: [], la: [], lo: [] });
+const emptyCols = (): ColsWire => ({ id: [], ts: [], nm: [], eu: [], q: [], ap: [], gw: [], br: [], ct: [], pf: [], rssi: [], snr: [], fr: [], fl: [], fc: [], pt: [], tm: [], val: [], bat: [], dc: [], mc: [], dt: [], mt: [], la: [], lo: [] });
 const t0 = Date.now() - 20 * 86400_000;
 const row = (c: ColsWire, i: number, id: string) => {
   const never = rnd() < 0.05;
@@ -74,6 +74,7 @@ const row = (c: ColsWire, i: number, id: string) => {
   c.bat.push(rnd() < 0.3 ? null : Math.round(rnd() * 1000) / 10);
   c.dc.push(rnd() < 0.3 ? null : Math.floor(rnd() * 3000));
   c.mc.push(rnd() < 0.3 ? null : Math.floor(rnd() * 90000));
+  { const ps = periodStarts(Date.now()); c.dt.push(rnd() < 0.15 ? null : rnd() < 0.6 ? ps.dayStart : ps.dayStart - 86400_000 * (1 + Math.floor(rnd() * 5))); c.mt.push(rnd() < 0.15 ? null : rnd() < 0.8 ? ps.monthStart : Date.UTC(new Date().getFullYear(), new Date().getMonth() - 1, 1)); }
   const hasGeo = rnd() > 0.35;
   c.la.push(hasGeo ? 45.5 + rnd() * 2.6 : null);
   c.lo.push(hasGeo ? 27 + rnd() * 2.6 : null);
@@ -162,6 +163,9 @@ for (const [name, f] of cases) {
 {
   const f = F({ branch: "05 · Comrat" });
   const r = runFilter(st, f, SORT, now), want = naive(f);
+  { const ps = periodStarts(Date.now()); let cd = 0, cdn = 0, cm = 0, cmn = 0;
+    for (const i of want) { if (st.dt[i] === ps.dayStart && st.dc[i] >= 0) { cd += st.dc[i]; cdn++; } if (st.mt[i] === ps.monthStart && st.mc[i] >= 0) { cm += st.mc[i]; cmn++; } }
+    check("consum pe perioadă: suma zilei / lunii CURENTE (doar contoarele care au raportat în perioada curentă) = calculul independent", r.consDay === cd && r.consDayN === cdn && r.consMonth === cm && r.consMonthN === cmn && cdn > 0 && cmn > 0 && cdn < want.length); }
   check("total volum și alerte din filtru", r.alerts === want.filter((i) => st.fl[i] & ALERT_FLAGS).length && Math.abs(r.volume - want.reduce((s, i) => s + (st.val[i] >= 0 ? st.val[i] : 0), 0)) < 1e-6);
 }
 // sortări

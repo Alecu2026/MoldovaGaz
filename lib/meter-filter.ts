@@ -89,6 +89,8 @@ export type FilterResult = {
   alerts: number;
   /** suma Volume (m3) a rândurilor din rezultat (doar valorile ≥ 0) */
   volume: number;
+  /** consumul din perioada CURENTĂ (litri), cum îl raportează contoarele în SCADA: ziua calendaristică / luna calendaristică, și câte contoare au raportat */
+  consDay: number; consDayN: number; consMonth: number; consMonthN: number;
 };
 
 const LIST_KEYS = ["app", "gw", "type", "dev", "flag", "branch", "city", "profile", "fr", "port", "model", "year", "billed", "geo", "defect"] as const;
@@ -121,10 +123,16 @@ function dictSet(selected: string, dict: string[]): { ok: Uint8Array | null; any
   return { ok, any };
 }
 
+/** Începutul zilei / lunii curente, ca în SCADA (momentul la care e înscris consumul): miezul nopții (UTC) al datei locale, respectiv prima zi a lunii. */
+export function periodStarts(now: number): { dayStart: number; monthStart: number } {
+  const d = new Date(now);
+  return { dayStart: Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()), monthStart: Date.UTC(d.getFullYear(), d.getMonth(), 1) };
+}
+
 export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = Date.now()): FilterResult {
   st.prepare();
   const n = st.n;
-  const empty: FilterResult = { idx: new Int32Array(0), matched: 0, alerts: 0, volume: 0 };
+  const empty: FilterResult = { idx: new Int32Array(0), matched: 0, alerts: 0, volume: 0, consDay: 0, consDayN: 0, consMonth: 0, consMonthN: 0 };
 
   const app = dictSet(f.app, st.dict.ap), gwS = dictSet(f.gw, st.dict.gw), br = dictSet(f.branch, st.dict.br), ct = dictSet(f.city, st.dict.ct), pf = dictSet(f.profile, st.dict.pf);
   if (!app.any || !gwS.any || !br.any || !ct.any || !pf.any) return empty;
@@ -208,7 +216,9 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
   const nameWords = f.name.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 4);
   const { order, ts, gw, tm, fl, fc, pt, val, rssi, snr, fr, bat, dc, id, eu, nm, lq, ln } = st;
   const out = new Int32Array(n);
-  let c = 0, alerts = 0, volume = 0;
+  let c = 0, alerts = 0, volume = 0, consDay = 0, consDayN = 0, consMonth = 0, consMonthN = 0;
+  const { dayStart, monthStart } = periodStarts(now);
+  const { dt, mt, dc: dcv, mc: mcv } = st;
   for (let k = 0; k < n; k++) {
     const i = order[k];
     const t = ts[i];
@@ -261,6 +271,8 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
     if ((flags & ALERT_FLAGS) !== 0) alerts++;
     const v = val[i];
     if (v >= 0) volume += v;
+    if (dt[i] === dayStart && dcv[i] >= 0) { consDay += dcv[i]; consDayN++; }
+    if (mt[i] === monthStart && mcv[i] >= 0) { consMonth += mcv[i]; consMonthN++; }
   }
 
   let idx: Int32Array = out.subarray(0, c);
@@ -269,7 +281,7 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
   } else {
     idx = sortIdx(st, idx.slice(), sort);
   }
-  return { idx, matched: c, alerts, volume };
+  return { idx, matched: c, alerts, volume, consDay, consDayN, consMonth, consMonthN };
 }
 
 /** Sortare după o coloană; valorile lipsă (NaN) rămân mereu la sfârșit, indiferent de sens. Egalitățile păstrează ordinea de timp (sortare stabilă). */

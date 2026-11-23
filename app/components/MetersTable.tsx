@@ -68,6 +68,12 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
   const [filters, setFilters] = useState<Filters>(initialFilters);
   const [sort, setSort] = useState<Sort>(initialSort);
   const [view, setView] = useState<"table" | "charts" | "map">(initialView);
+  const [consPeriod, setConsPeriod] = useState<"month" | "day">("month");
+  useEffect(() => {
+    const t = setTimeout(() => { try { if (localStorage.getItem("mg:consPeriod") === "day") setConsPeriod("day"); } catch { /* fără alegere reținută */ } }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  const pickPeriod = (p: "month" | "day") => { setConsPeriod(p); try { localStorage.setItem("mg:consPeriod", p); } catch { /* alegerea nu se reține */ } };
   const [advOpen, setAdvOpen] = useState(() => hasAdvanced(initialFilters));
   const [live, setLive] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -182,7 +188,12 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
       <section className="stats" aria-label="Totaluri" aria-live="polite">
         <Stat k="Total contoare" v={nf.format(total)} s={store && store.total !== store.n ? `în baza de date: ${nf.format(store.total)}` : ready ? "toate încărcate" : "se încarcă…"} />
         <Stat k="Filtrate" v={result ? nf.format(result.matched) : "—"} s={result && store && store.n > 0 ? `${((result.matched / store.n) * 100).toFixed(result.matched === store.n ? 0 : 1)}% din total` : " "} busy={pending} />
-        <Stat k="Volume (m³)" v={result ? nf.format(Math.round(result.volume)) : "—"} s="suma ultimelor citiri filtrate" busy={pending} />
+        <Stat
+          k={<span className="stat-k-row">Consum <span className="seg" role="group" aria-label="Perioada consumului"><button type="button" aria-pressed={consPeriod === "day"} onClick={() => pickPeriod("day")}>Azi</button><button type="button" aria-pressed={consPeriod === "month"} onClick={() => pickPeriod("month")}>Luna aceasta</button></span></span>}
+          v={result ? `${nf.format(Math.round((consPeriod === "day" ? result.consDay : result.consMonth) / 1000))} m³` : "—"}
+          s={result ? `${consPeriod === "day" ? "ziua de azi" : "luna curentă"} · au raportat ${nf.format(consPeriod === "day" ? result.consDayN : result.consMonthN)} din ${nf.format(result.matched)} contoare` : " "}
+          busy={pending}
+        />
         <Stat k="Alerte" v={result ? nf.format(result.alerts) : "—"} s="baterie slabă / inactiv în SCADA" alert={!!result && result.alerts > 0} busy={pending} />
         <Stat k="Ultima citire" v={newestTs ? fmtTime(newestTs).slice(11) : "—"} s={newestTs ? <Ago ts={newestTs} /> : " "} />
       </section>
@@ -252,7 +263,7 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
 
 /* ───────────────────────── părți mici ───────────────────────── */
 
-function Stat({ k, v, s, alert, busy }: { k: string; v: string; s: React.ReactNode; alert?: boolean; busy?: boolean }) {
+function Stat({ k, v, s, alert, busy }: { k: React.ReactNode; v: string; s: React.ReactNode; alert?: boolean; busy?: boolean }) {
   return (
     <div className={`stat ${alert ? "alert" : ""}`} style={busy ? { opacity: 0.6 } : undefined}>
       <div className="k">{k}</div>

@@ -25,7 +25,7 @@ export type SyncInfo = { at: number; kind: SyncKind; added: number };
 let memo: { user: string; store: MeterStore } | null = null; // STRATUL 1 (în browser)
 
 /* ---------- IndexedDB ---------- */
-const dbName = (user: string) => `${IDB_BASE}:${user}`;
+const dbName = (user: string) => `${IDB_BASE}:v2:${user}`; // v2: coloanele dt / mt (perioada consumului)
 
 function openDb(user: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
