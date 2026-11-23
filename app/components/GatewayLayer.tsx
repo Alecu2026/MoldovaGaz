@@ -1,7 +1,7 @@
 "use client";
 
 import L from "leaflet";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { DevGateway, GwDetail, GwDevice, GwState, GwSummary } from "@/lib/services/gateways";
 
 /**
@@ -41,8 +41,8 @@ async function getJson<T>(url: string, signal: AbortSignal): Promise<T | null> {
 type Props = {
   map: L.Map | null;
   enabled: boolean;
-  /** contorul ales pe hartă (id, nume, poziție) */
-  meter: { id: string; name: string; la: number; lo: number } | null;
+  /** contorul ales pe hartă (id, nume, poziție); fără id = niciun contor ales */
+  meterId: string | null; meterName: string; meterLa: number | null; meterLo: number | null;
   onOpen: (id: string) => void;
   /** a fost aleasă o antenă: harta închide popup-ul contorului */
   onPickGateway: () => void;
@@ -51,13 +51,20 @@ type Props = {
   onCloseLegend: () => void;
 };
 
-export default function GatewayLayer({ map, enabled, meter, onOpen, onPickGateway, legend, onCloseLegend }: Props) {
+export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa, meterLo, onOpen, onPickGateway, legend, onCloseLegend }: Props) {
   const [sum, setSum] = useState<GwSummary | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [det, setDet] = useState<GwDetail | null>(null);
   const [detFor, setDetFor] = useState<string | null>(null);
   const [dev, setDev] = useState<{ id: string; list: DevGateway[] } | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const meter = useMemo(() => (meterId !== null && meterLa !== null && meterLo !== null ? { id: meterId, name: meterName, la: meterLa, lo: meterLo } : null), [meterId, meterName, meterLa, meterLo]);
+  // când se alege alt contor, antena aleasă se închide (ajustare în timpul randării, nu în efect)
+  const [prevMeterId, setPrevMeterId] = useState<string | null>(null);
+  if (prevMeterId !== meterId) {
+    setPrevMeterId(meterId);
+    if (meterId) setSel(null);
+  }
   const overlay = useRef<HTMLDivElement>(null);
   const lines = useRef<L.LayerGroup | null>(null);
 
@@ -93,19 +100,15 @@ export default function GatewayLayer({ map, enabled, meter, onOpen, onPickGatewa
 
   /* detaliile antenei alese */
   useEffect(() => {
-    if (!enabled || !sel) { setDet(null); setDetFor(null); return; }
+    if (!enabled || !sel) return;
     const ac = new AbortController();
-    setDetFor(sel);
-    void getJson<GwDetail>(`/api/integration/gateways?id=${encodeURIComponent(sel)}`, ac.signal).then((d) => { if (d) { setDet(d); setNow(Date.now()); } });
+    void getJson<GwDetail>(`/api/integration/gateways?id=${encodeURIComponent(sel)}`, ac.signal).then((d) => { if (d) { setDet(d); setDetFor(sel); setNow(Date.now()); } });
     return () => ac.abort();
   }, [enabled, sel]);
 
-  /* antenele contorului ales (și închidem antena aleasă) */
-  const meterId = meter?.id ?? null;
+  /* antenele contorului ales */
   useEffect(() => {
-    if (!meterId) { setDev(null); return; }
-    setSel(null);
-    if (!enabled) return;
+    if (!meterId || !enabled) return;
     const ac = new AbortController();
     void getJson<{ gateways: DevGateway[] }>(`/api/integration/gateways?device=${encodeURIComponent(meterId)}`, ac.signal).then((d) => { if (d) { setDev({ id: meterId, list: d.gateways }); setNow(Date.now()); } });
     return () => ac.abort();

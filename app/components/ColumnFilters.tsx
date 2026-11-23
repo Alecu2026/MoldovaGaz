@@ -9,7 +9,7 @@ import { MultiSelect, type Opt } from "./FilterPanel";
  * Filtrele din antetul tabelului: câte unul chiar sub numele fiecărei coloane. Folosesc ACEEAȘI stare ca bara de filtre de sus
  * (aceleași câmpuri din `Filters`), deci o schimbare făcută într-un loc apare și în celălalt, în URL și în etichetele filtrelor active.
  */
-export type ColKey = "ts" | "dev" | "br" | "ct" | "gw" | "rssi" | "bat" | "val" | "dc" | "ty" | "st";
+export type ColKey = "ts" | "ac" | "at" | "dev" | "br" | "ct" | "gw" | "rssi" | "bat" | "val" | "dc" | "ty" | "st";
 
 type P = { col: ColKey; store: MeterStore | null; all: Agg | null; filters: Filters; patch: (p: Partial<Filters>) => void };
 
@@ -34,7 +34,7 @@ const STATES = (all: Agg | null): Opt[] => [
   { value: "warn", label: FLAG_LABELS.warn, count: all?.flags.warn },
   { value: "crit", label: FLAG_LABELS.crit, count: all?.flags.crit },
   { value: "noact", label: FLAG_LABELS.noact, count: all?.flags.noact },
-  { value: "offline", label: FLAG_LABELS.offline, count: all?.flags.offline },
+  { value: "active", label: FLAG_LABELS.active, count: all?.flags.active },
   { value: "batt", label: FLAG_LABELS.batt, count: all?.flags.batt },
   { value: "inactive", label: FLAG_LABELS.inactive, count: all?.flags.inactive },
   { value: "dup", label: FLAG_LABELS.dup, count: all?.flags.dup },
@@ -58,6 +58,10 @@ export default function ColumnFilter({ col, store, all, filters: f, patch }: P) 
           {(f.from || f.to) && <option value="custom">Interval ales</option>}
         </select>
       );
+    case "ac":
+      return <MultiSelect compact label="Activ" options={[{ value: "1", label: "Activ", count: all?.flags.active }, { value: "0", label: "Inactiv", count: all?.flags.inactive }]} selected={f.actv ? [f.actv] : []} onChange={(v) => patch({ actv: v.length === 1 ? v[0] : "" })} />;
+    case "at":
+      return <MultiSelect compact label="Activitate" options={[{ value: "act", label: "Verde · sub 24 h", count: all?.flags.act }, { value: "warn", label: "Galben · 1–7 zile", count: all?.flags.warn }, { value: "crit", label: "Roșu · peste 7 zile", count: all?.flags.crit }, { value: "noact", label: "Fără citire", count: all?.flags.noact }]} selected={toList(f.band)} onChange={(v) => patch({ band: fromList(v) })} />;
     case "dev":
       return <input className="input cf-in" type="search" placeholder="nume sau devEUI" aria-label="Contor: nume sau devEUI" value={f.name} onChange={(e) => patch({ name: e.target.value })} autoComplete="off" spellCheck={false} />;
     case "br":

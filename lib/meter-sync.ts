@@ -262,7 +262,8 @@ export function buildDocs(devices: Dev[], billing: Bill[], latest: Map<string, T
     const volTs = tsv(l, "Volume_m3_Total_ts");
     const v = vol ? num(vol.v) : null;
     const lastAct = num(av(l, "SERVER_ATTRIBUTE", "lastActivityTime"));
-    let ts = vol?.t ?? 0;
+    // activitatea = momentul CITIRII de volum (Volume_m3_Total_ts: ora la care contorul a citit, cu secunde); dacă lipsește, momentul în care a ajuns Volume_m3_Total
+    let ts = volTs && volTs.t > 0 ? volTs.t : vol?.t ?? 0;
     if (!ts) for (const k of ["rssi", "loRaSNR", "decodeTime", "fCnt"]) ts = Math.max(ts, l.TIME_SERIES?.[k]?.ts ?? 0);
     if (!ts && lastAct) ts = lastAct;
 
@@ -271,9 +272,11 @@ export function buildDocs(devices: Dev[], billing: Bill[], latest: Map<string, T
     if (flag("batteryTooLowVoltage")) fl |= FLAG.BATT;
     if (flag("buttonPressed")) fl |= FLAG.BTN;
     if (flag("magnet")) fl |= FLAG.MAG;
-    if (flag("offline")) fl |= FLAG.OFFLINE;
     if (["batteryTooLowVoltage", "buttonPressed", "magnet", "offline"].some((k) => tsv(l, k))) fl |= FLAG.STATUS;
-    if (av(l, "SERVER_ATTRIBUTE", "active") === "false") fl |= FLAG.INACTIVE;
+    const activeAttr = av(l, "SERVER_ATTRIBUTE", "active");
+    if (activeAttr === "false") fl |= FLAG.INACTIVE;
+    else if (activeAttr === "true") fl |= FLAG.ACTIVE;
+    const attrTime = (k: string): number | null => { const n = num(av(l, "SERVER_ATTRIBUTE", k)); return n !== null && n >= 1e11 && n <= 4e12 ? Math.round(n) : null; };
     if (bill) fl |= FLAG.BILLED;
     const group = dupGroup.get(id);
     if (group) fl |= FLAG.DUP;
@@ -310,6 +313,8 @@ export function buildDocs(devices: Dev[], billing: Bill[], latest: Map<string, T
       b: battery,
       dc: num(tsv(l, "dailyConsumption")?.v),
       mc: num(tsv(l, "monthlyConsumption")?.v),
+      ac: attrTime("lastActivityTime"),
+      ia: attrTime("inactivityAlarmTime"),
       la: geo ? geo[0] : null,
       lo: geo ? geo[1] : null,
       br: branchLabel(fil),

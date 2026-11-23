@@ -49,7 +49,7 @@ const dict = {
   ct: ["Comrat", "Orhei", "Cahul", "Chisinau", "Rezina"],
   pf: ["Comrat_Gas_Meter_DP", "Jooby_Gas_Meter_DP", "Defectate_Jooby_Gaz"],
 };
-const emptyCols = (): ColsWire => ({ id: [], ts: [], nm: [], eu: [], q: [], ap: [], gw: [], br: [], ct: [], pf: [], rssi: [], snr: [], fr: [], fl: [], fc: [], pt: [], tm: [], val: [], bat: [], dc: [], mc: [], dt: [], mt: [], la: [], lo: [] });
+const emptyCols = (): ColsWire => ({ id: [], ts: [], nm: [], eu: [], q: [], ap: [], gw: [], br: [], ct: [], pf: [], rssi: [], snr: [], fr: [], fl: [], fc: [], pt: [], tm: [], val: [], bat: [], dc: [], mc: [], ac: [], ia: [], dt: [], mt: [], la: [], lo: [] });
 const t0 = Date.now() - 20 * 86400_000;
 const row = (c: ColsWire, i: number, id: string) => {
   const never = rnd() < 0.05;
@@ -66,7 +66,8 @@ const row = (c: ColsWire, i: number, id: string) => {
   c.rssi.push(rnd() < 0.1 ? null : -Math.floor(70 + rnd() * 60));
   c.snr.push(rnd() < 0.1 ? null : Math.round((rnd() * 30 - 18) * 10) / 10);
   c.fr.push([868100, 868300, 868500, 0][Math.floor(rnd() * 4)]);
-  c.fl.push(Math.floor(rnd() * 256));
+  c.fl.push(Math.floor(rnd() * 512));
+  { const ps = Date.now(); c.ac.push(rnd() < 0.2 ? null : ps - Math.floor(rnd() * 40 * 86400_000)); c.ia.push(rnd() < 0.4 ? null : ps - Math.floor(rnd() * 90 * 86400_000)); }
   c.fc.push(rnd() < 0.05 ? -1 : Math.floor(rnd() * 50000));
   c.pt.push(rnd() < 0.9 ? 1 : Math.floor(rnd() * 200));
   c.tm.push(rnd() < 0.2 ? 0 : (1 << Math.floor(rnd() * 3)) | (rnd() < 0.2 ? 1 << Math.floor(rnd() * 3) : 0));
@@ -111,7 +112,7 @@ const naive = (f: Filters): number[] => {
     if (f.name && !f.name.toLowerCase().split(/\s+/).filter(Boolean).every((w) => `${v.name} ${v.eui}`.toLowerCase().includes(w))) continue;
     if (f.dev && v.eui !== f.dev && v.name !== f.dev && v.id !== f.dev) continue;
     if (f.flag) {
-      const m = L(f.flag).reduce((a, k) => a | (k === "alert" ? ALERT_FLAGS : k === "batt" ? FLAG.BATT : k === "offline" ? FLAG.OFFLINE : k === "button" ? FLAG.BTN : k === "magnet" ? FLAG.MAG : k === "dup" ? FLAG.DUP : k === "inactive" ? FLAG.INACTIVE : 0), 0);
+      const m = L(f.flag).reduce((a, k) => a | (k === "alert" ? ALERT_FLAGS : k === "batt" ? FLAG.BATT : k === "active" ? FLAG.ACTIVE : k === "button" ? FLAG.BTN : k === "magnet" ? FLAG.MAG : k === "dup" ? FLAG.DUP : k === "inactive" ? FLAG.INACTIVE : 0), 0);
       const toks = L(f.flag);
       if (!((m !== 0 && (v.fl & m) !== 0) || (toks.includes("ok") && isStatusOk(v.fl)) || (toks.includes("nostatus") && !(v.fl & FLAG.STATUS)))) continue;
     }
@@ -119,6 +120,10 @@ const naive = (f: Filters): number[] => {
     if (f.billed === "0" && v.fl & FLAG.BILLED) continue;
     if (f.defect === "1" && !/^Defectate_/i.test(v.profile ?? "")) continue;
     if (f.defect === "0" && /^Defectate_/i.test(v.profile ?? "")) continue;
+    { const tm = (x: string, d: number) => (x ? Date.parse(x) : d); if ((f.acFrom || f.acTo) && (v.ac === null || v.ac < tm(f.acFrom, -Infinity) || v.ac > tm(f.acTo, Infinity))) continue; if ((f.iaFrom || f.iaTo) && (v.ia === null || v.ia < tm(f.iaFrom, -Infinity) || v.ia > tm(f.iaTo, Infinity))) continue; if (f.iaHas === "1" && v.ia === null) continue; if (f.iaHas === "0" && v.ia !== null) continue; }
+    if (f.band) { const k = ["act", "warn", "crit", "noact"][activityOf(v.ts, now)]; if (!L(f.band).includes(k)) continue; }
+    if (f.actv === "1" && !(v.fl & FLAG.ACTIVE)) continue;
+    if (f.actv === "0" && !(v.fl & FLAG.INACTIVE)) continue;
     if (f.geo === "1" && v.lat === null) continue;
     if (f.geo === "0" && v.lat !== null) continue;
     if (f.fr && !L(f.fr).includes(String(v.freqKhz))) continue;
@@ -140,9 +145,9 @@ const naive = (f: Filters): number[] => {
 const cases: [string, Filters][] = [
   ["filială", F({ branch: "05 · Comrat" })], ["filiale multi", F({ branch: "05 · Comrat|20 · Orhei" })], ["oraș", F({ city: "Rezina" })], ["oraș multi", F({ city: "Cahul|Orhei" })],
   ["profil", F({ profile: "Defectate_Jooby_Gaz" })], ["aplicație", F({ app: "app1|app3" })], ["concentrator", F({ gw: "gwA|gwD" })], ["tip multi", F({ type: "DeviceStatus|CurrentData" })],
-  ["doar defectate", F({ defect: "1" })], ["fără defectate", F({ defect: "0" })], ["defectate + filială", F({ defect: "1", branch: "05 · Comrat" })], ["cu coordonate", F({ geo: "1" })], ["fără coordonate", F({ geo: "0" })], ["coordonate + filială", F({ geo: "1", branch: "05 · Comrat" })],
-  ["stare OK", F({ flag: "ok" })], ["fără raport de stare", F({ flag: "nostatus" })], ["OK + offline", F({ flag: "ok|offline" })], ["OK + serie repetată", F({ flag: "ok|dup|nostatus" })],
-  ["serie repetată", F({ flag: "dup" })], ["serie repetată + offline", F({ flag: "dup|offline" })],
+  ["activitate în interval", F({ acFrom: "" + new Date(Date.now() - 10 * 86400_000).toISOString().slice(0, 16), acTo: new Date(Date.now() - 2 * 86400_000).toISOString().slice(0, 16) })], ["activitate de la", F({ acFrom: new Date(Date.now() - 5 * 86400_000).toISOString().slice(0, 16) })], ["alarmă: are", F({ iaHas: "1" })], ["alarmă: nu are", F({ iaHas: "0" })], ["alarmă în interval + filială", F({ iaFrom: new Date(Date.now() - 60 * 86400_000).toISOString().slice(0, 16), iaTo: new Date(Date.now() - 20 * 86400_000).toISOString().slice(0, 16), branch: "05 · Comrat" })], ["treapta verde", F({ band: "act" })], ["treapta galbenă + roșie", F({ band: "warn|crit" })], ["fără citire", F({ band: "noact" })], ["activ (coloana)", F({ actv: "1" })], ["inactiv (coloana)", F({ actv: "0" })], ["roșu + inactiv + filială", F({ band: "crit", actv: "0", branch: "05 · Comrat" })], ["verde + activ + stare OK", F({ band: "act", actv: "1", flag: "ok" })], ["doar defectate", F({ defect: "1" })], ["fără defectate", F({ defect: "0" })], ["defectate + filială", F({ defect: "1", branch: "05 · Comrat" })], ["cu coordonate", F({ geo: "1" })], ["fără coordonate", F({ geo: "0" })], ["coordonate + filială", F({ geo: "1", branch: "05 · Comrat" })],
+  ["stare OK", F({ flag: "ok" })], ["fără raport de stare", F({ flag: "nostatus" })], ["OK + activ", F({ flag: "ok|active" })], ["OK + serie repetată", F({ flag: "ok|dup|nostatus" })],
+  ["serie repetată", F({ flag: "dup" })], ["serie repetată + activ", F({ flag: "dup|active" })],
   ["stare multi", F({ flag: "batt|button" })], ["stare alert", F({ flag: "alert" })], ["inactiv", F({ flag: "inactive" })], ["cu facturare", F({ billed: "1" })], ["fără facturare", F({ billed: "0" })],
   ["frecvență", F({ fr: "868300" })], ["port", F({ port: "1" })], ["port altele", F({ port: "17|42" })], ["model", F({ model: "2155" })], ["model multi", F({ model: "2154|2137" })], ["an", F({ year: "2023|2025" })],
   ["volume", F({ valMin: "1000", valMax: "9000" })], ["volume ≥", F({ valMin: "15000" })], ["consum zi", F({ dcMin: "100", dcMax: "900" })], ["baterie", F({ batMax: "20" })],
@@ -150,8 +155,8 @@ const cases: [string, Filters][] = [
   ["căutare nume", F({ q: "S2154_0007" })], ["căutare adresă", F({ q: "strada mare" })], ["căutare consumator + oraș", F({ q: "maria 70" })], ["căutare gateway", F({ q: "gwb" })], ["căutare tip", F({ q: "status" })],
   ["căutare numerică", F({ q: "42" })], ["dev id", F({ dev: "id-7" })],
   ["nume contor (antet)", F({ name: "s2154_0007" })], ["nume + devEUI (antet)", F({ name: "001a7988 s2155" })], ["nume NU caută în adresă", F({ name: "strada mare" })],
-  ["antete combinate", F({ name: "s21", branch: "05 · Comrat", city: "Comrat|Orhei", flag: "offline|batt", rssiMin: "-115", rssiMax: "-80", batMin: "10", valMin: "100", dcMax: "2500", range: "7d" })],
-  ["combinat", F({ branch: "05 · Comrat", city: "Comrat|Orhei", profile: "Comrat_Gas_Meter_DP|Jooby_Gas_Meter_DP", dcMin: "50", flag: "offline", range: "7d", q: "popescu" })],
+  ["antete combinate", F({ name: "s21", branch: "05 · Comrat", city: "Comrat|Orhei", flag: "active|batt", rssiMin: "-115", rssiMax: "-80", batMin: "10", valMin: "100", dcMax: "2500", range: "7d" })],
+  ["combinat", F({ branch: "05 · Comrat", city: "Comrat|Orhei", profile: "Comrat_Gas_Meter_DP|Jooby_Gas_Meter_DP", dcMin: "50", flag: "active", range: "7d", q: "popescu" })],
   ["gateway inexistent", F({ gw: "nu-exista" })], ["filială inexistentă", F({ branch: "nu-exista" })],
 ];
 for (const [name, f] of cases) {
@@ -188,8 +193,8 @@ for (const key of ["dev", "br", "gw", "rssi", "snr", "val", "bat", "dc", "fc"] a
 // stări ca în SCADA: „offline” raportat de contor NU e alertă; alerta = baterie slabă sau inactiv; „OK” exclude și inactivii; filtrele pe trepte de activitate
 {
   const fl = (a: number, ...b: number[]) => b.reduce((x, y) => x | y, a);
-  check("stări: «offline» din mesajul contorului nu mai e alertă și nici problemă; inactiv = alertă", (FLAG.OFFLINE & ALERT_FLAGS) === 0 && (FLAG.OFFLINE & PROBLEM_FLAGS) === 0 && (FLAG.INACTIVE & ALERT_FLAGS) !== 0 && (FLAG.BATT & ALERT_FLAGS) !== 0);
-  check("stări: OK = raport de stare fără baterie / buton / magnet și fără inactiv; offline raportat nu strică OK", isStatusOk(FLAG.STATUS) && isStatusOk(fl(FLAG.STATUS, FLAG.OFFLINE)) && !isStatusOk(fl(FLAG.STATUS, FLAG.INACTIVE)) && !isStatusOk(fl(FLAG.STATUS, FLAG.BATT)) && !isStatusOk(0));
+  check("stări: «activ în SCADA» nu e alertă și nici problemă; inactiv = alertă", (FLAG.ACTIVE & ALERT_FLAGS) === 0 && (FLAG.ACTIVE & PROBLEM_FLAGS) === 0 && (FLAG.INACTIVE & ALERT_FLAGS) !== 0 && (FLAG.BATT & ALERT_FLAGS) !== 0);
+  check("stări: OK = raport de stare fără baterie / buton / magnet și fără inactiv; marcat activ nu strică OK", isStatusOk(FLAG.STATUS) && isStatusOk(fl(FLAG.STATUS, FLAG.ACTIVE)) && !isStatusOk(fl(FLAG.STATUS, FLAG.INACTIVE)) && !isStatusOk(fl(FLAG.STATUS, FLAG.BATT)) && !isStatusOk(0));
   const H = 3_600_000, D = 24 * H, t = 1_800_000_000_000;
   check("activitate: pragurile 24 h / 7 zile și «fără citire»", activityOf(t - 23 * H, t) === 0 && activityOf(t - 24 * H, t) === 1 && activityOf(t - 6 * D, t) === 1 && activityOf(t - 7 * D, t) === 2 && activityOf(t - 90 * D, t) === 2 && activityOf(0, t) === 3);
   for (const toks of ["act", "warn", "crit", "noact", "warn|crit", "act|inactive", "crit|ok"]) {
@@ -286,7 +291,12 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   check("sync: statistici", stats.billingWithoutDevice === 1 && stats.nonStandardNames === 1 && stats.duplicateBilling === 1 && stats.duplicateSerials === 1);
   const s = by.get("c0")!.s;
   check("sync: valori curente", s.v === 10413.347 && s.r === -110 && s.sn === -5.5 && s.f === 868100 && s.g === "M4_Comrat_Gaz" && s.b === 99.61 && s.dc === 260 && s.ty === "LastEventSeq" && s.fc === 13872 && s.pt === 1 && s.a === "App_X");
-  check("sync: stare (offline, inactiv, facturat) și ts", !!(s.fl & FLAG.OFFLINE) && !!(s.fl & FLAG.INACTIVE) && !!(s.fl & FLAG.BILLED) && s.t === 1_700_000_000_000);
+  check("sync: stare (inactiv, facturat, fără bit «offline» vechi) și ts", !(s.fl & 16) && !(s.fl & FLAG.ACTIVE) && !!(s.fl & FLAG.INACTIVE) && !!(s.fl & FLAG.BILLED) && s.t === 1_700_000_000_000);
+  { const tt = tel({ Volume_m3_Total: "10.000" }); tt.TIME_SERIES.Volume_m3_Total = { ts: 1_700_000_900_000, value: "10.000" }; tt.TIME_SERIES.Volume_m3_Total_ts = { ts: 1_700_000_100_000, value: "10.000" };
+    tt.SERVER_ATTRIBUTE.active = { ts: 1, value: "true" }; tt.SERVER_ATTRIBUTE.lastActivityTime = { ts: 1, value: "1700000500000" }; tt.SERVER_ATTRIBUTE.inactivityAlarmTime = { ts: 1, value: "1699000000000" };
+    const b2 = buildDocs(devices, billing, new Map([["c1", tt]]), new Date(0)).docs.find((d) => d._id === "c1")!.s;
+    check("sync: «Ultima citire» = momentul CITIRII de volum (Volume_m3_Total_ts), nu al sosirii (Volume_m3_Total); lastActivityTime / inactivityAlarmTime / active ajung în rezumat", b2.t === 1_700_000_100_000 && b2.ac === 1_700_000_500_000 && b2.ia === 1_699_000_000_000 && !!(b2.fl & FLAG.ACTIVE) && !(b2.fl & FLAG.INACTIVE));
+    check("sync: fără Volume_m3_Total_ts ⇒ momentul lui Volume_m3_Total; fără atributele de timp ⇒ null", s.t === 1_700_000_000_000 && s.ac === null && s.ia === null); }
   check("sync: contor fără telemetrie → fără citire (nu zero)", by.get("c5")!.s.v === null && by.get("c5")!.s.t === 0 && by.get("c5")!.s.r === null);
   check("sync: ContPersonal rămâne text (zerouri păstrate), devEUI cu litere mici", by.get("c0")!.attrs.ContPersonal === "0123" && by.get("c0")!.s.e === "001a798816000001");
   check("sync: căutarea include număr radio, cont, adresă, consumator", /00001000/.test(s.q) && /A0/.test(s.q) && /Str\. Mare/.test(s.q) && /Ion Popescu/.test(s.q));
@@ -445,7 +455,7 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   const first = mergeDerive(null, okMsg.id!, okMsg, new Date(NOW));
   const d1 = first.doc;
   check("integrare: contor nou — status «created», documentul are facturarea, telemetria și rezumatul", first.status === "created" && d1._id === okMsg.id && d1.bill?.NUM_RADIO === "00186354" && d1.tel.Volume_m3_Total.v === "4118.935");
-  check("integrare: rezumatul derivat = cel de la sincronizarea din SCADA (volum, moment, baterie, consum, coordonate, semnal, filială, tip mesaj, stare 176)", d1.s.v === 4118.935 && d1.s.t === T && d1.s.b === 99.61 && d1.s.dc === 1320 && d1.s.mc === 13320 && d1.s.la === 45.4783093 && d1.s.lo === 28.1922861 && d1.s.r === -111 && d1.s.sn === -5.5 && d1.s.f === 868100 && d1.s.fc === 108 && d1.s.pt === 1 && d1.s.ty === "LastEventSeq" && d1.s.br === "11 · Cahul" && d1.s.fl === 176 && d1.s.g === "M-194750_Comrat_Dostoievski" && d1.s.a === "App_Cahul_Gaz_ABP_jooby" && d1.s.e === "001a79881802d7f2", JSON.stringify({ fl: d1.s.fl, br: d1.s.br }));
+  check("integrare: rezumatul derivat = cel de la sincronizarea din SCADA (volum, moment = al citirii (Volume_m3_Total_ts), baterie, consum, coordonate, semnal, filială, tip mesaj, stare 416: facturat + raport de stare + activ)", d1.s.v === 4118.935 && d1.s.t === T - 2_719_000 && d1.s.b === 99.61 && d1.s.dc === 1320 && d1.s.mc === 13320 && d1.s.la === 45.4783093 && d1.s.lo === 28.1922861 && d1.s.r === -111 && d1.s.sn === -5.5 && d1.s.f === 868100 && d1.s.fc === 108 && d1.s.pt === 1 && d1.s.ty === "LastEventSeq" && d1.s.br === "11 · Cahul" && d1.s.fl === 416 && d1.s.g === "M-194750_Comrat_Dostoievski" && d1.s.a === "App_Cahul_Gaz_ABP_jooby" && d1.s.e === "001a79881802d7f2", JSON.stringify({ fl: d1.s.fl, br: d1.s.br }));
   check("integrare: căutarea include facturarea, iar documentul nu conține secrete", d1.s.q.includes("00186354") && d1.s.q.includes("0406333333") && !JSON.stringify(d1).match(/SECRET|APPKEY/));
   const again = mergeDerive(d1, okMsg.id!, okMsg, new Date(NOW + 5000));
   check("integrare: același mesaj de două ori ⇒ «unchanged» (idempotent: o reaplicare după o cădere nu are efecte)", again.status === "unchanged" && again.doc.h === d1.h);
@@ -532,7 +542,7 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   check("uplink: volumul doar crește — un contor de impulsuri mai mic (reluare / eroare) nu dă volumul înapoi", v1.s.v === 8612.099 && back.doc.s.v === 8612.099 && back.doc.tel.Volume_m3_Total.v === "8612.099");
   const noInst = mergeDerive(mergeDerive(null, "22222222-2222-3333-4444-555555555555", P2({ id: "22222222-2222-3333-4444-555555555555", tb: { name: "S2154_00099999_2022" }, attrs: { devEUI: "001a798816019999" } }), new Date(NOW)).doc, "22222222-2222-3333-4444-555555555555", U(up({ devEUI: "001a798816019999" })), new Date(NOW));
   check("uplink: fără Instalation_Litres volumul total NU se inventează (rămâne necunoscut), restul datelor se aplică", noInst.doc.s.v === null && noInst.doc.s.r === -99 && noInst.doc.s.fc === 36502);
-  check("uplink: stare (offline) și baterie ajung în rezumat, ca la sincronizarea din SCADA", (v1.s.fl & 16) === 16 && (v1.s.fl & 32) === 32 && v1.s.fl === (v1.s.fl | 16 | 32) && v1.s.ty === "LastEventSeq" && v1.s.fc === 100);
+  check("uplink: stare, activ (active = true) și volum ajung în rezumat, ca la sincronizarea din SCADA; Volume_m3_Total_ts merge odată cu volumul, deci «Ultima citire» = momentul mesajului", (v1.s.fl & 16) === 0 && (v1.s.fl & 32) === 32 && (v1.s.fl & 256) === 256 && v1.tel.Volume_m3_Total_ts.v === v1.tel.Volume_m3_Total.v && v1.s.t === v1.tel.Volume_m3_Total_ts.t && v1.s.ty === "LastEventSeq" && v1.s.fc === 100);
   // ordinea: un cadru mai vechi (fCnt mai mic) sosit după unul mai nou nu are voie să-l strice
   check("fCnt: mai vechi în aceeași sesiune ⇒ vechi; mai mic cu peste 30000 (repornire) sau lipsă ⇒ acceptat", isStaleFcnt(90, 100) && !isStaleFcnt(100, 100) && !isStaleFcnt(101, 100) && !isStaleFcnt(5, 40000) && !isStaleFcnt(null, 100) && !isStaleFcnt(5, null));
   const stale = mergeDerive(v1, v1._id, U(up({ fCnt: 50 }, [{ cmd: 24, ieType: "CurrentDataMul", values: [{ channel: 0, value: 300000 }] }])), new Date(NOW + 5000));

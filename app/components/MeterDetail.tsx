@@ -286,12 +286,12 @@ export default function MeterDetail({ id, onClose }: { id: string; onClose: () =
             </section>
 
             <section>
-              <h3>Ultima telemetrie ({Object.keys(tel).length})</h3>
+              <h3>Ultima telemetrie ({Object.keys(tel).filter((k) => k !== "offline").length})</h3>
               <div style={{ overflowX: "auto" }}>
                 <table className="mini">
                   <thead><tr><th>Cheie</th><th>Valoare</th><th>Moment</th></tr></thead>
                   <tbody>
-                    {Object.entries(tel).sort((a, b) => a[0].localeCompare(b[0])).map(([k, v]) => (
+                    {Object.entries(tel).filter(([k]) => k !== "offline").sort((a, b) => a[0].localeCompare(b[0])).map(([k, v]) => (
                       <tr key={k}>
                         <td>{k}</td>
                         <td className="mono" style={{ overflowWrap: "anywhere" }}>{v.v.length > 120 ? `${v.v.slice(0, 120)}…` : v.v}</td>

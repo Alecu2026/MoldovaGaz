@@ -327,7 +327,6 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
   const picked = sel !== null ? store.view(sel) : null;
   const links = picked && picked.lat !== null && picked.lon !== null ? mapLinks(picked.lat, picked.lon) : null;
   const pid = picked?.id ?? null, pname = picked?.name ?? "", plat = picked?.lat ?? null, plon = picked?.lon ?? null;
-  const gwMeter = useMemo(() => (pid !== null && plat !== null && plon !== null ? { id: pid, name: pname, la: plat, lo: plon } : null), [pid, pname, plat, plon]);
 
   return (
     <div ref={wrapRef} className={`mapwrap${pseudo ? " map-pseudo" : ""}`}>
@@ -395,7 +394,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
         <GatewayLayer
           map={mapObj}
           enabled={gwOn}
-          meter={gwMeter}
+          meterId={pid} meterName={pname} meterLa={plat} meterLo={plon}
           onOpen={onOpen}
           onPickGateway={pickGateway}
           legend={legendOn}

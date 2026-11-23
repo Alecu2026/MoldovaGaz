@@ -47,7 +47,7 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
     { key: "warn", label: "Avertizare (1–7 zile fără citire)", value: flt.flags.warn, ghost: all.flags.warn, tone: "warning", glyph: "◆" },
     { key: "crit", label: "Critic (peste 7 zile fără citire)", value: flt.flags.crit, ghost: all.flags.crit, tone: "critical", glyph: "✕" },
     { key: "noact", label: "Fără nicio citire", value: flt.flags.noact, ghost: all.flags.noact, tone: "neutral", glyph: "○" },
-    { key: "offline", label: "Raportat offline de contor (câmp din mesajul lui)", value: flt.flags.offline, ghost: all.flags.offline, tone: "neutral", glyph: "○" },
+    { key: "active", label: "Marcat activ în SCADA (active = true)", value: flt.flags.active, ghost: all.flags.active, tone: "good", glyph: "✓" },
     { key: "batt", label: "Baterie slabă", value: flt.flags.batt, ghost: all.flags.batt, tone: "serious", glyph: "▲" },
     { key: "inactive", label: "Inactiv în SCADA (alertă)", value: flt.flags.inactive, ghost: all.flags.inactive, tone: "critical", glyph: "✕" },
     { key: "dup", label: "Serie repetată (același număr radio)", value: flt.flags.dup, ghost: all.flags.dup, tone: "warning", glyph: "◆" },
@@ -162,7 +162,7 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
           <ColumnChart unit="contoare" bars={timeBars} ariaLabel="Contoare după momentul ultimei citiri" selected={fromMs === fromMs || toMs === toMs ? timeSel : undefined} onBrush={timeBrush} onBar={(i) => timeBrush(i, i)} labelWidth={96} />
         </ChartCard>
 
-        <ChartCard title="Stare și alerte" hint="activitatea (după ultima citire) ca în SCADA; „offline” e câmpul trimis de contor, nu starea conexiunii. Click filtrează (SAU)" table={tableOf(flagItems)}>
+        <ChartCard title="Stare și alerte" hint="activitatea (după momentul ultimei citiri de volum) ca în SCADA. Click filtrează (SAU)" table={tableOf(flagItems)}>
           <BarList unit="contoare" items={flagItems} selected={flagSelected} onToggle={toggleFlag} top={14} ariaLabel="Stări ale contoarelor" />
         </ChartCard>
 

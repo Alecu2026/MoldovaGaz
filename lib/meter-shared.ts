@@ -7,11 +7,11 @@
  * serverul numără modificările cu un `seq` global, iar browserul cere doar rândurile cu seq mai mare decât cel pe care îl are (upsert după id).
  */
 
-/** Biți din `fl` (stare a rândului). DUP = seria (numărul radio) apare la mai multe dispozitive din ThingsBoard. */
-export const FLAG = { DUP: 1, BATT: 2, BTN: 4, MAG: 8, OFFLINE: 16, STATUS: 32, INACTIVE: 64, BILLED: 128 } as const;
+/** Biți din `fl` (stare a rândului, 16 biți). DUP = seria (numărul radio) apare la mai multe dispozitive din ThingsBoard. ACTIVE = atributul `active` = true în SCADA (INACTIVE = false; fără niciunul = necunoscut). Bitul 16 a fost „offline raportat de contor”, scos: nu se mai folosește. */
+export const FLAG = { DUP: 1, BATT: 2, BTN: 4, MAG: 8, STATUS: 32, INACTIVE: 64, BILLED: 128, ACTIVE: 256 } as const;
 /**
  * „Alertă” = baterie slabă sau contor INACTIV în SCADA (atributul `active` = false, calculat de platformă din activitate), ca în SCADA.
- * Câmpul `offline` pe care contorul îl trimite în propriul mesaj (FLAG.OFFLINE) NU e o alertă: 57% dintre contoare îl trimit chiar în mesajul cu citirea de azi.
+ * Câmpul `offline` din mesajul contorului nu se mai afișează și nu se filtrează (nu spune nimic despre activitate); activitatea = momentul citirii de volum (Volume_m3_Total_ts).
  */
 export const ALERT_FLAGS = FLAG.BATT | FLAG.INACTIVE;
 /** „Probleme” raportate de contor (baterie, buton, magnet). „OK” = are raport de stare, niciuna dintre ele și nu e inactiv. */
@@ -61,6 +61,9 @@ export type ColsWire = {
   /** consum zilnic / lunar, în litri */
   dc: (number | null)[];
   mc: (number | null)[];
+  /** atributele din SCADA (ms): lastActivityTime (ultima activitate văzută de platformă) și inactivityAlarmTime (momentul alarmei de inactivitate); null = lipsesc */
+  ac: (number | null)[];
+  ia: (number | null)[];
   /** începutul perioadei (ms, ca în SCADA) la care se referă dc / mc: ziua / luna calendaristică; null = necunoscut. Doar valorile din perioada CURENTĂ se adună în „Consum”. */
   dt: (number | null)[];
   mt: (number | null)[];
@@ -94,6 +97,8 @@ export type RowView = {
   bat: number | null;
   dc: number | null;
   mc: number | null;
+  ac: number | null;
+  ia: number | null;
   lat: number | null;
   lon: number | null;
   branch: string | null;
@@ -120,6 +125,9 @@ export type MeterSummary = {
   b: number | null;
   dc: number | null;
   mc: number | null;
+  /** lastActivityTime / inactivityAlarmTime din SCADA (ms), opționale în rezumatele vechi */
+  ac?: number | null;
+  ia?: number | null;
   /** latitudine / longitudine din atributele ThingsBoard (null = lipsesc sau sunt invalide) */
   la: number | null;
   lo: number | null;

@@ -315,6 +315,8 @@ function StatusBar({ live, syncing, offline, origin, info, store }: { live: bool
 
 const COLUMNS: { key: SortKey | null; col: ColKey; label: string; cls?: string }[] = [
   { key: "ts", col: "ts", label: "Ultima citire" },
+  { key: null, col: "ac", label: "Activ" },
+  { key: null, col: "at", label: "Activitate" },
   { key: "dev", col: "dev", label: "Contor" },
   { key: "br", col: "br", label: "Filială" },
   { key: null, col: "ct", label: "Oraș" },
@@ -505,7 +507,7 @@ function Row({ r, i, top, selected, onOpen, onDevice, onSerial, flow, now }: { r
   const f = r.fl;
   const act = activityOf(r.ts, now); // 0 activ 24 h · 1 avertizare 1–7 zile · 2 critic > 7 zile · 3 fără citire (ca în SCADA)
   const statusOk = isStatusOk(f); // „OK” = raport de stare fără probleme (inactiv / serie repetată se afișează în plus)
-  const anyBadge = statusOk || (f & (PROBLEM_FLAGS | FLAG.INACTIVE | FLAG.DUP | FLAG.OFFLINE)) !== 0 || act === 1 || act === 2;
+  const anyBadge = statusOk || (f & (PROBLEM_FLAGS | FLAG.INACTIVE | FLAG.DUP)) !== 0 || act === 1 || act === 2;
   const serial = METER_NAME.exec(r.name)?.[2];
   return (
     <div
@@ -523,7 +525,9 @@ function Row({ r, i, top, selected, onOpen, onDevice, onSerial, flow, now }: { r
         }
       }}
     >
-      <div role="cell">
+      <div role="cell" title={`Citirea de volum: ${r.ts > 0 ? fmtTime(r.ts) : "—"}
+Ultima activitate în SCADA: ${r.ac !== null ? fmtTime(r.ac) : "—"}
+Alarmă de inactivitate: ${r.ia !== null ? fmtTime(r.ia) : "—"}`}>
         {r.ts > 0 ? (
           <>
             <div className="mono cell-main" suppressHydrationWarning>{fmtTime(r.ts).slice(11)}</div>
@@ -532,6 +536,14 @@ function Row({ r, i, top, selected, onOpen, onDevice, onSerial, flow, now }: { r
         ) : (
           <div className="cell-sub">fără citiri</div>
         )}
+      </div>
+      <div role="cell" title={f & FLAG.ACTIVE ? "active = true în SCADA" : f & FLAG.INACTIVE ? "active = false în SCADA" : "atributul active lipsește"}>
+        <span className={`adot ${f & FLAG.ACTIVE ? "g" : f & FLAG.INACTIVE ? "r" : "n"}`} aria-hidden="true" />
+        <span className="cell-main">{f & FLAG.ACTIVE ? "Activ" : f & FLAG.INACTIVE ? "Inactiv" : "—"}</span>
+      </div>
+      <div role="cell" title={`Citirea de volum: ${r.ts > 0 ? fmtTime(r.ts) : "—"}`}>
+        <span className={`adot ${act === 0 ? "g" : act === 1 ? "y" : act === 2 ? "r" : "n"}`} aria-hidden="true" />
+        <span className="cell-main">{act === 0 ? "sub 24 h" : act === 1 ? "1–7 zile" : act === 2 ? "peste 7 zile" : "fără citire"}</span>
       </div>
       <div role="cell">
         <button
@@ -586,7 +598,6 @@ function Row({ r, i, top, selected, onOpen, onDevice, onSerial, flow, now }: { r
         <div className="badges">
           {act === 1 ? <span className="badge warn" title="Ultima citire acum 1–7 zile">Avertizare</span> : null}
           {act === 2 ? <span className="badge danger" title="Ultima citire acum mai mult de 7 zile">Critic</span> : null}
-          {f & FLAG.OFFLINE ? <span className="badge" title="Câmpul „offline” trimis de contor în propriul mesaj. Nu înseamnă că nu comunică.">Raportat offline</span> : null}
           {f & FLAG.BATT ? <span className="badge danger">Baterie slabă</span> : null}
           {f & FLAG.INACTIVE ? <span className="badge danger" title="Inactiv în SCADA (atributul active = false)">Inactiv</span> : null}
           {f & FLAG.DUP ? (

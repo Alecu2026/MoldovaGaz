@@ -30,7 +30,7 @@ export type Agg = {
   brs: Int32Array; brVol: Float64Array; cts: Int32Array; pfs: Int32Array;
   freq: Int32Array; ports: Int32Array; models: Int32Array; years: Int32Array;
   fresh: Int32Array; heat: Int32Array;
-  flags: { dup: number; batt: number; offline: number; button: number; magnet: number; inactive: number; alert: number; billed: number; noBilled: number; statusOk: number; noStatus: number; act: number; warn: number; crit: number; noact: number };
+  flags: { dup: number; batt: number; active: number; button: number; magnet: number; inactive: number; alert: number; billed: number; noBilled: number; statusOk: number; noStatus: number; act: number; warn: number; crit: number; noact: number };
   /** contoarele cu cel mai mare consum zilnic: [index rând, litri] */
   topDc: [number, number][];
   sums: { rssi: number; rssiN: number; snr: number; snrN: number; val: number; valN: number; bat: number; batN: number; dc: number; dcN: number };
@@ -86,7 +86,7 @@ export function aggregate(st: MeterStore, idx: Int32Array | null, ctx: AggCtx): 
     brs: new Int32Array(d.br.length), brVol: new Float64Array(d.br.length), cts: new Int32Array(d.ct.length), pfs: new Int32Array(d.pf.length),
     freq: new Int32Array(10_001), ports: new Int32Array(258), models: new Int32Array(st.models.length), years: new Int32Array(st.years.length),
     fresh: new Int32Array(FRESH_LABELS.length), heat: new Int32Array(HEAT_X * HEAT_Y),
-    flags: { dup: 0, batt: 0, offline: 0, button: 0, magnet: 0, inactive: 0, alert: 0, billed: 0, noBilled: 0, statusOk: 0, noStatus: 0, act: 0, warn: 0, crit: 0, noact: 0 },
+    flags: { dup: 0, batt: 0, active: 0, button: 0, magnet: 0, inactive: 0, alert: 0, billed: 0, noBilled: 0, statusOk: 0, noStatus: 0, act: 0, warn: 0, crit: 0, noact: 0 },
     topDc: [], sums: { rssi: 0, rssiN: 0, snr: 0, snrN: 0, val: 0, valN: 0, bat: 0, batN: 0, dc: 0, dcN: 0 },
   };
   const { ts, gw, rssi, snr, fr, fl, pt, tm, val, bat, dc, ap, br, ct, pf, model, year } = st;
@@ -153,7 +153,7 @@ export function aggregate(st: MeterStore, idx: Int32Array | null, ctx: AggCtx): 
     const f = fl[i];
     if (f & FLAG.DUP) a.flags.dup++;
     if (f & FLAG.BATT) a.flags.batt++;
-    if (f & FLAG.OFFLINE) a.flags.offline++;
+    if (f & FLAG.ACTIVE) a.flags.active++;
     if (f & FLAG.BTN) a.flags.button++;
     if (f & FLAG.MAG) a.flags.magnet++;
     if (f & FLAG.INACTIVE) a.flags.inactive++;

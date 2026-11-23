@@ -94,7 +94,7 @@ const STATE_OPTS = (all: Agg | null): Opt[] => [
   { value: "warn", label: FLAG_LABELS.warn, count: all?.flags.warn },
   { value: "crit", label: FLAG_LABELS.crit, count: all?.flags.crit },
   { value: "noact", label: FLAG_LABELS.noact, count: all?.flags.noact },
-  { value: "offline", label: FLAG_LABELS.offline, count: all?.flags.offline },
+  { value: "active", label: FLAG_LABELS.active, count: all?.flags.active },
   { value: "batt", label: FLAG_LABELS.batt, count: all?.flags.batt },
   { value: "inactive", label: FLAG_LABELS.inactive, count: all?.flags.inactive },
   { value: "dup", label: FLAG_LABELS.dup, count: all?.flags.dup },
@@ -164,6 +164,30 @@ export function AdvancedFilters({ store, all, filters, patch }: PanelProps) {
           <option value="1">Doar cele din grupul Defectate</option>
           <option value="0">Fără grupul Defectate</option>
         </select>
+      </label>
+      <label className="field">
+        <span>Ultima activitate în SCADA: de la</span>
+        <input className="input" type="datetime-local" value={filters.acFrom} max={filters.acTo || undefined} onChange={(e) => patch({ acFrom: e.target.value })} />
+      </label>
+      <label className="field">
+        <span>Ultima activitate în SCADA: până la</span>
+        <input className="input" type="datetime-local" value={filters.acTo} min={filters.acFrom || undefined} onChange={(e) => patch({ acTo: e.target.value })} />
+      </label>
+      <label className="field">
+        <span>Alarmă de inactivitate</span>
+        <select className="select" value={filters.iaHas} onChange={(e) => patch({ iaHas: e.target.value })}>
+          <option value="">Oricare</option>
+          <option value="1">Cu alarmă</option>
+          <option value="0">Fără alarmă</option>
+        </select>
+      </label>
+      <label className="field">
+        <span>Alarmă de inactivitate: de la</span>
+        <input className="input" type="datetime-local" value={filters.iaFrom} max={filters.iaTo || undefined} onChange={(e) => patch({ iaFrom: e.target.value })} />
+      </label>
+      <label className="field">
+        <span>Alarmă de inactivitate: până la</span>
+        <input className="input" type="datetime-local" value={filters.iaTo} min={filters.iaFrom || undefined} onChange={(e) => patch({ iaTo: e.target.value })} />
       </label>
       <Range label="Volume" unit="m³" min={filters.valMin} max={filters.valMax} onMin={(v) => patch({ valMin: v })} onMax={(v) => patch({ valMax: v })} />
       <Range label="Consum zilnic" unit="L" min={filters.dcMin} max={filters.dcMax} onMin={(v) => patch({ dcMin: v })} onMax={(v) => patch({ dcMax: v })} />

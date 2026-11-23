@@ -190,6 +190,7 @@ export function mergeDerive(existing: MeterDocIng | null, id: string, msg: Integ
       const known = Number(tel.Volume_m3_Total?.v);
       if (!(Number.isFinite(known) && known * 1000 > litres + 0.5)) {
         tel.Volume_m3_Total = { t: msg.pulse.t, v: (litres / 1000).toFixed(3) };
+        tel.Volume_m3_Total_ts = { t: msg.pulse.t, v: tel.Volume_m3_Total.v }; // activitatea (citirea) se țese după aceeași valoare, ca să nu rămână în urma unei valori vechi din SCADA
         attrs.c_couterPulse = String(msg.pulse.v);
         attrs.c_Volume_m3 = (msg.pulse.v / 100).toFixed(2);
       }

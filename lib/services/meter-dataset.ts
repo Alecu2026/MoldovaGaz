@@ -54,7 +54,7 @@ function newStore(stamp: Stamp): Store {
   return {
     gen: randomBytes(6).toString("hex"),
     seq: 0,
-    cols: { id: [], ts: [], nm: [], eu: [], q: [], ap: [], gw: [], br: [], ct: [], pf: [], rssi: [], snr: [], fr: [], fl: [], fc: [], pt: [], tm: [], val: [], bat: [], dc: [], mc: [], dt: [], mt: [], la: [], lo: [], sq: [], h: [] },
+    cols: { id: [], ts: [], nm: [], eu: [], q: [], ap: [], gw: [], br: [], ct: [], pf: [], rssi: [], snr: [], fr: [], fl: [], fc: [], pt: [], tm: [], val: [], bat: [], dc: [], mc: [], ac: [], ia: [], dt: [], mt: [], la: [], lo: [], sq: [], h: [] },
     idx: new Map(),
     dict: emptyDict(),
     maps: { ap: new Map(), gw: new Map(), ty: new Map(), br: new Map(), ct: new Map(), pf: new Map() },
@@ -111,7 +111,7 @@ function upsertDoc(st: Store, d: Row): boolean {
   c.ap[i] = intern(st.maps.ap, mi.ap, s.a); c.gw[i] = intern(st.maps.gw, mi.gw, s.g); c.br[i] = intern(st.maps.br, mi.br, s.br);
   c.ct[i] = intern(st.maps.ct, mi.ct, s.ct); c.pf[i] = intern(st.maps.pf, mi.pf, s.pf);
   c.rssi[i] = s.r; c.snr[i] = s.sn; c.fr[i] = s.f; c.fl[i] = s.fl; c.fc[i] = s.fc; c.pt[i] = s.pt; c.tm[i] = typeBit(st, s.ty);
-  c.val[i] = s.v; c.bat[i] = s.b; c.dc[i] = s.dc; c.mc[i] = s.mc; c.dt[i] = typeof d.tel?.dailyConsumption?.t === "number" ? d.tel.dailyConsumption.t : null; c.mt[i] = typeof d.tel?.monthlyConsumption?.t === "number" ? d.tel.monthlyConsumption.t : null; c.la[i] = s.la ?? null; c.lo[i] = s.lo ?? null;
+  c.val[i] = s.v; c.bat[i] = s.b; c.dc[i] = s.dc; c.mc[i] = s.mc; c.ac[i] = s.ac ?? null; c.ia[i] = s.ia ?? null; c.dt[i] = typeof d.tel?.dailyConsumption?.t === "number" ? d.tel.dailyConsumption.t : null; c.mt[i] = typeof d.tel?.monthlyConsumption?.t === "number" ? d.tel.monthlyConsumption.t : null; c.la[i] = s.la ?? null; c.lo[i] = s.lo ?? null;
   c.sq[i] = ++st.seq;
   c.h[i] = h;
   st.gz = null;
@@ -190,7 +190,7 @@ export async function warmVersion(): Promise<{ gen: string; head: number } | nul
   return { gen: st.gen, head: st.seq };
 }
 
-const COLS: (keyof ColsWire)[] = ["id", "ts", "nm", "eu", "q", "ap", "gw", "br", "ct", "pf", "rssi", "snr", "fr", "fl", "fc", "pt", "tm", "val", "bat", "dc", "mc", "dt", "mt", "la", "lo"];
+const COLS: (keyof ColsWire)[] = ["id", "ts", "nm", "eu", "q", "ap", "gw", "br", "ct", "pf", "rssi", "snr", "fr", "fl", "fc", "pt", "tm", "val", "bat", "dc", "mc", "ac", "ia", "dt", "mt", "la", "lo"];
 
 /** Rândurile cu seq > `after` (0 = toate), în ordinea indexului. */
 function wire(st: Store, after: number): ColsWire {
@@ -229,7 +229,7 @@ export function encodedDataset(st: Store): { etag: string; gz: Promise<Buffer> }
 
 const rowOf = (id: string, s: MeterSummary): RowView => ({
   id, ts: s.t, name: s.n, eui: s.e, app: s.a, gw: s.g, rssi: s.r, snr: s.sn, freqKhz: s.f, fl: s.fl, fc: s.fc, pt: s.pt, types: s.ty ? [s.ty] : [],
-  val: s.v, bat: s.b, dc: s.dc, mc: s.mc, lat: s.la ?? null, lon: s.lo ?? null, branch: s.br, city: s.ct, profile: s.pf,
+  val: s.v, bat: s.b, dc: s.dc, mc: s.mc, ac: s.ac ?? null, ia: s.ia ?? null, lat: s.la ?? null, lon: s.lo ?? null, branch: s.br, city: s.ct, profile: s.pf,
 });
 
 /** Cele mai recente `n` contoare + totalul, direct din baza de date (indexat): prima pictare a paginii nu așteaptă lista completă. */
