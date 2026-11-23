@@ -39,10 +39,12 @@ export default function IntegrationPanel() {
   const [dev, setDev] = useState<IntegrationDevices | null>(null);
   const [cnt, setCnt] = useState<CounterRow[] | null>(null);
   const [help, setHelp] = useState(true);
+  const [checkOpen, setCheckOpen] = useState(true);
   useEffect(() => {
-    const t = setTimeout(() => { try { if (localStorage.getItem("mg:intHelp") === "0") setHelp(false); } catch { /* fără alegere reținută */ } }, 0);
+    const t = setTimeout(() => { try { if (localStorage.getItem("mg:intHelp") === "0") setHelp(false); if (localStorage.getItem("mg:intCheck") === "0") setCheckOpen(false); } catch { /* fără alegere reținută */ } }, 0);
     return () => clearTimeout(t);
   }, []);
+  const toggleCheck = (open: boolean) => { setCheckOpen(open); try { localStorage.setItem("mg:intCheck", open ? "1" : "0"); } catch { /* alegerea nu se reține */ } };
   const toggleHelp = (open: boolean) => { setHelp(open); try { localStorage.setItem("mg:intHelp", open ? "1" : "0"); } catch { /* alegerea nu se reține */ } };
 
   useEffect(() => {
@@ -127,10 +129,11 @@ export default function IntegrationPanel() {
 
   return (
     <div className="page" style={{ overflow: "auto" }}>
-      {!help && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span className={`badge ${s?.enabled ? "ok" : "danger"}`}>{s ? (s.enabled ? "integrare activă" : "dezactivată: lipsește INTEGRATION_TOKEN") : "se verifică…"}</span>
-          <button type="button" className="btn btn-sm" onClick={() => toggleHelp(true)}>Arată instrucțiunile de trimitere</button>
+      {(!help || !checkOpen) && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {!help && <span className={`badge ${s?.enabled ? "ok" : "danger"}`}>{s ? (s.enabled ? "integrare activă" : "dezactivată: lipsește INTEGRATION_TOKEN") : "se verifică…"}</span>}
+          {!help && <button type="button" className="btn btn-sm" onClick={() => toggleHelp(true)}>Arată instrucțiunile de trimitere</button>}
+          {!checkOpen && <button type="button" className="btn btn-sm" onClick={() => toggleCheck(true)}>Arată „Verifică un mesaj”</button>}
         </div>
       )}
       {help && (
@@ -180,8 +183,9 @@ export default function IntegrationPanel() {
           </p>
         </section>
 
+        {checkOpen && (
         <section className="card" aria-label="Verifică un mesaj">
-          <header className="card-h"><div><h3>Verifică un mesaj</h3><p>îl validează și arată rezumatul; <b>nu</b> îl salvează</p></div></header>
+          <header className="card-h"><div><h3>Verifică un mesaj</h3><p>îl validează și arată rezumatul; <b>nu</b> îl salvează</p></div><button type="button" className="btn btn-sm" onClick={() => toggleCheck(false)} aria-label="Închide verificarea unui mesaj">Închide ×</button></header>
           <textarea className="input mono" style={{ width: "100%", height: 200, padding: 10, fontSize: 12 }} value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} aria-label="Mesaj JSON" />
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <button type="button" className="btn btn-primary" onClick={verify} disabled={busy}>Verifică</button>
@@ -189,6 +193,7 @@ export default function IntegrationPanel() {
           </div>
           {check && <pre className={check.ok ? "json" : "form-error"} style={{ marginTop: 8, maxHeight: 260, whiteSpace: "pre-wrap" }}>{check.text}</pre>}
         </section>
+        )}
       </div>
 
       <section className="card" aria-label="Verificare continuitate" style={{ marginBottom: 14 }}>

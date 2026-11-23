@@ -29,6 +29,20 @@ const ago = (ms: number, now: number) => {
 };
 const km = (x: number | null) => (x === null ? "—" : x < 1 ? `${Math.round(x * 1000)} m` : `${x.toFixed(1).replace(".", ",")} km`);
 
+/** Unghiul (grade, în sensul acelor de ceasornic, 0 = spre est) al segmentului a → b pe ecran. Proiecție Mercator: nu depinde de zoom. */
+const mercY = (latDeg: number) => Math.log(Math.tan(Math.PI / 4 + (latDeg * Math.PI) / 360));
+function arrowAngle(a: L.LatLngTuple, b: L.LatLngTuple): number {
+  const dx = ((b[1] - a[1]) * Math.PI) / 180;
+  const dy = -(mercY(b[0]) - mercY(a[0]));
+  return (Math.atan2(dy, dx) * 180) / Math.PI;
+}
+/** Săgeată (triunghi) la mijlocul liniei contor → antenă, îndreptată spre antenă. */
+function arrowMarker(a: L.LatLngTuple, b: L.LatLngTuple, color: string, size: number): L.Marker {
+  const mid: L.LatLngTuple = [a[0] + (b[0] - a[0]) * 0.55, a[1] + (b[1] - a[1]) * 0.55];
+  const html = `<svg width="${size}" height="${size}" viewBox="0 0 20 20" style="transform:rotate(${arrowAngle(a, b).toFixed(1)}deg);filter:drop-shadow(0 0 2px rgba(0,0,0,.55))"><path d="M3 3 L18 10 L3 17 Z" fill="${color}" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>`;
+  return L.marker(mid, { icon: L.divIcon({ className: "gw-arrow", html, iconSize: [size, size], iconAnchor: [size / 2, size / 2] }), interactive: false, keyboard: false });
+}
+
 async function getJson<T>(url: string, signal: AbortSignal): Promise<T | null> {
   try {
     const r = await fetch(url, { signal, cache: "no-store" });
@@ -142,6 +156,7 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
       for (const g of dev.list) {
         if (g.la === null || g.lo === null) continue;
         L.polyline([a, [g.la, g.lo]], { color: STATE_COLOR[g.state], weight: g.primary ? 3.5 : 2, opacity: g.primary ? 0.95 : 0.7, dashArray: g.primary ? undefined : "6 6", interactive: false }).addTo(grp);
+        arrowMarker(a, [g.la, g.lo], STATE_COLOR[g.state], g.primary ? 26 : 20).addTo(grp);
         bounds.push([g.la, g.lo]);
       }
     }
@@ -258,14 +273,14 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
 
       {!sel && meter && dev && dev.id === meter.id && (
         <aside className="gw-panel gw-panel-sm" aria-label="Antenele contorului">
-          <div className="cell-main">Antene pentru {meter.name}</div>
+          <div className="cell-main">{meter.name} → antene ({dev.list.length})</div>
           {dev.list.length === 0 ? (
             <div className="cell-sub">Nu avem încă mesaje primite prin integrare pentru acest contor, deci nu știm ce antene îl aud.</div>
           ) : (
             <ul className="gw-list">
               {dev.list.map((g) => (
                 <li key={g.id}>
-                  <button type="button" className="link-btn" onClick={() => { setSel(g.id); onPickGateway(); }}>{g.name}</button>
+                  <span aria-hidden="true">→ </span><button type="button" className="link-btn" onClick={() => { setSel(g.id); onPickGateway(); }}>{g.name}</button>
                   {g.primary && <span className="gw-badge">principală</span>}
                   <div className="cell-sub">
                     <span className={`gw-dot gw-${g.state}`} aria-hidden="true" /> {km(g.km)} · {g.rssi !== null ? `${g.rssi} dBm` : "fără RSSI"}{g.snr !== null ? ` · SNR ${g.snr}` : ""} · {nf.format(g.n)} mesaje · ultimul {when(g.last)}

@@ -1164,3 +1164,10 @@ button.badge-btn:hover {
 .topbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .topsum { font-size: 13px; padding: 0 4px; }
 .topsum b { font-weight: 700; }
+
+/* săgeți contor → antenă */
+.gw-arrow { background: transparent; border: 0; }
+.ant-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 10px; }
+.ant-list li { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; }
+.ant-flow { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; }
+.ant-flow b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }

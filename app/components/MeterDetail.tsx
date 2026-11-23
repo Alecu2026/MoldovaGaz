@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { validCoords } from "@/lib/meter-shared";
 import { ColumnChart, nf, type Bar } from "./charts/primitives";
+import MeterAntennas from "./MeterAntennas";
 
 /** Harta contorului (Leaflet) se încarcă doar când se deschide detaliul. */
 const MeterLocation = dynamic(() => import("./MeterLocation"), { ssr: false, loading: () => <div className="skeleton" style={{ height: 230 }} aria-busy="true" /> });
@@ -245,6 +246,8 @@ export default function MeterDetail({ id, onClose }: { id: string; onClose: () =
                 </details>
               )}
             </section>
+
+            <MeterAntennas id={item.id} name={String(s.n ?? item.id)} />
 
             <section>
               <h3>Locație</h3>
