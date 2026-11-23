@@ -75,6 +75,7 @@ export type NightRow = {
   /** consum ziua 06–24 (m³) */ dc: (number | null)[];
   /** temperatura minimă din citirile de noapte (°C) */ nt: (number | null)[];
   /** temperatura medie pe toată ziua (°C) */ ta: (number | null)[];
+  /** scăderea temperaturii noaptea față de zi: media de zi − media de noapte (°C); mic = temperatura rămâne la fel noaptea */ td?: (number | null)[];
 };
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
 
@@ -109,9 +110,10 @@ export type SuspectParams = {
   /** consum de zi minim (m³) — ca să nu apară casele goale; 0 = fără condiție */ minDay: number;
   /** temperatură minimă (°C); null = fără condiție de temperatură */ minTemp: number | null;
   /** temperatura de comparat: minima din noapte sau media pe zi */ tempMode: "night" | "day";
+  /** scădere maximă a temperaturii noaptea față de zi (°C): media de noapte ≥ media de zi − X; null = fără condiție */ maxTempDrop: number | null;
   /** în câte nopți trebuie să se potrivească */ minNights: number;
 };
-export const DEFAULT_PARAMS: SuspectParams = { startHour: 0, endHour: NIGHT_HOURS, nights: 14, maxNight: 1, minDay: 5, minTemp: 22, tempMode: "night", minNights: 3 };
+export const DEFAULT_PARAMS: SuspectParams = { startHour: 0, endHour: NIGHT_HOURS, nights: 14, maxNight: 1, minDay: 5, minTemp: 22, tempMode: "night", maxTempDrop: null, minNights: 3 };
 
 /** O noapte e suspectă: consum de noapte ≤ prag, consum de zi ≥ prag, temperatura ≥ prag (dacă e cerută și se cunoaște). */
 export function nightMatches(row: NightRow, i: number, p: SuspectParams): boolean {
@@ -121,6 +123,10 @@ export function nightMatches(row: NightRow, i: number, p: SuspectParams): boolea
   if (p.minTemp !== null) {
     const t = p.tempMode === "night" ? row.nt[i] : row.ta[i];
     if (t === null || t < p.minTemp) return false;
+  }
+  if (p.maxTempDrop !== null) {
+    const d = row.td?.[i] ?? null;
+    if (d === null || d > p.maxTempDrop) return false;
   }
   return true;
 }
@@ -224,28 +230,91 @@ export const nightLength = (startHour: number, endHour: number): number => ((end
  */
 export function nightRowFromProfile(cons: Uint16Array, temp: Int8Array | null, totalDays: number, startHour: number, endHour: number, nights: number): NightRow {
   const len = nightLength(startHour, endHour);
-  const row: NightRow = { nc: [], dc: [], nt: [], ta: [] };
+  const row: NightRow = { nc: [], dc: [], nt: [], ta: [], td: [] };
   const total = totalDays * SLOTS;
   for (let k = Math.max(0, totalDays - nights); k < totalDays; k++) {
     const s0 = k * SLOTS + startHour, nEnd = s0 + len, dEnd = s0 + SLOTS;
-    if (len === 0 || nEnd > total) { row.nc.push(null); row.dc.push(null); row.nt.push(null); row.ta.push(null); continue; }
+    if (len === 0 || nEnd > total) { row.nc.push(null); row.dc.push(null); row.nt.push(null); row.ta.push(null); row.td!.push(null); continue; }
     let nc = 0, dc = 0, ok = true, ok2 = true;
     for (let i = s0; i < nEnd; i++) { const c = cons[i]; if (c === MARK_C) { ok = false; break; } nc += c; }
     if (dEnd > total) ok2 = false; // ziua care urmează nopții nu s-a terminat încă
     else for (let i = nEnd; i < dEnd; i++) { const c = cons[i]; if (c === MARK_C) { ok2 = false; break; } dc += c; }
     row.nc.push(ok ? r3(nc / C_SCALE) : null);
     row.dc.push(ok2 ? r3(dc / C_SCALE) : null);
-    let nMin = Infinity, sum = 0, cnt = 0;
+    let nMin = Infinity, sum = 0, cnt = 0, nSum = 0, nCnt = 0, dSum = 0, dCnt = 0;
     if (temp) {
       for (let i = s0; i < Math.min(dEnd, total); i++) {
         const t = temp[i];
         if (t === MARK_T) continue;
         sum += t; cnt++;
-        if (i < nEnd && t < nMin) nMin = t;
+        if (i < nEnd) { nSum += t; nCnt++; if (t < nMin) nMin = t; } else { dSum += t; dCnt++; }
       }
     }
     row.nt.push(nMin === Infinity ? null : nMin / T_SCALE);
     row.ta.push(cnt ? Math.round((sum / cnt / T_SCALE) * 10) / 10 : null);
+    row.td!.push(nCnt && dCnt ? Math.round((dSum / dCnt / T_SCALE - nSum / nCnt / T_SCALE) * 10) / 10 : null);
   }
   return row;
+}
+
+/**
+ * Calea RAPIDĂ pentru filtrul din pagină: câte nopți se potrivesc (și câte sunt cunoscute) pentru un contor, direct din profilul lui pe ore, FĂRĂ să construiască vectori
+ * (se cheamă pentru toate cele ~69.000 de contoare la fiecare modificare de parametru). Același rezultat ca `countMatches(nightRowFromProfile(…))`: verificat în `npm run check`.
+ * Ordinea condițiilor merge de la cea mai ieftină la cea mai scumpă (consum de noapte, consum de zi, apoi temperatura), deci majoritatea contoarelor ies repede.
+ */
+export function countFromProfile(cons: Uint16Array, temp: Int8Array | null, totalDays: number, p: SuspectParams): { matched: number; known: number } {
+  const len = nightLength(p.startHour, p.endHour);
+  const total = totalDays * SLOTS;
+  let matched = 0, known = 0;
+  if (len === 0) return { matched, known };
+  const needTemp = p.minTemp !== null || p.maxTempDrop !== null;
+  for (let k = Math.max(0, totalDays - p.nights); k < totalDays; k++) {
+    const s0 = k * SLOTS + p.startHour, nEnd = s0 + len, dEnd = s0 + SLOTS;
+    if (nEnd > total) continue;
+    let nc = 0, bad = false;
+    for (let i = s0; i < nEnd; i++) {
+      const c = cons[i];
+      if (c === MARK_C) { bad = true; break; }
+      nc += c;
+    }
+    if (bad) continue;
+    known++;
+    if (nc / C_SCALE > p.maxNight) continue;
+    if (p.minDay > 0) {
+      if (dEnd > total) continue;
+      let dc = 0;
+      for (let i = nEnd; i < dEnd; i++) {
+        const c = cons[i];
+        if (c === MARK_C) { bad = true; break; }
+        dc += c;
+      }
+      if (bad || dc / C_SCALE < p.minDay) continue;
+    }
+    if (needTemp) {
+      if (!temp) continue;
+      let nMin = 127, nSum = 0, nCnt = 0, dSum = 0, dCnt = 0;
+      const dLim = Math.min(dEnd, total);
+      for (let i = s0; i < nEnd; i++) {
+        const t = temp[i];
+        if (t === MARK_T) continue;
+        nSum += t; nCnt++;
+        if (t < nMin) nMin = t;
+      }
+      for (let i = nEnd; i < dLim; i++) {
+        const t = temp[i];
+        if (t === MARK_T) continue;
+        dSum += t; dCnt++;
+      }
+      if (p.minTemp !== null) {
+        const v = p.tempMode === "night" ? (nCnt ? nMin / T_SCALE : null) : nCnt + dCnt ? Math.round(((nSum + dSum) / (nCnt + dCnt) / T_SCALE) * 10) / 10 : null;
+        if (v === null || v < p.minTemp) continue;
+      }
+      if (p.maxTempDrop !== null) {
+        if (!nCnt || !dCnt) continue;
+        if (Math.round((dSum / dCnt / T_SCALE - nSum / nCnt / T_SCALE) * 10) / 10 > p.maxTempDrop) continue;
+      }
+    }
+    matched++;
+  }
+  return { matched, known };
 }

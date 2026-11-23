@@ -20,7 +20,8 @@ import { NO_SFILTERS, activeCount, binsToDays, describeFilters, dictCounts, filt
 import { sourceToCsv } from "../lib/source-csv";
 import { writeSource } from "../lib/source-sync";
 import * as NA from "../lib/night-analysis";
-import { MAX_BATCH, ingestIsNewer, mergeDerive, mergeMsgs, normTs, parseMessage, type MeterDocIng } from "../lib/integration";
+import { looksLikeUplink, nameKey, uplinkToMsg } from "../lib/integration-uplink";
+import { MAX_BATCH, isStaleFcnt, isStaleUplink, ingestIsNewer, mergeDerive, mergeMsgs, normTs, parseMessage, type MeterDocIng } from "../lib/integration";
 import { MAX_READINGS, appendReadings, readingOf } from "../lib/meter-readings";
 import { EXCLUDED_PROFILE, GAS_CUSTOMERS } from "../lib/meter-scope";
 import type { Db } from "mongodb";
@@ -374,6 +375,38 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   check("istoric: 12 octeți / punct", Buffer.from(packed.t, "base64").length + Buffer.from(packed.v, "base64").length === 4 * 12);
 }
 
+/* ───────── 8b) consum nemăsurat: calea rapidă și scăderea temperaturii ───────── */
+{
+  let sd = 99;
+  const rn = () => ((sd = (sd * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  const ND = 30;
+  let total = 0, bad = 0, firstBad = "";
+  for (let it = 0; it < 400; it++) {
+    const cons = new Uint16Array(ND * 24);
+    for (let i = 0; i < cons.length; i++) cons[i] = rn() < 0.04 ? NA.MARK_C : rn() < 0.5 ? 0 : Math.round(rn() * 1500);
+    const temp = rn() < 0.7 ? new Int8Array(ND * 24).map(() => (rn() < 0.1 ? NA.MARK_T : Math.round((10 + rn() * 30) * 2))) : null;
+    for (let q = 0; q < 8; q++) {
+      const nights = 1 + Math.floor(rn() * ND);
+      const p: NA.SuspectParams = { startHour: Math.floor(rn() * 24), endHour: 1 + Math.floor(rn() * 24), nights, maxNight: [0, 0.5, 1, 3][Math.floor(rn() * 4)], minDay: [0, 2, 5][Math.floor(rn() * 3)], minTemp: [null, 15, 22][Math.floor(rn() * 3)], tempMode: rn() < 0.5 ? "night" : "day", maxTempDrop: [null, 0, 2, 5][Math.floor(rn() * 4)], minNights: 1 };
+      const row = NA.nightRowFromProfile(cons, temp, ND, p.startHour, p.endHour, p.nights);
+      const a = NA.countMatches(row, { ...p, nights: row.nc.length });
+      const b = NA.countFromProfile(cons, temp, ND, p);
+      total++;
+      if (a.matched !== b.matched || a.known !== b.known) { bad++; if (!firstBad) firstBad = JSON.stringify({ p, a, b }); }
+    }
+  }
+  check("cale rapidă (fără alocări) = varianta pe rânduri, pe profiluri aleatorii cu ore și temperaturi lipsă", bad === 0, bad ? firstBad : `${total} combinații`);
+  // scăderea temperaturii: noaptea la fel de caldă ca ziua vs. mult mai rece
+  const ND3 = 3;
+  const consD = new Uint16Array(ND3 * 24).map((_, i) => (i % 24 < 6 ? 0 : 500));
+  const same = new Int8Array(ND3 * 24).fill(42); // 21 °C tot timpul
+  const cooler = new Int8Array(ND3 * 24).map((_, i) => (i % 24 < 6 ? 30 : 42)); // 15 °C noaptea, 21 °C ziua
+  const base = { ...NA.DEFAULT_PARAMS, nights: 3, minNights: 1, minTemp: null, maxTempDrop: 2 };
+  check("scădere de temperatură: noaptea la fel de caldă ca ziua (scădere 0) se potrivește; noaptea mai rece cu 6 °C nu (prag 2 °C)", NA.countFromProfile(consD, same, ND3, base).matched === 3 && NA.countFromProfile(consD, cooler, ND3, base).matched === 0 && NA.countFromProfile(consD, cooler, ND3, { ...base, maxTempDrop: 6 }).matched === 3 && NA.countFromProfile(consD, same, ND3, { ...base, maxTempDrop: null }).matched === 3);
+  const rowSame = NA.nightRowFromProfile(consD, same, ND3, 0, 6, 3), rowCool = NA.nightRowFromProfile(consD, cooler, ND3, 0, 6, 3);
+  check("scădere de temperatură: valoarea afișată = media de zi − media de noapte (0 și 6 °C); fără temperatură ⇒ necunoscută și nu se potrivește", rowSame.td?.[0] === 0 && rowCool.td?.[0] === 6 && NA.countFromProfile(consD, null, ND3, base).matched === 0);
+}
+
 /* ───────── 9) integrare: mesaje direct de la LoRaWAN / antene ───────── */
 {
   const NOW = Date.UTC(2026, 10, 23, 20, 0), T = NOW - 60_000;
@@ -421,6 +454,57 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   const fresh = mergeDerive(null, "11111111-2222-3333-4444-555555555555", byName, new Date(NOW));
   check("integrare: contor nou fără facturare — filiala vine din clientul lui (Comrat 05), volumul și momentul din mesaj", fresh.doc.s.br === "05 · Comrat" && fresh.doc.s.v === 10.5 && fresh.doc.bill === null && fresh.doc.s.t === T);
   check("integrare: sincronizarea din SCADA nu suprascrie date venite direct, la fel de noi sau mai noi", ingestIsNewer({ ing: 5, s: { t: 2000 } }, 1000) && ingestIsNewer({ ing: 5, s: { t: 2000 } }, 2000) && !ingestIsNewer({ ing: 5, s: { t: 1000 } }, 2000) && !ingestIsNewer({ s: { t: 9000 } }, 1000) && !ingestIsNewer(undefined, 1));
+}
+
+/* ───────── 10) integrare: uplink-uri brute de la serverul LoRaWAN (Jooby) ───────── */
+{
+  const NOW = Date.parse("2026-11-23T22:00:00Z");
+  const up = (over: Record<string, unknown> = {}, frames?: unknown[]) => ({
+    applicationID: "6", applicationName: "App_Orhei_Gaz_ABP_jooby", deviceName: "2154_00073058_2022", deviceProfileName: "Jooby_profile_2_device_ABP", devEUI: "001A798816011D62",
+    rxInfo: [{ gatewayID: "50313953542f4750", name: "M-2F4750", time: "2026-08-11T09:56:52.063309Z", rssi: -99, loRaSNR: 6.5, location: { latitude: 47.39, longitude: 28.81 } }], txInfo: { frequency: 868500000, dr: 5 },
+    fCnt: 36502, fPort: 1, data: "CQUABw==",
+    object: { decodeTime: "2026-11-23T21:18:57.442Z", deviceTimeDrift: 721721265, hex: "0905", version: "1.0.1", decoded: frames ?? [
+      { cmd: 9, corrSeq: 0, ieType: "CurrentTime", time: "2004-01-10T15:11:12Z" },
+      { cmd: 24, ieType: "CurrentDataMul", values: [{ channel: 0, value: 2 }] },
+      { cmd: 96, eventSeq: 97, ieType: "LastEventSeq", status: { batteryTooLowVoltage: false, buttonPressed: false, magnet: false, offline: true } },
+    ] }, ...over });
+  const U = (x: unknown) => { const r = uplinkToMsg(x as Record<string, unknown>, NOW); if (!r.ok) throw new Error(r.error); return r.msg; };
+  check("uplink: se recunoaște forma serverului LoRaWAN, nu și documentul de contor", looksLikeUplink(up()) && !looksLikeUplink({ tb: { name: "S1" }, tel: {}, devEUI: "0011223344556677" }) && !looksLikeUplink({ x: 1 }));
+  check("uplink: numele fără prefix, cu S și cu SN dau aceeași cheie (potrivire de rezervă); alt nume ⇒ null", nameKey("2154_00073058_2022") === "2154_00073058_2022" && nameKey("S2154_00073058_2022") === "2154_00073058_2022" && nameKey("SN2154_00073058_2022") === "2154_00073058_2022" && nameKey("LWM-2503-00001") === null && nameKey(null) === null);
+  const m = U(up());
+  check("uplink: contorul se identifică prin devEUI (litere mici), cu cheia de nume ca rezervă; momentul = decodeTime, nu ora antenei", m.eui === "001a798816011d62" && m.nameKey === "2154_00073058_2022" && m.id === null && m.tel.rssi.t === Date.parse("2026-11-23T21:18:57.442Z"));
+  check("uplink: semnal, concentrator, frecvență, fCnt, fPort, aplicație, decodeTime", m.tel.rssi.v === "-99" && m.tel.loRaSNR.v === "6.5" && m.tel.Concentrator.v === "M-2F4750" && m.tel.Frequency.v === "868.5" && m.tel.fCnt.v === "36502" && m.tel.fPort.v === "1" && m.tel.applicationName.v === "App_Orhei_Gaz_ABP_jooby" && m.tel.decodeTime.v === "2026-11-23T21:18:57.442Z");
+  check("uplink: starea din cadrul LastEventSeq (offline, magnet, buton, baterie) și ieType = tipul ultimului cadru", m.tel.offline.v === "true" && m.tel.magnet.v === "false" && m.tel.buttonPressed.v === "false" && m.tel.batteryTooLowVoltage.v === "false" && m.tel.ieType.v === "LastEventSeq");
+  check("uplink: impulsurile din CurrentDataMul (canal 0) și fCnt; contorul e marcat activ cu ultima activitate = momentul mesajului", m.pulse?.v === 2 && m.fcnt === 36502 && m.attrs.active === true && m.attrs.lastActivityTime === m.tel.rssi.t);
+  const ds = U(up({}, [{ battery: { highLoadVoltage: 3260, internalRes: 16978, lowLoadVoltage: 3629, remCapacity: 97.24 }, dwQuality: 100, ieType: "DeviceStatus", lastEventSeq: 31, temp: 18 }]));
+  check("uplink: DeviceStatus ⇒ baterie (JSON, ca în SCADA) și temperatură; fără impulsuri", JSON.parse(ds.tel.battery.v).remCapacity === 97.24 && ds.tel.temp.v === "18" && ds.tel.ieType.v === "DeviceStatus" && ds.pulse === null && !("offline" in ds.tel));
+  check("uplink: CurrentData (cmd 7) dă tot impulsuri", U(up({}, [{ cmd: 7, ieType: "CurrentData", magnet: 0, value: 252751 }])).pulse?.v === 252751);
+  const pm = parseMessage(up(), NOW);
+  check("uplink: parseMessage îl recunoaște singur; devEUI greșit ⇒ respins cu motiv", pm.ok && pm.msg.eui === "001a798816011d62" && !uplinkToMsg({ devEUI: "xyz", object: {} } as never, NOW).ok);
+
+  // volumul total = Instalation_Litres + (impulsuri − ModuleInitialValue) × 10 — cele 4 contoare reale verificate
+  const base = (name: string, inst: string, init: number, eui: string) => mergeDerive(null, "11111111-2222-3333-4444-555555555555", P2({ id: "11111111-2222-3333-4444-555555555555", tb: { name, type: "Orhei_Gas_Meter_DP", customerId: "07ed0920-7b6d-11ed-bc64-85872813a734" }, attrs: { devEUI: eui, Instalation_Litres: inst, ModuleInitialValue: init, active: true } }), new Date(NOW)).doc;
+  const P2 = (x: unknown) => { const r = parseMessage(x, NOW); if (!r.ok) throw new Error(r.error); return r.msg; };
+  const cases: [string, string, number, number, number][] = [["S2154_00073058_2022", "00000260", 0, 2, 0.28], ["S2154_00076256_2022", "5157149", 13, 345508, 8612.099], ["S4254_00327280_2025", "00063", 4, 4, 0.063], ["S4254_00342052_2025", "961769", 23, 124775, 2209.289]];
+  const okAll = cases.every(([name, inst, init, pulse, want], i) => { const eui = "001a79881601" + String(1000 + i); const ex = base(name, inst, init, eui); const r = mergeDerive(ex, ex._id, U(up({ devEUI: eui }, [{ cmd: 24, ieType: "CurrentDataMul", values: [{ channel: 0, value: pulse }] }])), new Date(NOW)); return Number(r.doc.tel.Volume_m3_Total?.v) === want && r.doc.s.v === want && r.doc.attrs.c_couterPulse === String(pulse); });
+  check("uplink: volumul total din impulsuri = valoarea din aplicație pe cele 4 contoare reale (0,28 · 8612,099 · 0,063 · 2209,289 m³)", okAll);
+  const ex1 = base("S2154_00076256_2022", "5157149", 13, "001a798816011d62");
+  const v1 = mergeDerive(ex1, ex1._id, U(up({ fCnt: 100 }, [{ cmd: 24, ieType: "CurrentDataMul", values: [{ channel: 0, value: 345508 }] }, { cmd: 96, eventSeq: 97, ieType: "LastEventSeq", status: { batteryTooLowVoltage: false, buttonPressed: false, magnet: false, offline: true } }])), new Date(NOW)).doc;
+  const back = mergeDerive(v1, v1._id, U(up({ fCnt: 100 }, [{ cmd: 24, ieType: "CurrentDataMul", values: [{ channel: 0, value: 300000 }] }])), new Date(NOW + 1000));
+  check("uplink: volumul doar crește — un contor de impulsuri mai mic (reluare / eroare) nu dă volumul înapoi", v1.s.v === 8612.099 && back.doc.s.v === 8612.099 && back.doc.tel.Volume_m3_Total.v === "8612.099");
+  const noInst = mergeDerive(mergeDerive(null, "22222222-2222-3333-4444-555555555555", P2({ id: "22222222-2222-3333-4444-555555555555", tb: { name: "S2154_00099999_2022" }, attrs: { devEUI: "001a798816019999" } }), new Date(NOW)).doc, "22222222-2222-3333-4444-555555555555", U(up({ devEUI: "001a798816019999" })), new Date(NOW));
+  check("uplink: fără Instalation_Litres volumul total NU se inventează (rămâne necunoscut), restul datelor se aplică", noInst.doc.s.v === null && noInst.doc.s.r === -99 && noInst.doc.s.fc === 36502);
+  check("uplink: stare (offline) și baterie ajung în rezumat, ca la sincronizarea din SCADA", (v1.s.fl & 16) === 16 && (v1.s.fl & 32) === 32 && v1.s.fl === (v1.s.fl | 16 | 32) && v1.s.ty === "LastEventSeq" && v1.s.fc === 100);
+  // ordinea: un cadru mai vechi (fCnt mai mic) sosit după unul mai nou nu are voie să-l strice
+  check("fCnt: mai vechi în aceeași sesiune ⇒ vechi; mai mic cu peste 30000 (repornire) sau lipsă ⇒ acceptat", isStaleFcnt(90, 100) && !isStaleFcnt(100, 100) && !isStaleFcnt(101, 100) && !isStaleFcnt(5, 40000) && !isStaleFcnt(null, 100) && !isStaleFcnt(5, null));
+  const stale = mergeDerive(v1, v1._id, U(up({ fCnt: 50 }, [{ cmd: 24, ieType: "CurrentDataMul", values: [{ channel: 0, value: 300000 }] }])), new Date(NOW + 5000));
+  check("fCnt: un uplink vechi (fCnt 50 față de 100, impulsuri mai puține) nu schimbă nimic", stale.status === "unchanged" && stale.doc.s.v === 8612.099);
+  const reset = mergeDerive(v1, v1._id, U(up({ fCnt: 50 }, [{ cmd: 24, ieType: "CurrentDataMul", values: [{ channel: 0, value: 346000 }] }])), new Date(NOW + 5000));
+  check("fCnt: fCnt mai mic DAR impulsuri mai multe ⇒ contorul e în viață (și-a repornit contorul de cadre): se acceptă, nu se blochează", reset.status === "updated" && reset.doc.s.v === 8612.099 + 4.92 && reset.doc.s.fc === 50, JSON.stringify({ v: reset.doc.s.v, fc: reset.doc.s.fc }));
+  const H48 = 48 * 3_600_000;
+  check("fCnt: după 48 h fără cadre mai noi un fCnt mai mic nu mai e „vechi” (repornire); înainte de 48 h e", isStaleUplink({ fcnt: 90, pulse: 5, t: 1000 }, { fcnt: 100, t: 0, pulse: 5 }) && !isStaleUplink({ fcnt: 90, pulse: 5, t: H48 + 1 }, { fcnt: 100, t: 0, pulse: 5 }) && !isStaleUplink({ fcnt: 90, pulse: 6, t: 1000 }, { fcnt: 100, t: 0, pulse: 5 }) && isStaleUplink({ fcnt: 90, pulse: null, t: 1000 }, { fcnt: 100, t: 0, pulse: 5 }));
+  const a1 = U(up({ fCnt: 200 })), b1 = U(up({ fCnt: 150 }));
+  check("fCnt: la îmbinarea a două mesaje ale aceluiași contor, cel cu fCnt mai mic sosit mai târziu se ignoră", mergeMsgs(a1, b1).fcnt === 200 && mergeMsgs(b1, a1).fcnt === 200);
 }
 
 /* ───────── 7) lista din SCADA (cei 10 clienți) și paginile pe sursă: lorawandb și getmgdb separat ───────── */
@@ -680,7 +764,7 @@ const section8 = (async () => {
   check("interval: lungimea nopții (00→06 = 6, 22→04 peste miezul nopții = 6, 22→24 = 2, început = sfârșit = 0)", NA.nightLength(0, 6) === 6 && NA.nightLength(22, 4) === 6 && NA.nightLength(22, 24) === 2 && NA.nightLength(5, 5) === 0 && NA.nightLength(1, 5) === 4);
   const prof = NA.hourlyProfile(series, D);
   const viaProfile = NA.nightRowFromProfile(prof.cons, prof.temp, D.length, 0, 6, 3);
-  check("profil pe ore: pentru 00–06 dă aceleași nopți ca varianta directă (consum, zi, temperatură)", JSON.stringify(viaProfile) === JSON.stringify(m), JSON.stringify(viaProfile));
+  check("profil pe ore: pentru 00–06 dă aceleași nopți ca varianta directă (consum, zi, temperatură)", JSON.stringify({ nc: viaProfile.nc, dc: viaProfile.dc, nt: viaProfile.nt, ta: viaProfile.ta }) === JSON.stringify(m), JSON.stringify(viaProfile));
   // serie densă (o citire pe oră): consum 0 între 00 și 06 și 0,5 m³/h în rest
   const dense: NA.Pt[] = [];
   let cd = 100;

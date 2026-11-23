@@ -2,6 +2,7 @@ import "server-only";
 import type { Document, ObjectId } from "mongodb";
 import { appendReadingsFor } from "../meter-readings";
 import { mergeDerive, mergeMsgs, parseMessage, type IntegrationMsg, type MeterDocIng } from "../integration";
+import { nameKey } from "../integration-uplink";
 import { COLLECTIONS, col, getDb } from "../mongo";
 import { bumpMeterEpoch, getStore } from "./meter-dataset";
 
@@ -21,6 +22,8 @@ export const DEAD = process.env.INTEGRATION_DEAD_COLLECTION || "integration_dead
 /** tot ce nu se potrivește cu formatul de contor (sau contorul nu se cunoaște), păstrat pentru procesare ulterioară */
 export const RAW = process.env.INTEGRATION_RAW_COLLECTION || "integration_raw";
 const RAW_MAX_CHARS = 256 * 1024;
+/** evidența contoarelor care au trimis date prin integrare: { _id: contor, n: câte mesaje, last: ultimul moment, name } */
+export const SEEN = process.env.INTEGRATION_SEEN_COLLECTION || "integration_seen";
 const MAX_INBOX = Number(process.env.INTEGRATION_MAX_INBOX) > 0 ? Number(process.env.INTEGRATION_MAX_INBOX) : 500_000;
 const BATCH = 1000;
 const IDLE_MS = 250;
@@ -31,7 +34,7 @@ type State = {
   started: boolean; running: boolean; timer: ReturnType<typeof setTimeout> | null; failDelay: number; lastError: string | null;
   received: number; rejected: number; kept: number; processed: number; created: number; updated: number; unchanged: number; dead: number; busy: number;
   sec: Map<number, { rx: number; ok: number }>; events: Ev[]; lastBatch: { n: number; ms: number; at: number } | null; batchMs: number[];
-  depth: { at: number; n: number }; maps: { gen: string; n: number; names: Map<string, string>; euis: Map<string, string> } | null; indexed: boolean;
+  depth: { at: number; n: number }; maps: { gen: string; n: number; names: Map<string, string>; euis: Map<string, string>; keys: Map<string, string | null> } | null; indexed: boolean;
 };
 const g = globalThis as unknown as { __integ?: State };
 function st(): State {
@@ -57,21 +60,28 @@ const pushEv = (s: State, e: Ev) => {
 };
 
 /* ───────── identificarea contorului: id din UUID, sau după nume / devEUI ───────── */
-async function resolver(): Promise<{ byName: (n: string) => string | null; byEui: (e: string) => string | null }> {
+type Resolver = { byName: (n: string) => string | null; byEui: (e: string) => string | null; byKey: (k: string) => string | null };
+async function resolver(): Promise<Resolver> {
   const s = st();
   const store = await getStore();
   if (!s.maps || s.maps.gen !== store.gen || s.maps.n !== store.cols.id.length) {
-    const names = new Map<string, string>(), euis = new Map<string, string>();
+    const names = new Map<string, string>(), euis = new Map<string, string>(), keys = new Map<string, string | null>();
     const c = store.cols;
     for (let i = 0; i < c.id.length; i++) {
       if (c.nm[i]) names.set(c.nm[i], c.id[i]);
       if (c.eu[i]) euis.set(c.eu[i], c.id[i]);
+      const k = nameKey(c.nm[i]);
+      if (k) keys.set(k, keys.has(k) ? null : c.id[i]); // același model_serie_an la mai multe dispozitive ⇒ ambiguu, nu se folosește
     }
-    s.maps = { gen: store.gen, n: c.id.length, names, euis };
+    s.maps = { gen: store.gen, n: c.id.length, names, euis, keys };
   }
   const m = s.maps;
-  return { byName: (n) => m.names.get(n) ?? null, byEui: (e) => m.euis.get(e) ?? null };
+  return { byName: (n) => m.names.get(n) ?? null, byEui: (e) => m.euis.get(e) ?? null, byKey: (k) => m.keys.get(k) ?? null };
 }
+
+/** Contorul unui mesaj: id (UUID) → devEUI (cel mai sigur) → nume exact → „model_serie_an”. null = necunoscut. */
+const resolveId = (msg: IntegrationMsg, r: Resolver | null): string | null =>
+  msg.id ?? (r ? (msg.eui && r.byEui(msg.eui)) || (msg.name && r.byName(msg.name)) || (msg.nameKey && r.byKey(msg.nameKey)) || null : null);
 
 export type AcceptResult = { received: number; accepted: number; kept: number; reasons?: string[] };
 export class BusyError extends Error {
@@ -121,7 +131,7 @@ export async function accept(items: unknown[]): Promise<AcceptResult> {
   if (parsed.length) {
     const r = parsed.some((x) => !x.msg.id) ? await resolver() : null;
     for (const { msg, raw } of parsed) {
-      const id = msg.id ?? (msg.name && r?.byName(msg.name)) ?? (msg.eui && r?.byEui(msg.eui)) ?? null;
+      const id = resolveId(msg, r);
       if (!id) kept.push(keptDoc(raw, "contor necunoscut (nu există în aplicație după id, nume sau devEUI)", now));
       else docs.push({ id, at: now, m: { ...msg, id } });
     }
@@ -166,7 +176,7 @@ export async function reprocessKept(limit = 1000): Promise<{ moved: number; rema
   for (const k of batch) {
     const p = parseMessage(k.raw, now);
     if (!p.ok) continue;
-    const id = p.msg.id ?? (p.msg.name && r.byName(p.msg.name)) ?? (p.msg.eui && r.byEui(p.msg.eui)) ?? null;
+    const id = resolveId(p.msg, r);
     if (!id) continue;
     docs.push({ id, at: now, m: { ...p.msg, id } });
     moveIds.push(k._id);
@@ -223,6 +233,18 @@ async function drainOnce(): Promise<number> {
   await appendReadingsFor(await getDb(), readings);
   if (dead.length) await (await col<Document>(DEAD)).insertMany(dead.map((d) => ({ ...d, createdAt: new Date() })) as never);
   if (writes.length) bumpMeterEpoch();
+  // evidența contoarelor care trimit date (pentru pagina /integration): un $inc pe contor, într-o singură scriere în bloc
+  const per = new Map<string, { n: number; last: number }>();
+  for (const d of docs) {
+    const e = per.get(d.id) ?? { n: 0, last: 0 };
+    e.n++;
+    e.last = Math.max(e.last, ...Object.values(d.m.tel).map((x) => x.t), d.m.pulse?.t ?? 0);
+    per.set(d.id, e);
+  }
+  await (await col<Document>(SEEN)).bulkWrite(
+    [...per].map(([id, e]) => ({ updateOne: { filter: { _id: id as never }, update: { $inc: { n: e.n }, $max: { last: e.last }, $set: { name: existing.get(id)?.tb.name ?? by.get(id)?.name ?? "", at: Date.now() } }, upsert: true } })) as never,
+    { ordered: false },
+  );
   // abia acum se șterg din cutie (dacă ceva a eșuat mai sus, mesajele rămân și se reiau)
   await inbox.deleteMany({ _id: { $in: docs.map((d) => d._id) } });
 
@@ -322,12 +344,46 @@ export async function integrationStats(): Promise<IntegrationStats> {
   };
 }
 
+export type SeenRow = { id: string; name: string; branch: string | null; n: number; last: number };
+export type KeptRow = { key: string; deviceName: string; app: string; n: number; last: number; meter: string | null; branch: string | null };
+export type IntegrationDevices = { seenTotal: number; seen: SeenRow[]; keptDevices: number; keptMatched: number; keptMessages: number; kept: KeptRow[] };
+
+/** „De la care contoare ia date”: contoarele care au trimis prin integrare (cu număr de mesaje și ultimul moment) + ce s-a păstrat, grupat pe dispozitiv, cu contorul cu care se potrivește. */
+export async function integrationDevices(limit = 200): Promise<IntegrationDevices> {
+  const store = await getStore();
+  const meterInfo = (id: string): { name: string; branch: string | null } | null => {
+    const i = store.idx.get(id);
+    return i === undefined ? null : { name: store.cols.nm[i], branch: store.cols.br[i] >= 0 ? store.dict.br[store.cols.br[i]] : null };
+  };
+  const seenColl = await col<Document>(SEEN);
+  const [seenTotal, seenDocs] = await Promise.all([seenColl.estimatedDocumentCount(), seenColl.find({}).sort({ last: -1 }).limit(limit).toArray()]);
+  const seen: SeenRow[] = seenDocs.map((d) => ({ id: String(d._id), name: meterInfo(String(d._id))?.name ?? d.name ?? "", branch: meterInfo(String(d._id))?.branch ?? null, n: d.n ?? 0, last: d.last ?? 0 }));
+
+  const raw = await col<Document>(RAW);
+  const groups = await raw.aggregate([
+    { $match: { "raw.devEUI": { $exists: true } } },
+    { $group: { _id: { $toLower: "$raw.devEUI" }, n: { $sum: 1 }, deviceName: { $first: "$raw.deviceName" }, app: { $first: "$raw.applicationName" }, last: { $max: "$at" } } },
+    { $sort: { n: -1 } },
+  ]).toArray();
+  const r = await resolver();
+  let keptMatched = 0, keptMessages = 0;
+  const kept: KeptRow[] = [];
+  for (const g of groups) {
+    const id = r.byEui(String(g._id)) ?? (nameKey(g.deviceName) ? r.byKey(nameKey(g.deviceName) as string) : null);
+    const info = id ? meterInfo(id) : null;
+    if (info) keptMatched++;
+    keptMessages += g.n;
+    if (kept.length < limit) kept.push({ key: String(g._id), deviceName: String(g.deviceName ?? ""), app: String(g.app ?? ""), n: g.n, last: g.last ?? 0, meter: info?.name ?? null, branch: info?.branch ?? null });
+  }
+  return { seenTotal, seen, keptDevices: groups.length, keptMatched, keptMessages, kept };
+}
+
 /** Verificare fără scriere: validează mesajul și arată ce document ar rezulta (rezumatul derivat). */
 export async function checkMessage(x: unknown): Promise<{ ok: true; id: string | null; status: string; summary: unknown } | { ok: false; error: string }> {
   const p = parseMessage(x);
   if (!p.ok) return p;
-  const r = p.msg.id || p.msg.name || p.msg.eui ? await resolver() : null;
-  const id = p.msg.id ?? (p.msg.name && r?.byName(p.msg.name)) ?? (p.msg.eui && r?.byEui(p.msg.eui)) ?? null;
+  const r = p.msg.id ? null : await resolver();
+  const id = resolveId(p.msg, r);
   if (!id) return { ok: false, error: "contor necunoscut: trimite id (UUID) sau un nume / devEUI existent în aplicație" };
   const meters = await col<MeterDocIng>(COLLECTIONS.meters);
   const existing = await meters.findOne({ _id: id as never });

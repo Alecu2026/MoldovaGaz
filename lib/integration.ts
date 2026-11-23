@@ -1,6 +1,9 @@
 import { FLAG } from "./meter-shared";
 import { CLIENT_KEYS, SERVER_KEYS, buildDocs, hashBody, type Bill, type Dev, type MeterDoc } from "./meter-sync";
 import type { TbLatest } from "./thingsboard";
+import { looksLikeUplink, normTs, uplinkToMsg } from "./integration-uplink";
+
+export { normTs };
 
 /**
  * INTEGRARE: mesaje de contor primite DIRECT de la rețeaua LoRaWAN / antene (nu din SCADA), în aceeași formă ca documentul unui contor din aplicație:
@@ -25,21 +28,16 @@ export type IntegrationMsg = {
   bill: Bill | null;
   attrs: Record<string, string | number | boolean>;
   tel: Record<string, { t: number; v: string }>;
+  /** cheia de nume „model_serie_an” (fără prefixul S / SN): potrivire de rezervă a contorului pentru uplink-uri (vezi integration-uplink.ts) */
+  nameKey?: string | null;
+  /** contorul de impulsuri al uplink-ului (1 impuls = 10 L); volumul total se calculează la aplicare din atributele contorului */
+  pulse?: { t: number; v: number } | null;
+  /** contorul de cadre LoRaWAN al uplink-ului: un mesaj cu fCnt mai mic decât cel deja primit e vechi și nu are voie să dea valorile înapoi */
+  fcnt?: number | null;
 };
 export type Parsed = { ok: true; msg: IntegrationMsg } | { ok: false; error: string };
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
-
-/** Moment în ms: număr în ms (sau în secunde) ori text ISO. null = invalid. */
-export function normTs(x: unknown): number | null {
-  let t: number;
-  if (typeof x === "number") t = x;
-  else if (typeof x === "string" && x.trim() !== "") t = /^\d+(\.\d+)?$/.test(x.trim()) ? Number(x) : Date.parse(x);
-  else return null;
-  if (!Number.isFinite(t)) return null;
-  if (t >= 1e9 && t < 1e11) t *= 1000; // secunde
-  return t >= 1e11 && t <= 4e12 ? Math.round(t) : null;
-}
 
 function scalar(v: unknown): string | null {
   if (typeof v === "string") return v.length <= MAX_STR ? v : null;
@@ -53,6 +51,7 @@ function scalar(v: unknown): string | null {
 }
 
 export function parseMessage(x: unknown, now: number = Date.now()): Parsed {
+  if (looksLikeUplink(x)) return uplinkToMsg(x, now); // uplink brut de la serverul LoRaWAN (ChirpStack / Jooby)
   if (!isObj(x)) return { ok: false, error: "mesajul trebuie să fie un obiect JSON" };
   const tbIn = isObj(x.tb) ? x.tb : {};
   const idRaw = typeof x.id === "string" ? x.id.trim() : typeof tbIn.id === "string" ? tbIn.id.trim() : "";
@@ -124,6 +123,9 @@ export function parseMessage(x: unknown, now: number = Date.now()): Parsed {
     bill,
     attrs,
     tel,
+    nameKey: null,
+    pulse: null,
+    fcnt: null,
   };
   if (aKeysEmpty(msg) && Object.keys(tel).length === 0 && !bill) return { ok: false, error: "mesaj fără date (tel, attrs sau bill)" };
   return { ok: true, msg };
@@ -131,10 +133,27 @@ export function parseMessage(x: unknown, now: number = Date.now()): Parsed {
 const aKeysEmpty = (m: IntegrationMsg) => Object.keys(m.attrs).length === 0;
 
 /** Îmbină două mesaje ale aceluiași contor, `b` fiind cel mai nou: pentru fiecare cheie de telemetrie rămâne valoarea cu momentul cel mai mare. */
+/** „Mai vechi” după contorul de cadre LoRaWAN: aceeași sesiune (diferența sub 30000, ca să nu confundăm o repornire a contorului de cadre). */
+export const isStaleFcnt = (incoming: number | null | undefined, known: number | null | undefined): boolean =>
+  incoming !== null && incoming !== undefined && known !== null && known !== undefined && Number.isFinite(known) && incoming < known && known - incoming < 30_000;
+
+/**
+ * Un uplink e „vechi” (reluare / retransmitere) doar dacă: are fCnt mai mic decât cel cunoscut (aceeași sesiune), NU aduce mai multe impulsuri decât cele cunoscute
+ * (altfel contorul e în viață, chiar dacă și-a repornit contorul de cadre) și valoarea cunoscută nu e mai veche de 48 h (după două zile fără cadre mai noi, un fCnt mai mic
+ * înseamnă o repornire a contorului, nu o reluare — nu blocăm un contor).
+ */
+export function isStaleUplink(inc: { fcnt: number | null | undefined; pulse?: number | null; t: number }, known: { fcnt: number; t: number; pulse: number | null }): boolean {
+  if (!isStaleFcnt(inc.fcnt, known.fcnt)) return false;
+  if (inc.t - known.t > 48 * 3_600_000) return false;
+  if (inc.pulse !== null && inc.pulse !== undefined && known.pulse !== null && inc.pulse > known.pulse) return false;
+  return true;
+}
+
 export function mergeMsgs(a: IntegrationMsg, b: IntegrationMsg): IntegrationMsg {
+  if (isStaleFcnt(b.fcnt, a.fcnt) && !(b.pulse && a.pulse && b.pulse.v > a.pulse.v)) return a; // b a sosit după a, dar e un cadru mai vechi
   const tel = { ...a.tel };
   for (const [k, e] of Object.entries(b.tel)) if (!tel[k] || e.t >= tel[k].t) tel[k] = e;
-  return { id: b.id ?? a.id, name: b.name ?? a.name, eui: b.eui ?? a.eui, tb: { ...a.tb, ...b.tb }, bill: b.bill ?? a.bill, attrs: { ...a.attrs, ...b.attrs }, tel };
+  return { id: b.id ?? a.id, name: b.name ?? a.name, eui: b.eui ?? a.eui, nameKey: b.nameKey ?? a.nameKey ?? null, tb: { ...a.tb, ...b.tb }, bill: b.bill ?? a.bill, attrs: { ...a.attrs, ...b.attrs }, tel, pulse: b.pulse ?? a.pulse ?? null, fcnt: b.fcnt ?? a.fcnt ?? null };
 }
 
 export type MeterDocIng = MeterDoc & { ing?: number };
@@ -146,9 +165,30 @@ export type Derived = { doc: MeterDocIng; status: "created" | "updated" | "uncha
  * „unchanged” = același conținut ca înainte (nu se scrie nimic).
  */
 export function mergeDerive(existing: MeterDocIng | null, id: string, msg: IntegrationMsg, now: Date): Derived {
+  // uplink mai vechi decât ce s-a primit deja (retransmitere / reluare): nu are voie să dea volumul sau starea înapoi
+  if (existing && existing.tel.fCnt) {
+    const exF = Number(existing.tel.fCnt.v), exP = existing.attrs.c_couterPulse !== undefined && existing.attrs.c_couterPulse !== null ? Number(existing.attrs.c_couterPulse) : NaN;
+    if (Number.isFinite(exF) && isStaleUplink({ fcnt: msg.fcnt, pulse: msg.pulse?.v ?? null, t: msg.tel.fCnt?.t ?? now.getTime() }, { fcnt: exF, t: existing.tel.fCnt.t, pulse: Number.isFinite(exP) ? exP : null })) return { doc: existing, status: "unchanged" };
+  }
   const tel: Record<string, { t: number; v: string }> = { ...(existing?.tel ?? {}) };
   for (const [k, e] of Object.entries(msg.tel)) if (!tel[k] || e.t >= tel[k].t) tel[k] = e;
   const attrs: Record<string, string | number | boolean | null> = { ...(existing?.attrs ?? {}), ...msg.attrs };
+
+  // volumul total din contorul de impulsuri: litri = Instalation_Litres + (impulsuri − ModuleInitialValue) × 10 (1 impuls = 10 L). Verificat pe date reale.
+  // Contorul de volum doar crește: o valoare mai mică decât cea cunoscută se ignoră.
+  if (msg.pulse) {
+    const inst = Number(String(attrs.Instalation_Litres ?? "").trim());
+    const init = Number(String(attrs.ModuleInitialValue ?? "0").trim());
+    if (String(attrs.Instalation_Litres ?? "").trim() !== "" && Number.isFinite(inst) && Number.isFinite(init) && msg.pulse.v >= init) {
+      const litres = inst + (msg.pulse.v - init) * 10;
+      const known = Number(tel.Volume_m3_Total?.v);
+      if (!(Number.isFinite(known) && known * 1000 > litres + 0.5)) {
+        tel.Volume_m3_Total = { t: msg.pulse.t, v: (litres / 1000).toFixed(3) };
+        attrs.c_couterPulse = String(msg.pulse.v);
+        attrs.c_Volume_m3 = (msg.pulse.v / 100).toFixed(2);
+      }
+    }
+  }
 
   const customerId = msg.tb.customerId !== undefined ? msg.tb.customerId : existing?.tb.customerId ?? null;
   const dev: Dev = {

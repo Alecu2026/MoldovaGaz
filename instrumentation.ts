@@ -4,6 +4,9 @@
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  // „Consum nemăsurat”: lista profilurilor se încarcă acum, nu la prima cerere a unui utilizator
+  const { warmNights } = await import("./lib/services/night-dataset");
+  warmNights();
   if (!(process.env.INTEGRATION_TOKEN ?? "").trim()) return; // integrarea nu e activată: nimic de pornit
   const { startIntegrationWorker } = await import("./lib/services/integration");
   startIntegrationWorker();

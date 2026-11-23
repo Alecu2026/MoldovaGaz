@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { IntegrationStats } from "@/lib/services/integration";
+import type { IntegrationDevices, IntegrationStats } from "@/lib/services/integration";
 import { ColumnChart, type Bar } from "./charts/primitives";
 
 const nf = new Intl.NumberFormat("ro-RO");
@@ -34,6 +34,7 @@ export default function IntegrationPanel() {
   const [check, setCheck] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [reMsg, setReMsg] = useState<string | null>(null);
+  const [dev, setDev] = useState<IntegrationDevices | null>(null);
 
   useEffect(() => {
     const t0 = setTimeout(() => setOrigin(window.location.origin), 0);
@@ -55,12 +56,23 @@ export default function IntegrationPanel() {
         if (alive) setErr((e as Error).message);
       }
     };
+    const loadDev = async () => {
+      try {
+        const r = await fetch("/api/integration/devices", { cache: "no-store" });
+        if (r.ok && alive) setDev((await r.json()) as IntegrationDevices);
+      } catch {
+        /* lista se reîncearcă la următoarea citire */
+      }
+    };
     void load();
+    void loadDev();
+    const td = setInterval(() => document.visibilityState === "visible" && void loadDev(), 10_000);
     const t = setInterval(() => document.visibilityState === "visible" && void load(), 2000);
     return () => {
       alive = false;
       clearTimeout(t0);
       clearInterval(t);
+      clearInterval(td);
     };
   }, []);
 
@@ -83,6 +95,8 @@ export default function IntegrationPanel() {
       const r = await fetch("/api/integration/reprocess", { method: "POST" });
       const j = (await r.json()) as { moved?: number; remaining?: number; error?: string };
       setReMsg(r.ok ? `${j.moved} aplicate acum, ${j.remaining} rămase păstrate` : j.error ?? "Nu am putut relua.");
+      const d = await fetch("/api/integration/devices", { cache: "no-store" });
+      if (d.ok) setDev((await d.json()) as IntegrationDevices);
     } catch {
       setReMsg("Nu am putut relua.");
     }
@@ -145,6 +159,53 @@ export default function IntegrationPanel() {
             <button type="button" className="btn" onClick={() => { setText(SAMPLE); setCheck(null); }}>Exemplu</button>
           </div>
           {check && <pre className={check.ok ? "json" : "form-error"} style={{ marginTop: 8, maxHeight: 260, whiteSpace: "pre-wrap" }}>{check.text}</pre>}
+        </section>
+      </div>
+
+      <div className="grid">
+        <section className="card" aria-label="Contoare care trimit">
+          <header className="card-h">
+            <div>
+              <h3>De la care contoare vin datele</h3>
+              <p>{dev ? `${nf.format(dev.seenTotal)} contoare au trimis prin integrare (cele mai recente ${dev.seen.length})` : "se încarcă…"}</p>
+            </div>
+          </header>
+          <div className="card-table" style={{ maxHeight: 360 }}>
+            <table className="mini">
+              <thead><tr><th>Contor</th><th>Filială</th><th className="num">Mesaje</th><th>Ultimul mesaj</th></tr></thead>
+              <tbody>
+                {dev?.seen.map((m) => (
+                  <tr key={m.id}><td className="mono">{m.name || m.id}</td><td>{m.branch ?? "—"}</td><td className="num mono">{nf.format(m.n)}</td><td className="mono">{m.last ? `${p2(new Date(m.last).getDate())}.${p2(new Date(m.last).getMonth() + 1)} ${clock(m.last)}` : "—"}</td></tr>
+                ))}
+                {dev && dev.seen.length === 0 && <tr><td colSpan={4} className="cell-sub" style={{ padding: 16 }}>Niciun contor nu a trimis încă date aplicate pe contoare.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="card" aria-label="Date păstrate">
+          <header className="card-h">
+            <div>
+              <h3>Păstrate pentru procesare ulterioară, pe dispozitiv</h3>
+              <p>{dev ? `${nf.format(dev.keptMessages)} mesaje de la ${nf.format(dev.keptDevices)} dispozitive; ${nf.format(dev.keptMatched)} se potrivesc cu un contor și se aplică la „Reia acum”` : "se încarcă…"}</p>
+            </div>
+          </header>
+          <div className="card-table" style={{ maxHeight: 360 }}>
+            <table className="mini">
+              <thead><tr><th>Dispozitiv</th><th>Aplicație</th><th className="num">Mesaje</th><th>Se potrivește cu</th></tr></thead>
+              <tbody>
+                {dev?.kept.map((k) => (
+                  <tr key={k.key}>
+                    <td className="mono" title={k.key}>{k.deviceName || k.key}</td>
+                    <td>{k.app || "—"}</td>
+                    <td className="num mono">{nf.format(k.n)}</td>
+                    <td>{k.meter ? <><span className="mono">{k.meter}</span> <span className="cell-sub">{k.branch ?? ""}</span></> : <span className="badge warn">contor necunoscut</span>}</td>
+                  </tr>
+                ))}
+                {dev && dev.kept.length === 0 && <tr><td colSpan={4} className="cell-sub" style={{ padding: 16 }}>Nimic păstrat de acest fel.</td></tr>}
+              </tbody>
+            </table>
+          </div>
         </section>
       </div>
 
