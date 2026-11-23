@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DatasetWire, DeltaFull, DeltaWire } from "@/lib/meter-shared";
 import { MeterStore, type Snapshot } from "@/lib/meter-store";
+import { clearSourceMemo } from "./useSourceStore";
 
 /**
  * Lista completă de contoare în browser, pe TREI straturi (peste cache-ul serverului din lib/services/meter-dataset.ts):
@@ -85,6 +86,7 @@ function schedulePersist(user: string, store: MeterStore, delay = 3000) {
 /** La ieșire din cont: lista (cu date despre consumatori) nu rămâne în browser pentru următorul utilizator al calculatorului. */
 export async function clearMeterCaches(): Promise<void> {
   memo = null;
+  clearSourceMemo();
   if (persistTimer) clearTimeout(persistTimer);
   try {
     const dbs = (await indexedDB.databases?.()) ?? [];

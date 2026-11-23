@@ -12,7 +12,19 @@ Next.js 16 (App Router, Cache Components) + MongoDB. Arată contoarele de gaz Mo
 
 **Legătura facturare ↔ dispozitiv:** `NUM_RADIO` (8 cifre) = seria din numele dispozitivului (`S2154_00070948_2022` → `00070948`). Pe datele reale se potrivesc 99,1% din rândurile de facturare. **Filiala:** codul `FIL` din facturare (01 Chișinău, 05 Comrat, 10 Edineț, 11 Cahul, 20 Orhei, 27 Taraclia, 31 Florești, 33 Cimișlia, 35 Ștefan Vodă, 36 Ialoveni); contoarele fără facturare primesc filiala clientului lor din ThingsBoard (dedusă din perechile potrivite). Cheile LoRaWAN (APPKEY / NWKSKEY / APPSKEY) **nu** se copiază niciodată în aplicație.
 
+## Trei pagini
+
+| Pagină | Adresă | Ce arată |
+|---|---|---|
+| **Contoare** (principala) | `/` | toate sursele **combinate**: dispozitive + facturare + valorile din ThingsBoard (volum, semnal, baterie, coordonate), cu hartă și istoric |
+| **Dispozitive LoRaWAN** | `/lorawan` | **doar** datele din lorawandb (primul IP), exact cum le dă sursa: nume, profil, etichetă, client, data creării (+ serie / model / an extrase din nume, serii repetate) |
+| **Facturare** | `/facturare` | **doar** datele din getmgdb (al doilea IP): consumator, adresă, filială, număr radio, serie contor, cont, secție, cod abonat, data actualizării… — toate rândurile (și cele fără dispozitiv) |
+
+Paginile pe sursă au aceleași instrumente ca pagina principală: căutare cu mai multe cuvinte, filtru sub fiecare antet de coloană și „Mai multe filtre” pentru restul câmpurilor, filtre active ca etichete cu ✕ (în URL), totaluri, sortare pe orice coloană, grafice (click pe bară filtrează, glisarea alege un interval de timp), detalii pe rând cu toate câmpurile și export CSV (fără datele personale). Coloanele sunt definite în [lib/source-schemas.ts](lib/source-schemas.ts); câmpurile necunoscute din getmgdb apar singure ca coloane text în detalii. Din detalii poți sări la pagina principală (`/?name=…` sau `/?q=<număr radio>`).
+
 ## Sincronizarea
+
+Înainte de ThingsBoard, sincronizarea salvează și **rândurile brute** ale celor două surse în colecțiile `src_lorawan` și `src_billing` ([lib/source-sync.ts](lib/source-sync.ts)): paginile pe sursă rămân la zi chiar dacă ThingsBoard nu răspunde. Se scriu doar rândurile schimbate (hash pe conținut); la `lorawandb` se păstrează doar câmpurile de identificare (**fără** `deviceData` și chei LoRaWAN). Serverul ține lista în memorie (gzip, ETag = amprenta datelor), iar browserul o păstrează în IndexedDB și o verifică la 60 s (304 când nu s-a schimbat nimic).
 
 `scripts/sync-meters.ts` (pm2: `<nume>-sync`, la 10 minute) citește cele trei surse (ThingsBoard în loturi de 500, ~70 s pentru toate contoarele), le combină și scrie în colecția `meters` **doar contoarele ale căror date s-au schimbat** (hash pe conținut). Contoarele dispărute din `lorawandb` se șterg (cu plasă de siguranță dacă dispar prea multe deodată).
 
@@ -22,6 +34,8 @@ npm run sync:meters -- --dry              # doar citește și combină; afișeaz
 npm run sync:meters -- --dry --out f.json # la fel, + salvează documentele într-un fișier
 npm run sync:meters -- --load f.json      # scrie documentele din fișier (fără rețea) — încărcare inițială
 npm run sync:meters -- --patch-geo        # completează coordonatele pe documentele existente, din atributele lor (fără rețea)
+npm run sync:sources                      # doar rândurile brute din lorawandb + getmgdb → `src_lorawan` / `src_billing` (fără ThingsBoard)
+npm run sync:sources -- --dry             # le citește și numără, fără să scrie nimic
 npm run check                             # verifică filtrele, agregările, actualizările pe loc și combinarea (date sintetice)
 ```
 

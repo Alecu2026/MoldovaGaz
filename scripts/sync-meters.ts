@@ -14,6 +14,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { connectMongo } from "../lib/mongo-core";
 import { buildDocs, dupLabels, duplicateGroups, fetchLatest, fetchSources, type MeterDoc } from "../lib/meter-sync";
 import { FLAG, validCoords } from "../lib/meter-shared";
+import { writeSources } from "../lib/source-sync";
 
 const log = (m: string) => console.log(`[${new Date().toISOString()}] ${m}`);
 
@@ -110,6 +111,19 @@ async function main() {
     if (src.devices.length === 0) throw new Error("lorawandb a întors 0 dispozitive: opresc (nu șterg nimic).");
     devices = limit ? src.devices.slice(0, limit) : src.devices;
     log(`  ${src.devices.length} dispozitive, ${src.billing.length} rânduri de facturare`);
+
+    // paginile pe sursă (Dispozitive LoRaWAN / Facturare): rândurile brute se salvează ÎNAINTE de ThingsBoard, ca să rămână la zi chiar dacă el nu răspunde
+    if (!dry && !limit && process.env.DATABASE_URL) {
+      const c = await connectMongo(process.env.DATABASE_URL);
+      try {
+        const errors = await writeSources(c.db(), src.devices, src.billing, log);
+        if (errors.length) log(`ATENȚIE: sursele brute nu s-au scris complet — ${errors.join(" | ")}`);
+      } catch (e) {
+        log(`ATENȚIE: sursele brute nu s-au scris — ${(e as Error).message}`);
+      } finally {
+        await c.close();
+      }
+    }
 
     log("citesc valorile curente din ThingsBoard…");
     const { byId, failed } = await fetchLatest(src.devices.slice(0, devices.length), 500, log);

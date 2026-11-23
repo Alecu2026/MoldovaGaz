@@ -10,6 +10,7 @@
     "seed:user": "tsx scripts/seed-user.ts",
     "check": "tsx scripts/check-engine.ts",
     "sync:meters": "tsx scripts/sync-meters.ts",
+    "sync:sources": "tsx scripts/sync-sources.ts",
     "history:fetch": "tsx scripts/fetch-history.ts",
     "history:load": "tsx scripts/load-history.ts"
   },

@@ -13,6 +13,13 @@ import { buildDocs, type Bill, type Dev } from "../lib/meter-sync";
 import { assertReadOnly } from "../lib/thingsboard";
 import { pack, unpack, type Pts } from "../lib/meter-history";
 import { addressLinks, boundsOf, buildClusters, latFromY, lonFromX, mapLinks, mercX, mercY, worldSize } from "../lib/geo";
+import { SourceStore, type SortSpec } from "../lib/source-store";
+import { billingDocs, billingTable, columnarize, lorawanDocs, lorawanTable } from "../lib/source-schemas";
+import { EMPTY_TOKEN, type ColDef, type SourceRow } from "../lib/source-shared";
+import { NO_SFILTERS, activeCount, binsToDays, describeFilters, dictCounts, filtersFromEntries, runFilter as runSourceFilter, setRange, timeAxis, timeCounts, toQuery, type SFilters } from "../lib/source-filter";
+import { sourceToCsv } from "../lib/source-csv";
+import { writeSource } from "../lib/source-sync";
+import type { Db } from "mongodb";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { TbLatest } from "../lib/thingsboard";
@@ -277,12 +284,12 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   const walk = (d: string): string[] => readdirSync(d).flatMap((n) => (n === "node_modules" || n === ".next" || n.startsWith(".") ? [] : statSync(join(d, n)).isDirectory() ? walk(join(d, n)) : /\.(ts|tsx)$/.test(n) ? [join(d, n)] : []));
   const files = ["app", "lib", "scripts"].flatMap(walk).filter((f) => !f.endsWith("check-engine.ts"));
   const fetches = files.flatMap((f) => (readFileSync(f, "utf8").match(/\bfetch\(/g) ?? []).map(() => f.replace(/\\/g, "/")));
-  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx"]);
+  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts"]);
   check("read-only: fetch() doar în fișierele așteptate", fetches.every((f) => allowedFetch.has(f)), [...new Set(fetches)].join(", "));
   const mutating = files.filter((f) => /method:\s*"(PUT|DELETE|PATCH)"|\.(deleteOne|deleteMany|drop|updateMany|updateOne|insertOne|insertMany|replaceOne|bulkWrite)\(/.test(readFileSync(f, "utf8"))).map((f) => f.replace(/\\/g, "/"));
   // scrieri în baza NOASTRĂ: doar sesiuni / utilizator (login, seed) și colecția `meters` (sincronizare); niciodată în surse
-  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts"]);
-  check("read-only: scrieri în baza de date doar în sesiuni, seed:user, sync-meters și load-history", mutating.every((f) => allowedWrites.has(f)), mutating.join(", "));
+  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts"]);
+  check("read-only: scrieri în baza de date doar în sesiuni, seed:user, sync-meters, load-history și lib/source-sync", mutating.every((f) => allowedWrites.has(f)), mutating.join(", "));
   const syncSrc = readFileSync("scripts/sync-meters.ts", "utf8");
   const syncCollections = syncSrc.match(/client\.db\(\)\.collection[^\n]*/g) ?? [];
   check("read-only: sync-meters scrie doar în colecția `meters` (METERS_COLLECTION)", syncCollections.length >= 1 && syncCollections.every((l) => /METERS_COLLECTION \|\| "meters"/.test(l)), `${syncCollections.length} accesări`);
@@ -346,5 +353,153 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   check("istoric: 12 octeți / punct", Buffer.from(packed.t, "base64").length + Buffer.from(packed.v, "base64").length === 4 * 12);
 }
 
-console.log(bad ? `\n${bad} EȘECURI` : "\nToate verificările au trecut.");
-process.exit(bad ? 1 : 0);
+/* ───────── 7) paginile pe sursă: lorawandb și getmgdb separat ───────── */
+const section7 = (async () => {
+  const SIDS = [{ id: "d1", name: "S2154_00070948_2022" }, { id: "d2", name: "S2154_00070948_2023" }, { id: "d3", name: "SN2160_00000012_2024" }, { id: "d4", name: "Contor vechi 7" }];
+  const devices = SIDS.map((x, i) => ({
+    id: { entityType: "DEVICE", id: x.id }, name: x.name, type: i % 2 ? "Jooby_Gas_Meter_DP" : "Comrat_Gas_Meter_DP", label: i === 0 ? "  eticheta  " : null, createdTime: 1_700_000_000_000 + i * 86_400_000 * 40,
+    customerId: { entityType: "CUSTOMER", id: i < 2 ? "cust-aaaaaaaa-1111" : "cust-bbbbbbbb-2222" }, ownerId: { id: "own-1" }, tenantId: { id: "ten-1" }, deviceProfileId: { id: "prof-" + (i % 2) },
+    additionalInfo: { description: i === 0 ? "la poartă" : undefined, gateway: false },
+    deviceData: { transportConfiguration: { APPKEY: "SECRET-APPKEY", NWKSKEY: "SECRET-NWK" } }, secretToken: "SECRET-TOKEN",
+  }));
+  const ld = lorawanDocs(devices);
+  check("lorawan: 4 rânduri, id = id-ul dispozitivului", ld.length === 4 && ld.map((x) => x._id).join() === "d1,d2,d3,d4");
+  check("lorawan: NU se copiază deviceData / chei LoRaWAN / alte câmpuri necunoscute", !JSON.stringify(ld).match(/SECRET|APPKEY|NWKSKEY|deviceData|transportConfiguration/));
+  check("lorawan: câmpurile de identificare sunt curate (spații, id-uri imbricate)", ld[0].d.label === "eticheta" && ld[0].d.customerId === "cust-aaaaaaaa-1111" && ld[0].d.ownerId === "own-1" && ld[0].d.description === "la poartă" && ld[3].d.label === null);
+  check("lorawan: amprenta se schimbă doar când se schimbă rândul", lorawanDocs(devices)[1].h === ld[1].h && lorawanDocs([{ ...devices[1], label: "alta" }])[0].h !== ld[1].h);
+  const lt = lorawanTable(ld.map((x) => ({ _id: x._id, d: x.d as unknown as Record<string, unknown> })));
+  const lr = (i: number) => lt.rows[i];
+  check("lorawan: serie / model / an din nume", lr(0).serial === "00070948" && lr(0).model === "2154" && lr(0).year === "2022" && lr(2).serial === "00000012" && lr(2).model === "2160" && lr(3).serial === null && lr(3).model === "alt");
+  check("lorawan: serie repetată = aceeași serie la mai multe dispozitive (doar în această sursă)", lr(0).dup === "Da" && lr(1).dup === "Da" && lr(2).dup === "Nu" && lr(3).dup === "Nu" && lr(3).std === "Nu" && lr(0).std === "Da");
+
+  const bill = [
+    { CONTOR_ID: "100", CONTOR_SN: " 111 ", NUM_RADIO: "70948", CITY: "Comrat", STREET: "Zlatov", HOUSE: "2", APARTMENT: "5", ACCT_ID: "A1", FIL: "05", OTDELEN: "05-02", KOD_AB: "FIZ-L   ", REPEAT: 1, NUM_CAR: 8, ENTITY_NAME: "Ion Popescu", UPDATED_DATE: "2026-11-19T06:05:00.000Z", EXTRA_X: "da", "bad.key": 1, $x: 2 },
+    { CONTOR_ID: "100", CONTOR_SN: "112", NUM_RADIO: "00070948", CITY: "Comrat", FIL: "05", UPDATED_DATE: "2026-11-18T06:05:00.000Z" },
+    { CONTOR_ID: "101", NUM_RADIO: "12", CITY: "Orhei", FIL: "20", UPDATED_DATE: "nu e dată" },
+    { CONTOR_SN: "9" },
+  ];
+  const bd = billingDocs(bill);
+  check("facturare: id = CONTOR_ID, la dubluri #2; fără CONTOR_ID ⇒ număr radio / amprentă", bd.map((x) => x._id).join() === "c100,c100#2,c101," + bd[3]._id && /^h[0-9a-f]{20}$/.test(bd[3]._id));
+  check("facturare: valorile se curăță, chei nepermise de Mongo sunt omise, câmpurile necunoscute rămân", bd[0].d.CONTOR_SN === "111" && !("bad.key" in bd[0].d) && !("$x" in bd[0].d) && bd[0].d.EXTRA_X === "da" && bd[0].d.REPEAT === 1);
+  const bt = billingTable(bd.map((x) => ({ _id: x._id, d: x.d as unknown as Record<string, unknown> })));
+  const br = (i: number) => bt.rows[i];
+  check("facturare: adresă, filială, număr radio cu zerouri, dată", br(0).adresa === "Comrat, Zlatov, 2, ap. 5" && br(0).branch === "05 · Comrat" && br(0).NUM_RADIO === "00070948" && br(0).UPDATED_DATE === Date.parse("2026-11-19T06:05:00.000Z") && br(2).UPDATED_DATE === null && br(3).branch === "Nedeterminată");
+  check("facturare: număr radio repetat (70948 și 00070948 sunt aceeași serie)", br(0).radioDup === "Da" && br(1).radioDup === "Da" && br(2).radioDup === "Nu");
+  check("facturare: câmpurile necunoscute devin coloane text", bt.cols.some((c) => c.key === "EXTRA_X" && c.kind === "text") && br(0).EXTRA_X === "da");
+
+  // pe coloane → magazin local
+  const wire = columnarize("billing", bt.cols, bt.rows, '"t"', 1);
+  const store = SourceStore.fromWire(wire);
+  check("coloane: coloanele fără nicio valoare nu se trimit; lipsurile sunt -1 / NaN / șir gol", !wire.cols.some((c) => c.key === "CONTROLOR") && !("CONTROLOR" in wire.data) && wire.cols.some((c) => c.key === "CITY") && store.codes.CITY[3] === -1 && Number.isNaN(store.nums.UPDATED_DATE[2]) && store.texts.NUM_RADIO[3] === "");
+  const snap = SourceStore.fromSnapshot(structuredClone(store.snapshot()));
+  check("coloane: instantaneul (IndexedDB) păstrează tot", snap.n === 4 && snap.text(0, snap.byKey.get("CITY")!) === "Comrat" && snap.etag === '"t"');
+
+  // filtre față de varianta naivă, pe date aleatorii
+  const R = 6000;
+  const cities = ["Comrat", "Orhei", "Cahul", "Chisinau", "Rezina", "Soroca"];
+  const rrows: SourceRow[] = Array.from({ length: R }, (_, i) => ({
+    name: `N${String(Math.floor(rnd() * 900)).padStart(3, "0")}-${i}`,
+    city: rnd() < 0.1 ? null : cities[Math.floor(rnd() * cities.length)],
+    tag: rnd() < 0.5 ? "Da" : "Nu",
+    qty: rnd() < 0.15 ? null : Math.floor(rnd() * 1000),
+    day: rnd() < 0.1 ? null : Date.UTC(2024, 0, 1) + Math.floor(rnd() * 800) * 86_400_000 + 5 * 3_600_000,
+    note: rnd() < 0.3 ? null : `nota ${Math.floor(rnd() * 50)}`,
+  }));
+  const rcols: ColDef[] = [
+    { key: "name", label: "Nume", kind: "text", search: true },
+    { key: "city", label: "Oraș", kind: "dict", chart: true },
+    { key: "tag", label: "Etichetă", kind: "dict" },
+    { key: "qty", label: "Cantitate", kind: "num" },
+    { key: "day", label: "Zi", kind: "date", chart: true },
+    { key: "note", label: "Notă", kind: "text", search: true },
+  ];
+  const rs = SourceStore.fromWire(columnarize("lorawan", rcols, rrows, '"r"', 1));
+  const name = (i: number) => String(rrows[i].name), city = (i: number) => rrows[i].city as string | null, qty = (i: number) => rrows[i].qty as number | null, day = (i: number) => rrows[i].day as number | null;
+  const sameSet = (a: Int32Array, b: number[]) => a.length === b.length && b.every((x, k) => a[k] === x);
+  const natural: SortSpec = { key: "name", dir: 1 };
+  const naiveSorted = (cmp: (a: number, b: number) => number) => Array.from({ length: R }, (_, i) => i).sort(cmp);
+  let ok = true;
+  const f1: SFilters = { ...NO_SFILTERS, sel: { city: ["Comrat", EMPTY_TOKEN] }, min: { qty: "200" }, max: { qty: "700" } };
+  const naive1 = naiveSorted((a, b) => (name(a) < name(b) ? -1 : name(a) > name(b) ? 1 : a - b)).filter((i) => (city(i) === null || city(i) === "Comrat") && qty(i) !== null && qty(i)! >= 200 && qty(i)! <= 700);
+  ok = sameSet(runSourceFilter(rs, f1, natural).idx, naive1);
+  check("filtre pe sursă: listă (SAU, cu «fără valoare») + interval numeric = varianta naivă", ok, `${naive1.length} rânduri`);
+  const f2: SFilters = { ...NO_SFILTERS, q: "n05 NOTA 7", txt: { note: "nota" } };
+  const naive2 = naiveSorted((a, b) => (name(a) < name(b) ? -1 : name(a) > name(b) ? 1 : a - b)).filter((i) => { const h = `${name(i)}\n${rrows[i].note ?? ""}\n`.toLowerCase(); return h.includes("n05") && h.includes("nota") && h.includes("7") && String(rrows[i].note ?? "").toLowerCase().includes("nota"); });
+  check("filtre pe sursă: căutare cu mai multe cuvinte (toate) + «conține» pe coloană", sameSet(runSourceFilter(rs, f2, natural).idx, naive2), `${naive2.length} rânduri`);
+  const f3: SFilters = { ...NO_SFILTERS, min: { day: "2024-06-01" }, max: { day: "2024-08-31" }, sel: { tag: ["Da"] } };
+  const lo3 = new Date(2024, 5, 1).getTime(), hi3 = new Date(2024, 8, 1).getTime() - 1;
+  const naive3 = naiveSorted((a, b) => (name(a) < name(b) ? -1 : name(a) > name(b) ? 1 : a - b)).filter((i) => day(i) !== null && day(i)! >= lo3 && day(i)! <= hi3 && rrows[i].tag === "Da");
+  check("filtre pe sursă: interval de zile (inclusiv ziua de sfârșit) + listă = varianta naivă", sameSet(runSourceFilter(rs, f3, natural).idx, naive3), `${naive3.length} rânduri`);
+  const noFilter = runSourceFilter(rs, NO_SFILTERS, natural);
+  check("filtre pe sursă: fără filtre ⇒ toate rândurile", noFilter.matched === R && noFilter.idx.length === R);
+  const sorted = (key: string, dir: 1 | -1) => Array.from(rs.order({ key, dir }));
+  const lastMissing = (vals: (number | string | null)[], ord: number[]) => { const first = ord.findIndex((i) => vals[i] === null); return first === -1 || ord.slice(first).every((i) => vals[i] === null); };
+  const qs = sorted("qty", 1), qd = sorted("qty", -1);
+  check("sortare: număr crescător / descrescător, lipsurile la sfârșit în ambele sensuri", qs.every((i, k) => k === 0 || qty(i) === null || qty(qs[k - 1]) === null || qty(qs[k - 1])! <= qty(i)!) && qd.every((i, k) => k === 0 || qty(i) === null || qty(qd[k - 1]) === null || qty(qd[k - 1])! >= qty(i)!) && lastMissing(rrows.map((r) => r.qty), qs) && lastMissing(rrows.map((r) => r.qty), qd));
+  const cs = sorted("city", 1);
+  check("sortare: listă alfabetic (lipsurile la sfârșit)", cs.every((i, k) => k === 0 || city(i) === null || city(cs[k - 1]) === null || city(cs[k - 1])!.localeCompare(city(i)!, "ro") <= 0) && lastMissing(rrows.map((r) => r.city), cs));
+  const ds = sorted("day", -1);
+  check("sortare: dată descrescător, lipsurile la sfârșit", ds.every((i, k) => k === 0 || day(i) === null || day(ds[k - 1]) === null || day(ds[k - 1])! >= day(i)!) && lastMissing(rrows.map((r) => r.day), ds));
+
+  // agregări
+  const dc = dictCounts(rs, "city", null);
+  const naiveCity = new Map<string | null, number>();
+  for (let i = 0; i < R; i++) naiveCity.set(city(i), (naiveCity.get(city(i)) ?? 0) + 1);
+  check("grafice: numărătoarea pe valori (și «fără valoare») = varianta naivă", rs.dict.city.every((n, k) => dc[k] === naiveCity.get(n)) && dc[rs.dict.city.length] === (naiveCity.get(null) ?? 0) && dc.reduce((a, b) => a + b, 0) === R);
+  const sub = runSourceFilter(rs, f1, natural).idx;
+  const dcf = dictCounts(rs, "city", sub);
+  check("grafice: numărătoarea pe rândurile filtrate", dcf.reduce((a, b) => a + b, 0) === sub.length);
+  const ax = timeAxis(rs, "day")!;
+  const tc = timeCounts(rs, "day", ax, null);
+  check("grafice: pe timp — fiecare dată cade într-o bară (suma = rândurile cu dată), axă pe luni", ax.unit === "month" && tc.reduce((a, b) => a + b, 0) === rrows.filter((r) => r.day !== null).length && ax.n >= 26);
+  const [bf, bt2] = binsToDays(ax, 3, 4);
+  check("grafice: click pe barele 3–4 ⇒ filtru pe zilele lor (de la prima la ultima zi a lunii)", /^\d{4}-\d{2}-01$/.test(bf) && /^\d{4}-\d{2}-(28|29|30|31)$/.test(bt2));
+  const inBins = runSourceFilter(rs, setRange(NO_SFILTERS, "day", bf, bt2), natural).idx;
+  const tcAll = timeCounts(rs, "day", ax, null);
+  check("grafice: filtrul din bare dă exact rândurile din barele alese", inBins.length === tcAll[3] + tcAll[4]);
+
+  // URL
+  const f4: SFilters = { q: "ion|x", sel: { city: ["Oraș cu | bară", "a\\b", EMPTY_TOKEN] }, txt: { note: "x y" }, min: { qty: "5" }, max: { day: "2024-12-31" } };
+  const qsx = toQuery(f4, { key: "qty", dir: -1 }, { key: "name", dir: 1 }, { view: "charts" });
+  const sp = new URLSearchParams(qsx);
+  const back = filtersFromEntries(sp.entries());
+  check("URL: filtrele (cu | și \\ în valori) se păstrează la dus-întors", JSON.stringify(back) === JSON.stringify(f4) && sp.get("sort") === "qty" && sp.get("dir") === "desc" && sp.get("view") === "charts" && toQuery(NO_SFILTERS, { key: "name", dir: 1 }, { key: "name", dir: 1 }) === "");
+  check("URL: chips pentru fiecare filtru activ și numărul filtrelor", describeFilters(f4, rs).length === 5 && activeCount(f4) === 5 && activeCount(NO_SFILTERS) === 0);
+
+  // export CSV: fără date personale
+  const csvStore = SourceStore.fromWire(columnarize("billing", bt.cols, bt.rows, '"c"', 1));
+  const csv = sourceToCsv(csvStore, Int32Array.from([0, 1]));
+  check("CSV facturare: fără consumator / adresă / cont / stradă", !csv.match(/Ion Popescu|Zlatov|A1;|Consumator|Adresă|Stradă|Cont;/) && csv.includes("00070948") && csv.startsWith("﻿"));
+
+  // scrierea în baza noastră: doar în colecțiile surselor, doar documentele schimbate, cu plasă de siguranță (bază simulată în memorie)
+  const data = new Map<string, { _id: string; h: string; updatedAt: Date; d: object }>();
+  const used = new Set<string>();
+  const coll = {
+    createIndex: async () => "ok",
+    find: () => ({ async *[Symbol.asyncIterator]() { for (const x of data.values()) yield { _id: x._id, h: x.h }; } }),
+    bulkWrite: async (ops: { replaceOne: { replacement: { _id: string; h: string; updatedAt: Date; d: object } } }[]) => { for (const o of ops) data.set(o.replaceOne.replacement._id, o.replaceOne.replacement); },
+    deleteMany: async (q: { _id: { $in: string[] } }) => { let n = 0; for (const id of q._id.$in) if (data.delete(id)) n++; return { deletedCount: n }; },
+    estimatedDocumentCount: async () => data.size,
+  };
+  const db = { collection: (n: string) => (used.add(n), coll) } as unknown as Db;
+  const many = Array.from({ length: 300 }, (_, i) => ({ id: { id: `x${i}` }, name: `S2154_${String(i).padStart(8, "0")}_2022`, type: "T", createdTime: 1 + i }));
+  const w1 = await writeSource(db, "lorawan", lorawanDocs(many));
+  const w2 = await writeSource(db, "lorawan", lorawanDocs(many));
+  const w3 = await writeSource(db, "lorawan", lorawanDocs(many.map((x, i) => (i === 7 ? { ...x, label: "nou" } : x)).slice(0, 299)));
+  check("scriere surse: prima dată scrie tot, a doua oară nimic, apoi doar rândul schimbat + șterge rândul dispărut", w1.written === 300 && w2.written === 0 && w3.written === 1 && w3.removed === 1 && data.size === 299);
+  const w4 = await writeSource(db, "lorawan", lorawanDocs(many.slice(0, 20)));
+  check("scriere surse: plasa de siguranță — sursă aproape goală ⇒ nu șterge masiv", w4.removed === 0 && data.size === 299);
+  let refused = false;
+  try { await writeSource(db, "lorawan", []); } catch { refused = true; }
+  check("scriere surse: sursă goală ⇒ refuză (nu șterge nimic)", refused && data.size === 299);
+  check("scriere surse: doar colecțiile surselor", [...used].every((n) => n === "src_lorawan"), [...used].join(", "));
+  const syncSrc = readFileSync("lib/source-sync.ts", "utf8");
+  check("scriere surse: codul accesează baza doar prin sourceCollection(...)", (syncSrc.match(/db\.collection[<(]/g) ?? []).length === 1 && /db\.collection<[^>]*>\(sourceCollection\(source\)\)/.test(syncSrc));
+  const metersSync = readFileSync("scripts/sync-meters.ts", "utf8");
+  check("scriere surse: sync-meters le scrie înainte de ThingsBoard și nu în modul --dry / --limit", metersSync.indexOf("writeSources(") > 0 && metersSync.indexOf("writeSources(") < metersSync.indexOf("fetchLatest(") && /!dry && !limit/.test(metersSync));
+})();
+
+section7.then(() => {
+  console.log(bad ? `\n${bad} EȘECURI` : "\nToate verificările au trecut.");
+  process.exit(bad ? 1 : 0);
+});

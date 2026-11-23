@@ -1027,3 +1027,42 @@ button.badge-btn:hover {
   .map-stage { min-height: 60dvh; }
   .map-popup { width: 250px; }
 }
+
+/* ───────── Meniul dintre pagini + paginile pe sursă ───────── */
+.appnav {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: 100%;
+  margin-right: auto;
+  margin-left: 20px;
+  min-width: 0;
+  overflow-x: auto;
+}
+.appnav a {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 14px;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 13.5px;
+  line-height: 1.15;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.appnav a:hover { color: var(--text); }
+.appnav a[aria-current="page"] { color: var(--accent-strong); border-bottom-color: var(--accent); }
+.appnav a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 4px; }
+.appnav-sub { font-size: 11px; font-weight: 500; color: var(--muted); font-family: var(--mono); }
+.stats.auto { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+/* telefon: meniul paginilor trece pe un rând propriu, sub marcă și cont */
+@media (max-width: 760px) {
+  .topbar { flex-wrap: wrap; height: auto; min-height: 56px; padding-top: 8px; padding-bottom: 0; row-gap: 2px; }
+  .topbar .who { margin-left: auto; }
+  .topbar .who span { max-width: 140px; }
+  .appnav { order: 3; flex-basis: 100%; margin: 0 -12px; padding: 0 12px; height: 40px; border-top: 1px solid var(--border); }
+  .appnav a { flex: 1; align-items: center; justify-content: center; padding: 0 8px; font-size: 12.5px; }
+  .appnav-sub { display: none; }
+}

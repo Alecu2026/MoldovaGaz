@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import AppNav from "@/app/components/AppNav";
 import BrandMark from "@/app/components/BrandMark";
 import LogoutButton from "@/app/components/LogoutButton";
 import { requireUser } from "@/lib/dal";
@@ -18,6 +19,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </div>
+        <AppNav />
         <Suspense fallback={<div className="skeleton" style={{ width: 180, height: 28 }} />}>
           <Who />
         </Suspense>
