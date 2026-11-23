@@ -1,10 +1,11 @@
-import type { Db } from "mongodb";
+import { Binary, type Db } from "mongodb";
 import { unpack } from "./meter-history";
 import { READINGS_COLLECTION } from "./meter-readings";
-import { H, NIGHTS, lastDays, nightMetrics, type NightRow, type Pt } from "./night-analysis";
+import { H, NIGHTS, hourlyProfile, lastDays, type Pt } from "./night-analysis";
 
 /**
- * Calculează nopțile (lib/night-analysis.ts) pentru toate contoarele și le salvează în colecția `meter_nights` (un document pe contor, vectori de NIGHTS zile).
+ * Calculează PROFILUL PE ORE (lib/night-analysis.ts: consum și temperatură pe fiecare oră, ultimele NIGHTS zile) al fiecărui contor și îl salvează în colecția `meter_nights`
+ * (un document pe contor, doi vectori binari compacți). Din profil se calculează la cerere orice interval de noapte ales în pagină („de la ora X până la ora Y”).
  * Surse (doar din baza NOASTRĂ, nimic din SCADA): `meter_readings` (citirile noastre, cu temperatură) și arhiva veche de volum `meter_history`
  * (volum pe oră, fără temperatură; contează cât timp acoperă zilele analizate). Parcurge cele două colecții în ordinea `_id`, ca într-o îmbinare, deci memoria
  * rămâne mică indiferent câte contoare sunt. Rulează cel mult o dată la 20 de ore (din sincronizare), sau la cerere: npm run analyze:nights.
@@ -15,7 +16,8 @@ const HISTORY_COLLECTION = process.env.HISTORY_COLLECTION || "meter_history";
 const META_ID = "_meta";
 const EVERY_MS = 20 * H;
 
-export type NightDoc = NightRow & { _id: string; u: Date };
+/** c = consum pe oră (Uint16, 0,001 m³; zile × 24); tp = temperatură minimă pe oră (Int8, 0,5 °C), doar dacă contorul are temperatură */
+export type NightDoc = { _id: string; u: Date; c: Binary; tp?: Binary };
 type Meta = { _id: string; u: Date; days: number[] };
 export type AnalyzeStats = { meters: number; withNights: number; removed: number; ms: number };
 
@@ -65,17 +67,18 @@ export async function analyzeAll(db: Db, log: (m: string) => void = () => {}, no
     pts.sort((p, q) => p.t - q.t || (q.tp !== null ? 1 : 0) - (p.tp !== null ? 1 : 0)); // la același moment, citirea cu temperatură prima
     const dedup: Pt[] = [];
     for (const p of pts) if (!dedup.length || dedup[dedup.length - 1].t !== p.t) dedup.push(p);
-    const row = nightMetrics(dedup, days);
-    if (!row.nc.some((x) => x !== null)) continue;
+    const pr = hourlyProfile(dedup, days);
+    if (!pr.hasCons) continue;
     withNights++;
-    ops.push({ replaceOne: { filter: { _id: id }, replacement: { _id: id, u: run, ...row }, upsert: true } });
+    const bin = (a: Uint16Array | Int8Array) => new Binary(Buffer.from(a.buffer, a.byteOffset, a.byteLength));
+    ops.push({ replaceOne: { filter: { _id: id }, replacement: { _id: id, u: run, c: bin(pr.cons), ...(pr.hasTemp ? { tp: bin(pr.temp) } : {}) }, upsert: true } });
     if (ops.length >= 500) await flush();
   }
   await flush();
   const removed = (await out.deleteMany({ _id: { $ne: META_ID } as never, u: { $lt: run } })).deletedCount;
   await out.replaceOne({ _id: META_ID } as never, { _id: META_ID, u: run, days } as never, { upsert: true });
   const st = { meters, withNights, removed, ms: Date.now() - t0 };
-  log(`nopți: ${meters} contoare parcurse, ${withNights} cu nopți calculate (ultimele ${days.length} zile), ${removed} documente vechi șterse (${Math.round(st.ms / 1000)} s)`);
+  log(`profil pe ore: ${meters} contoare parcurse, ${withNights} cu profil calculat (ultimele ${days.length} zile), ${removed} documente vechi șterse (${Math.round(st.ms / 1000)} s)`);
   return st;
 }
 

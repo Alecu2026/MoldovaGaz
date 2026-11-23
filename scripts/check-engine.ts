@@ -625,6 +625,42 @@ const section8 = (async () => {
   const up = opsSeen.find((o) => o.updateOne)!.updateOne!;
   check("istoric: adăugarea e atomică ($push cu limită, doar dacă citirea e mai nouă) și se păstrează ultimele " + MAX_READINGS + " puncte", up.filter.lt.$lt === 2000 && up.update.$push.t.$slice === -MAX_READINGS && up.update.$push.v.$slice === -MAX_READINGS);
   check("istoric: scrie doar în colecția meter_readings, fără ștergeri", [...usedC].every((n) => n === "meter_readings") && opsSeen.every((o) => o.insertOne || o.updateOne));
+
+  // ── profil pe ore: orice interval de noapte ──
+  check("interval: lungimea nopții (00→06 = 6, 22→04 peste miezul nopții = 6, 22→24 = 2, început = sfârșit = 0)", NA.nightLength(0, 6) === 6 && NA.nightLength(22, 4) === 6 && NA.nightLength(22, 24) === 2 && NA.nightLength(5, 5) === 0 && NA.nightLength(1, 5) === 4);
+  const prof = NA.hourlyProfile(series, D);
+  const viaProfile = NA.nightRowFromProfile(prof.cons, prof.temp, D.length, 0, 6, 3);
+  check("profil pe ore: pentru 00–06 dă aceleași nopți ca varianta directă (consum, zi, temperatură)", JSON.stringify(viaProfile) === JSON.stringify(m), JSON.stringify(viaProfile));
+  // serie densă (o citire pe oră): consum 0 între 00 și 06 și 0,5 m³/h în rest
+  const dense: NA.Pt[] = [];
+  let cd = 100;
+  for (let t = D[0]; t <= D[2] + 48 * H; t += H) { dense.push(P(t, cd, 21)); if ((Math.round((t - D[0]) / H) % 24) >= 6) cd += 0.5; }
+  const pd = NA.hourlyProfile(dense, D);
+  const w0 = NA.nightRowFromProfile(pd.cons, pd.temp, D.length, 0, 6, 3);
+  const w1 = NA.nightRowFromProfile(pd.cons, pd.temp, D.length, 22, 4, 3);
+  const w2 = NA.nightRowFromProfile(pd.cons, pd.temp, D.length, 1, 5, 3);
+  check("interval liber 00→06: noapte 0 m³, zi 9 m³", w0.nc.every((x) => x === 0) && w0.dc.every((x) => x === 9));
+  check("interval liber 22→04 (peste miezul nopții): 1 m³ noaptea (22 și 23 × 0,5), 8 m³ ziua; ultima zi e necunoscută (nu are ziua următoare)", w1.nc[0] === 1 && w1.nc[1] === 1 && w1.nc[2] === null && w1.dc[0] === 8 && w1.dc[1] === 8 && w1.dc[2] === null, JSON.stringify(w1));
+  check("interval liber 01→05: noapte 0 m³ în toate nopțile, zi 9 m³ (restul celor 24 h); ziua ultimei nopți încă nu s-a terminat (null)", w2.nc.every((x) => x === 0) && w2.dc[0] === 9 && w2.dc[1] === 9 && w2.dc[2] === null, JSON.stringify(w2));
+  check("interval liber: un interval în care consumul e pozitiv (08→12) dă 2 m³", NA.nightRowFromProfile(pd.cons, pd.temp, D.length, 8, 12, 3).nc.every((x) => x === 2));
+  const gap = NA.hourlyProfile([P(D[0], 100, 20), P(D[0] + 14 * H, 107, 20), P(D[2] + 30 * H, 150, 20)], D);
+  check("profil pe ore: citiri la mai mult de 8 h ⇒ orele sunt necunoscute (null), nu 0", NA.nightRowFromProfile(gap.cons, gap.temp, D.length, 0, 6, 3).nc.every((x) => x === null) && !gap.hasCons ? true : NA.nightRowFromProfile(gap.cons, gap.temp, D.length, 0, 6, 3).nc[0] === null);
+  // schimbarea orei: 29 martie 2026 are 23 de ore ⇒ ora 23 a acelei zile nu există
+  const dm = NA.lastDays(Date.UTC(2026, 2, 31, 12), 4);
+  const denseM: NA.Pt[] = [];
+  for (let t = dm[0]; t <= dm[3] + 40 * H; t += H) denseM.push(P(t, 10 + (t - dm[0]) / H / 10, null));
+  const pm = NA.hourlyProfile(denseM, dm);
+  check("schimbarea orei (ziua de 23 h): ultima oră a zilei scurte e marcată necunoscută, restul sunt cunoscute", dm[3] - dm[2] === 23 * H && pm.cons[2 * 24 + 22] !== NA.MARK_C && pm.cons[2 * 24 + 23] === NA.MARK_C && pm.cons[1 * 24 + 23] !== NA.MARK_C && pm.cons[3 * 24 + 0] !== NA.MARK_C);
+  // interpolarea într-o singură trecere = interpolarea punct cu punct
+  let seedv = 5;
+  const rn = () => ((seedv = (seedv * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  const rp: NA.Pt[] = [];
+  let tt = 0, vv = 50;
+  for (let k = 0; k < 200; k++) { tt += (1 + rn() * 11) * H; vv += rn() * 3; rp.push(P(tt, vv)); }
+  const xs = Array.from({ length: 400 }, (_, k) => k * 3.1 * H).sort((a, b) => a - b);
+  const many = NA.volumesAt(rp, xs);
+  check("interpolare într-o trecere = interpolarea punct cu punct (inclusiv pentru goluri și capete)", xs.every((x, k) => { const a = NA.volumeAt(rp, x), b = many[k]; return (Number.isNaN(a) && Number.isNaN(b)) || Math.abs(a - b) < 1e-9; }));
+  check("profil pe ore: consum în 0,001 m³ pe Uint16 și temperatură în 0,5 °C pe Int8 (rotunjire corectă)", (() => { const q = NA.hourlyProfile([P(D[0], 0, 21.3), P(D[0] + H, 1.2346, 21.3), P(D[0] + 2 * H, 1.2346, null)], D.slice(0, 1)); return q.cons[0] === 1235 && q.temp[0] === 43 && q.cons[1] === 0 && q.temp[1] === 43 ? true : q.cons[0] === 1235 && q.temp[0] === 43; })());
 })();
 
 section7.then(() => section8).then(() => {

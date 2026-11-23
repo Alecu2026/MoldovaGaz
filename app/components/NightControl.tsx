@@ -12,20 +12,20 @@ const p2 = (n: number) => String(n).padStart(2, "0");
 const dm = (ms: number) => `${p2(new Date(ms).getDate())}.${p2(new Date(ms).getMonth() + 1)}.${new Date(ms).getFullYear()}`;
 const dmt = (ms: number) => `${dm(ms)} ${p2(new Date(ms).getHours())}:${p2(new Date(ms).getMinutes())}`;
 
-type Form = { nights: string; maxNight: string; minDay: string; minTemp: string; noTemp: boolean; tempMode: "night" | "day"; minNights: string };
-const INIT: Form = { nights: String(DEFAULT_PARAMS.nights), maxNight: String(DEFAULT_PARAMS.maxNight), minDay: String(DEFAULT_PARAMS.minDay), minTemp: String(DEFAULT_PARAMS.minTemp), noTemp: false, tempMode: DEFAULT_PARAMS.tempMode, minNights: String(DEFAULT_PARAMS.minNights) };
+type Form = { from: string; to: string; nights: string; maxNight: string; minDay: string; minTemp: string; noTemp: boolean; tempMode: "night" | "day"; minNights: string };
+const INIT: Form = { from: String(DEFAULT_PARAMS.startHour), to: String(DEFAULT_PARAMS.endHour), nights: String(DEFAULT_PARAMS.nights), maxNight: String(DEFAULT_PARAMS.maxNight), minDay: String(DEFAULT_PARAMS.minDay), minTemp: String(DEFAULT_PARAMS.minTemp), noTemp: false, tempMode: DEFAULT_PARAMS.tempMode, minNights: String(DEFAULT_PARAMS.minNights) };
 
 function fromUrl(): Form {
   if (typeof window === "undefined") return INIT;
   const q = new URLSearchParams(window.location.search);
   return {
-    nights: q.get("nights") ?? INIT.nights, maxNight: q.get("maxNight") ?? INIT.maxNight, minDay: q.get("minDay") ?? INIT.minDay,
+    from: q.get("from") ?? INIT.from, to: q.get("to") ?? INIT.to, nights: q.get("nights") ?? INIT.nights, maxNight: q.get("maxNight") ?? INIT.maxNight, minDay: q.get("minDay") ?? INIT.minDay,
     minTemp: q.get("minTemp") && q.get("minTemp") !== "none" ? (q.get("minTemp") as string) : INIT.minTemp, noTemp: q.get("minTemp") === "none",
     tempMode: q.get("tempMode") === "day" ? "day" : "night", minNights: q.get("minNights") ?? INIT.minNights,
   };
 }
 const toQuery = (f: Form): string => {
-  const p = new URLSearchParams({ nights: f.nights, maxNight: f.maxNight, minDay: f.minDay, minTemp: f.noTemp ? "none" : f.minTemp, tempMode: f.tempMode, minNights: f.minNights });
+  const p = new URLSearchParams({ from: f.from, to: f.to, nights: f.nights, maxNight: f.maxNight, minDay: f.minDay, minTemp: f.noTemp ? "none" : f.minTemp, tempMode: f.tempMode, minNights: f.minNights });
   return p.toString();
 };
 
@@ -82,17 +82,29 @@ export default function NightControl() {
     <div className="page">
       <section className="toolbar" aria-label="Parametri" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
         <label className="field">
+          <span>Noaptea de la ora</span>
+          <select className="select" value={form.from} onChange={(e) => set({ from: e.target.value })}>
+            {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{p2(h)}:00</option>)}
+          </select>
+        </label>
+        <label className="field">
+          <span>până la ora</span>
+          <select className="select" value={form.to} onChange={(e) => set({ to: e.target.value })}>
+            {Array.from({ length: 24 }, (_, h) => h + 1).map((h) => <option key={h} value={h}>{p2(h % 24)}:00{h === 24 ? " (miezul nopții)" : ""}</option>)}
+          </select>
+        </label>
+        <label className="field">
           <span>Nopți analizate</span>
           <select className="select" value={form.nights} onChange={(e) => set({ nights: e.target.value, minNights: String(Math.min(Number(form.minNights), Number(e.target.value))) })}>
             {[7, 14, 21, NIGHTS].map((n) => <option key={n} value={n}>ultimele {n}</option>)}
           </select>
         </label>
         <label className="field">
-          <span>Consum noapte maxim (m³, 00–06)</span>
+          <span>Consum noapte maxim (m³)</span>
           <input className="input" type="number" min={0} step="0.1" value={form.maxNight} onChange={(e) => set({ maxNight: e.target.value })} />
         </label>
         <label className="field">
-          <span>Consum zi minim (m³, 06–24)</span>
+          <span>Consum zi minim (m³, restul de 24 h)</span>
           <input className="input" type="number" min={0} step="0.5" value={form.minDay} onChange={(e) => set({ minDay: e.target.value })} />
         </label>
         <label className="field">
@@ -175,9 +187,9 @@ export default function NightControl() {
       </section>
 
       <p className="cell-sub" style={{ margin: 0, whiteSpace: "normal" }}>
-        Un contor apare dacă, în cel puțin {form.minNights} din ultimele {form.nights} nopți, a consumat cel mult {form.maxNight} m³ între 00:00 și 06:00
+        Un contor apare dacă, în cel puțin {form.minNights} din ultimele {form.nights} nopți, a consumat cel mult {form.maxNight} m³ între {p2(Number(form.from))}:00 și {p2(Number(form.to) % 24)}:00{Number(form.to) <= Number(form.from) ? " (ziua următoare)" : ""}
         {Number(form.minDay) > 0 ? `, a consumat cel puțin ${form.minDay} m³ ziua` : ""}
-        {form.noTemp ? "" : ` și temperatura ${form.tempMode === "night" ? "minimă din noapte" : "medie pe zi"} a fost cel puțin ${form.minTemp} °C`}. Consumul de la 00:00 și 06:00 se estimează
+        {form.noTemp ? "" : ` și temperatura ${form.tempMode === "night" ? "minimă din noapte" : "medie pe zi"} a fost cel puțin ${form.minTemp} °C`}. Consumul la începutul și la sfârșitul nopții se estimează
         prin interpolare între citirile vecine (contorul trimite la 4–6 ore); nopțile fără citiri apropiate sunt ignorate. Este un indiciu, nu o dovadă.
       </p>
       {openId && <MeterDetail id={openId} onClose={() => setOpenId(null)} />}
