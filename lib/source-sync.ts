@@ -1,31 +1,23 @@
 import type { Db } from "mongodb";
-import { billingDocs, type SrcDoc } from "./source-schemas";
+import { billingDocs, lorawanDocs, type SrcDoc } from "./source-schemas";
 import { SOURCE_COLLECTION_DEFAULTS, type SourceId } from "./source-shared";
 
 /**
- * Salvează rândurile BRUTE din getmgdb (facturarea), ca să existe pagina „Facturare” (doar datele din sursă):
- *   `src_billing` — rândurile din getmgdb, cu toate câmpurile lor.
+ * Salvează rândurile BRUTE ale celor două surse, ca să existe paginile pe sursă (lorawandb = primul IP, getmgdb = al doilea IP):
+ *   `src_lorawan`  — dispozitivele din lorawandb (doar câmpurile de identificare; fără `deviceData` și fără chei LoRaWAN);
+ *   `src_billing`  — rândurile din getmgdb, cu toate câmpurile lor.
  * Se scriu DOAR documentele schimbate (hash pe conținut), iar cele dispărute din sursă se șterg (cu plasă de siguranță).
- * Nu depinde de SCADA: pagina rămâne la zi chiar dacă SCADA nu răspunde. Scrie exclusiv în colecția de mai sus; getmgdb se citește doar cu GET.
+ * Nu depinde de ThingsBoard: paginile pe sursă rămân la zi chiar dacă ThingsBoard nu răspunde.
+ * Scrie exclusiv în aceste două colecții; sursele (lorawandb / getmgdb) se citesc doar cu GET.
  */
-export const sourceCollection = (): string => process.env.SRC_BILLING_COLLECTION || SOURCE_COLLECTION_DEFAULTS.billing;
-
-/** Colecția veche cu dispozitivele din lorawandb (pagina /lorawan a fost scoasă). Numele e fixat aici ca să nu poată șterge altceva. */
-const LEGACY_LORAWAN = "src_lorawan";
-/** Șterge colecția veche `src_lorawan`. Întoarce câte documente avea (0 = nu exista). Se cheamă doar explicit (sync:sources -- --drop-lorawan). */
-export async function dropLegacyLorawan(db: Db): Promise<number> {
-  const exists = (await db.listCollections({ name: LEGACY_LORAWAN }, { nameOnly: true }).toArray()).length > 0;
-  if (!exists) return 0;
-  const n = await db.collection(LEGACY_LORAWAN).estimatedDocumentCount();
-  await db.collection(LEGACY_LORAWAN).drop();
-  return n;
-}
+export const sourceCollection = (s: SourceId): string =>
+  (s === "lorawan" ? process.env.SRC_LORAWAN_COLLECTION : process.env.SRC_BILLING_COLLECTION) || SOURCE_COLLECTION_DEFAULTS[s];
 
 export type WriteStats = { source: SourceId; fresh: number; written: number; removed: number; total: number };
 
 export async function writeSource<T extends object>(db: Db, source: SourceId, docs: SrcDoc<T>[], log: (m: string) => void = () => {}): Promise<WriteStats> {
   if (docs.length === 0) throw new Error(`${source}: sursa a întors 0 rânduri — opresc (nu șterg nimic).`);
-  const coll = db.collection<{ _id: string; h: string; updatedAt: Date; d: T }>(sourceCollection());
+  const coll = db.collection<{ _id: string; h: string; updatedAt: Date; d: T }>(sourceCollection(source));
   await coll.createIndex({ updatedAt: -1 });
   const existing = new Map<string, string>();
   for await (const x of coll.find({}, { projection: { h: 1 } })) existing.set(String(x._id), x.h);
@@ -52,12 +44,17 @@ export async function writeSource<T extends object>(db: Db, source: SourceId, do
   return { source, fresh: docs.length, written: changed.length, removed, total };
 }
 
-/** Scrie facturarea brută. Întoarce erorile (gol = totul a mers). */
-export async function writeSources(db: Db, billing: unknown[], log: (m: string) => void = () => {}): Promise<string[]> {
-  try {
-    await writeSource(db, "billing", billingDocs(billing), log);
-    return [];
-  } catch (e) {
-    return [`billing: ${(e as Error).message}`];
-  }
+/** Scrie ambele surse. Eșecul uneia nu o oprește pe cealaltă; întoarce erorile (gol = totul a mers). */
+export async function writeSources(db: Db, devices: unknown[], billing: unknown[], log: (m: string) => void = () => {}): Promise<string[]> {
+  const errors: string[] = [];
+  const run = async (name: string, f: () => Promise<unknown>) => {
+    try {
+      await f();
+    } catch (e) {
+      errors.push(`${name}: ${(e as Error).message}`);
+    }
+  };
+  await run("lorawan", () => writeSource(db, "lorawan", lorawanDocs(devices), log));
+  await run("billing", () => writeSource(db, "billing", billingDocs(billing), log));
+  return errors;
 }

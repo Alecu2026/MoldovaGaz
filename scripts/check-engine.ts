@@ -14,11 +14,11 @@ import { assertReadOnly, tbCustomerDevices } from "../lib/thingsboard";
 import { pack, unpack, type Pts } from "../lib/meter-history";
 import { addressLinks, boundsOf, buildClusters, latFromY, lonFromX, mapLinks, mercX, mercY, worldSize } from "../lib/geo";
 import { SourceStore, type SortSpec } from "../lib/source-store";
-import { billingDocs, billingTable, columnarize } from "../lib/source-schemas";
+import { billingDocs, billingTable, columnarize, lorawanDocs, lorawanTable } from "../lib/source-schemas";
 import { EMPTY_TOKEN, type ColDef, type SourceRow } from "../lib/source-shared";
 import { NO_SFILTERS, activeCount, binsToDays, describeFilters, dictCounts, filtersFromEntries, runFilter as runSourceFilter, setRange, timeAxis, timeCounts, toQuery, type SFilters } from "../lib/source-filter";
 import { sourceToCsv } from "../lib/source-csv";
-import { dropLegacyLorawan, writeSource } from "../lib/source-sync";
+import { writeSource } from "../lib/source-sync";
 import { EXCLUDED_PROFILE, GAS_CUSTOMERS } from "../lib/meter-scope";
 import type { Db } from "mongodb";
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -354,7 +354,7 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   check("istoric: 12 octeți / punct", Buffer.from(packed.t, "base64").length + Buffer.from(packed.v, "base64").length === 4 * 12);
 }
 
-/* ───────── 7) lista din SCADA (cei 10 clienți) și pagina Facturare (getmgdb) ───────── */
+/* ───────── 7) lista din SCADA (cei 10 clienți) și paginile pe sursă: lorawandb și getmgdb separat ───────── */
 const section7 = (async () => {
   // lista contoarelor din SCADA: cu un fetch SIMULAT (niciun apel real în rețea) — pagini, câmpuri păstrate, excluderi, citire doar
   const realFetch = globalThis.fetch;
@@ -403,6 +403,23 @@ const section7 = (async () => {
   } finally {
     globalThis.fetch = realFetch;
   }
+
+  const SIDS = [{ id: "d1", name: "S2154_00070948_2022" }, { id: "d2", name: "S2154_00070948_2023" }, { id: "d3", name: "SN2160_00000012_2024" }, { id: "d4", name: "Contor vechi 7" }];
+  const devices = SIDS.map((x, i) => ({
+    id: { entityType: "DEVICE", id: x.id }, name: x.name, type: i % 2 ? "Jooby_Gas_Meter_DP" : "Comrat_Gas_Meter_DP", label: i === 0 ? "  eticheta  " : null, createdTime: 1_700_000_000_000 + i * 86_400_000 * 40,
+    customerId: { entityType: "CUSTOMER", id: i < 2 ? "cust-aaaaaaaa-1111" : "cust-bbbbbbbb-2222" }, ownerId: { id: "own-1" }, tenantId: { id: "ten-1" }, deviceProfileId: { id: "prof-" + (i % 2) },
+    additionalInfo: { description: i === 0 ? "la poartă" : undefined, gateway: false },
+    deviceData: { transportConfiguration: { APPKEY: "SECRET-APPKEY", NWKSKEY: "SECRET-NWK" } }, secretToken: "SECRET-TOKEN",
+  }));
+  const ld = lorawanDocs(devices);
+  check("lorawan: 4 rânduri, id = id-ul dispozitivului", ld.length === 4 && ld.map((x) => x._id).join() === "d1,d2,d3,d4");
+  check("lorawan: NU se copiază deviceData / chei LoRaWAN / alte câmpuri necunoscute", !JSON.stringify(ld).match(/SECRET|APPKEY|NWKSKEY|deviceData|transportConfiguration/));
+  check("lorawan: câmpurile de identificare sunt curate (spații, id-uri imbricate)", ld[0].d.label === "eticheta" && ld[0].d.customerId === "cust-aaaaaaaa-1111" && ld[0].d.ownerId === "own-1" && ld[0].d.description === "la poartă" && ld[3].d.label === null);
+  check("lorawan: amprenta se schimbă doar când se schimbă rândul", lorawanDocs(devices)[1].h === ld[1].h && lorawanDocs([{ ...devices[1], label: "alta" }])[0].h !== ld[1].h);
+  const lt = lorawanTable(ld.map((x) => ({ _id: x._id, d: x.d as unknown as Record<string, unknown> })));
+  const lr = (i: number) => lt.rows[i];
+  check("lorawan: serie / model / an din nume", lr(0).serial === "00070948" && lr(0).model === "2154" && lr(0).year === "2022" && lr(2).serial === "00000012" && lr(2).model === "2160" && lr(3).serial === null && lr(3).model === "alt");
+  check("lorawan: serie repetată = aceeași serie la mai multe dispozitive (doar în această sursă)", lr(0).dup === "Da" && lr(1).dup === "Da" && lr(2).dup === "Nu" && lr(3).dup === "Nu" && lr(3).std === "Nu" && lr(0).std === "Da");
 
   const bill = [
     { CONTOR_ID: "100", CONTOR_SN: " 111 ", NUM_RADIO: "70948", CITY: "Comrat", STREET: "Zlatov", HOUSE: "2", APARTMENT: "5", ACCT_ID: "A1", FIL: "05", OTDELEN: "05-02", KOD_AB: "FIZ-L   ", REPEAT: 1, NUM_CAR: 8, ENTITY_NAME: "Ion Popescu", UPDATED_DATE: "2026-11-19T06:05:00.000Z", EXTRA_X: "da", "bad.key": 1, $x: 2 },
@@ -524,15 +541,10 @@ const section7 = (async () => {
   let refused = false;
   try { await writeSource(db, "billing", []); } catch { refused = true; }
   check("scriere surse: sursă goală ⇒ refuză (nu șterge nimic)", refused && data.size === 299);
-  check("scriere surse: doar colecția src_billing", [...used].every((n) => n === "src_billing"), [...used].join(", "));
-  // colecția veche: se șterge doar src_lorawan, doar la cerere, și doar dacă există
-  const dropped: string[] = [];
-  const dbDrop = { listCollections: (q: { name: string }) => ({ toArray: async () => (q.name === "src_lorawan" ? [{ name: "src_lorawan" }] : []) }), collection: (n: string) => ({ estimatedDocumentCount: async () => 42, drop: async () => { dropped.push(n); } }) } as unknown as Db;
-  const dbNone = { listCollections: () => ({ toArray: async () => [] }), collection: () => { throw new Error("nu trebuia atinsă"); } } as unknown as Db;
-  check("colecția veche: dropLegacyLorawan șterge DOAR src_lorawan (și întoarce câte avea); dacă nu există nu atinge nimic", (await dropLegacyLorawan(dbDrop)) === 42 && dropped.join() === "src_lorawan" && (await dropLegacyLorawan(dbNone)) === 0);
+  check("scriere surse: doar colecția src_billing (în testul cu facturare)", [...used].every((n) => n === "src_billing"), [...used].join(", "));
   const syncSrc = readFileSync("lib/source-sync.ts", "utf8");
   const dbCalls = syncSrc.match(/db\.collection(?:<[^>]*>)?\([^)]*\)+/g) ?? [];
-  check("scriere surse: codul accesează baza doar prin sourceCollection(...) (scriere) și LEGACY_LORAWAN (ștergere explicită)", dbCalls.length >= 1 && dbCalls.every((c) => /sourceCollection\(\)|LEGACY_LORAWAN/.test(c)), `${dbCalls.length} accesări`);
+  check("scriere surse: codul accesează baza doar prin sourceCollection(...)", dbCalls.length >= 1 && dbCalls.every((c) => /sourceCollection\(source\)/.test(c)), `${dbCalls.length} accesări`);
   const metersSync = readFileSync("scripts/sync-meters.ts", "utf8");
   check("scriere surse: sync-meters le scrie înainte de ThingsBoard și nu în modul --dry / --limit", metersSync.indexOf("writeSources(") > 0 && metersSync.indexOf("writeSources(") < metersSync.indexOf("fetchLatest(") && /!dry && !limit/.test(metersSync));
 })();

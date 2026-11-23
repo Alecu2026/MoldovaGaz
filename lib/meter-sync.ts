@@ -82,6 +82,13 @@ export async function fetchBilling(): Promise<Bill[]> {
   return billing;
 }
 
+/** Lista brută din lorawandb (doar GET). Folosită DOAR pentru pagina „Dispozitive LoRaWAN” (colecția src_lorawan); lista contoarelor din aplicație vine din SCADA. */
+export async function fetchLorawan(): Promise<unknown[]> {
+  const devices = await getJson<unknown[]>(src("LORAWAN_DB_URL", "http://192.168.77.11:3880/lorawandb"));
+  if (!Array.isArray(devices)) throw new Error("lorawandb: așteptam o listă JSON.");
+  return devices;
+}
+
 /**
  * Contoarele de gaz din SCADA: toate dispozitivele celor 10 clienți din lib/meter-scope.ts, fără profilurile excluse (Defectate_*).
  * Doar citire, clientul pe rând, pagini de 1000, cu pauză între cereri. Un client care nu răspunde oprește tot (nu construim o listă incompletă).

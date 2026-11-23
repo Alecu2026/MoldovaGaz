@@ -1,10 +1,10 @@
 /**
- * Pagina „pe sursă”: Facturare — doar datele din getmgdb.
+ * Paginile „pe sursă”: o pagină doar cu datele din lorawandb (primul IP) și una doar cu datele din getmgdb (al doilea IP).
  * Tipuri comune serverului și browserului; nimic de aici nu atinge rețeaua sau baza de date.
  */
 
-export type SourceId = "billing";
-export const SOURCE_IDS: SourceId[] = ["billing"];
+export type SourceId = "lorawan" | "billing";
+export const SOURCE_IDS: SourceId[] = ["lorawan", "billing"];
 export const isSourceId = (s: string): s is SourceId => (SOURCE_IDS as string[]).includes(s);
 
 /** dict: valori cu puține variante (filtrare cu bife, grafic cu bare) · text: șiruri libere · num: număr · date: moment (ms) */
@@ -72,6 +72,17 @@ export type SourceMeta = {
 };
 
 export const SOURCES: Record<SourceId, SourceMeta> = {
+  lorawan: {
+    id: "lorawan",
+    path: "/lorawan",
+    nav: "Dispozitive LoRaWAN",
+    title: "Dispozitive LoRaWAN",
+    origin: "lorawandb (http://192.168.77.11:3880/lorawandb)",
+    noun: "dispozitiv",
+    nounPlural: "dispozitive",
+    searchHint: "Nume dispozitiv, serie, ID, etichetă…",
+    defaultSort: { key: "created", dir: -1 },
+  },
   billing: {
     id: "billing",
     path: "/facturare",
@@ -89,8 +100,8 @@ export const SOURCES: Record<SourceId, SourceMeta> = {
 export const EMPTY_TOKEN = "∅";
 export const EMPTY_LABEL = "(fără valoare)";
 
-/** Colecția în care se păstrează rândurile BRUTE din getmgdb (scrisă de sincronizare). */
-export const SOURCE_COLLECTION_DEFAULTS: Record<SourceId, string> = { billing: "src_billing" };
+/** Numele colecțiilor în care se păstrează rândurile BRUTE ale surselor (scrise de scripts/sync-sources.ts). */
+export const SOURCE_COLLECTION_DEFAULTS: Record<SourceId, string> = { lorawan: "src_lorawan", billing: "src_billing" };
 
 /** Un rând „plat”: valorile coloanelor, înainte de a fi puse pe coloane. */
 export type SourceRow = Record<string, string | number | null>;

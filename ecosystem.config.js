@@ -3,7 +3,7 @@
  *
  * Trei aplicații:
  *  1. aplicația Next (un SINGUR proces, fork — intenționat: lista de contoare din memorie e per proces; în cluster ar fi mai multe copii);
- *  2. „<nume>-sync”: la 10 minute rulează scripts/sync-meters.ts (lista și valorile din SCADA + getmgdb → colecția `meters`; scrie doar contoarele modificate);
+ *  2. „<nume>-sync”: o dată pe oră (minutul 0) rulează scripts/sync-meters.ts (lista și valorile din SCADA + getmgdb → colecția `meters`; scrie doar contoarele modificate);
  *  3. „<nume>-autodeploy”: o dată pe minut verifică GitHub-ul (deploy/auto-deploy.sh) și, dacă există commit nou pe branch, face deploy
  *     (git pull, npm ci doar dacă s-au schimbat dependențele, build, reload; la build eșuat revine la commit-ul anterior).
  *     Nu e nevoie de webhook sau de SSH dinspre GitHub, deci merge și pe un server din rețeaua locală.
@@ -61,7 +61,7 @@ module.exports = {
       exec_mode: "fork",
       instances: 1,
       autorestart: false, // rulează o dată și iese; pm2 îl repornește după cron_restart
-      cron_restart: "*/10 * * * *",
+      cron_restart: "0 * * * *", // o dată pe oră, la minutul 0
       watch: false,
       time: true,
       merge_logs: true,

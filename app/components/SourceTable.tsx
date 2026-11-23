@@ -23,7 +23,7 @@ const fmtClock = (ms: number) => `${p2(new Date(ms).getHours())}:${p2(new Date(m
 type Props = { userId: string; source: SourceId; initialFilters: SFilters; initialSort: SortSpec; initialView: "table" | "charts" };
 
 /**
- * Pagina unei surse (Facturare, din getmgdb): aceleași instrumente ca pagina principală — căutare, filtre (și în antetul fiecărei coloane),
+ * Pagina unei surse (lorawandb sau getmgdb): aceleași instrumente ca pagina principală — căutare, filtre (și în antetul fiecărei coloane),
  * totaluri, tabel virtualizat, grafice, detalii pe rând, export CSV — dar numai cu datele din acea sursă. Coloanele vin de la server (`cols`).
  */
 export default function SourceTable({ userId, source, initialFilters, initialSort, initialView }: Props) {
@@ -69,7 +69,7 @@ export default function SourceTable({ userId, source, initialFilters, initialSor
     const blob = new Blob([sourceToCsv(store, result.idx)], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `facturare-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.csv`;
+    a.download = `${source === "lorawan" ? "dispozitive-lorawan" : "facturare"}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   };
@@ -364,7 +364,7 @@ function Grid(p: GridProps) {
           <div className="empty">
             <h2>Nu există date în baza de date</h2>
             <p style={{ margin: 0 }}>
-              Rulează sincronizarea: <code>npm run sync:sources</code> (citește getmgdb).
+              Rulează sincronizarea: <code>npm run sync:sources</code> (citește lorawandb și getmgdb).
             </p>
           </div>
         )}

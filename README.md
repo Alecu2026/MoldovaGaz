@@ -11,20 +11,21 @@ Next.js 16 (App Router, Cache Components) + MongoDB. Arată contoarele de gaz Mo
 
 **Legătura facturare ↔ dispozitiv:** `NUM_RADIO` (8 cifre) = seria din numele dispozitivului (`S2154_00070948_2022` → `00070948`). **Filiala:** codul `FIL` din facturare (01 Chișinău, 05 Comrat, 10 Edineț, 11 Cahul, 20 Orhei, 27 Taraclia, 31 Florești, 33 Cimișlia, 35 Ștefan Vodă, 36 Ialoveni); contoarele fără facturare primesc filiala clientului lor din SCADA (fiecare filială are un client: `ComratGaz_DashGroup`, `OrheiGaz_DashGroup`…). Cheile LoRaWAN (APPKEY / NWKSKEY / APPSKEY) **nu** se copiază niciodată în aplicație.
 
-## Două pagini
+## Trei pagini
 
 | Pagină | Adresă | Ce arată |
 |---|---|---|
 | **Contoare** (principala) | `/` | contoarele din SCADA **combinate** cu facturarea: volum, coordonate, semnal, baterie, stare, cu hartă și istoric |
+| **Dispozitive LoRaWAN** | `/lorawan` | **doar** datele din lorawandb (`http://192.168.77.11:3880/lorawandb`), exact cum le dă sursa: nume, profil, etichetă, client, data creării (+ serie / model / an extrase din nume, serii repetate). Nu are volum, coordonate sau semnal; lista poate fi în urma SCADA |
 | **Facturare** | `/facturare` | **doar** datele din getmgdb: consumator, adresă, filială, număr radio, serie contor, cont, secție, cod abonat, data actualizării… — toate rândurile (și cele fără contor în SCADA) |
 
-Pagina Facturare are aceleași instrumente ca pagina principală: căutare cu mai multe cuvinte, filtru sub fiecare antet de coloană și „Mai multe filtre” pentru restul câmpurilor, filtre active ca etichete cu ✕ (în URL), totaluri, sortare pe orice coloană, grafice (click pe bară filtrează, glisarea alege un interval de timp), detalii pe rând cu toate câmpurile și export CSV (fără datele personale). Coloanele sunt definite în [lib/source-schemas.ts](lib/source-schemas.ts); câmpurile necunoscute din getmgdb apar singure ca coloane text în detalii. Din detalii poți sări la pagina principală (`/?name=…` sau `/?q=<număr radio>`).
+Paginile pe sursă au aceleași instrumente ca pagina principală: căutare cu mai multe cuvinte, filtru sub fiecare antet de coloană și „Mai multe filtre” pentru restul câmpurilor, filtre active ca etichete cu ✕ (în URL), totaluri, sortare pe orice coloană, grafice (click pe bară filtrează, glisarea alege un interval de timp), detalii pe rând cu toate câmpurile și export CSV (fără datele personale). Coloanele sunt definite în [lib/source-schemas.ts](lib/source-schemas.ts); câmpurile necunoscute din getmgdb apar singure ca coloane text în detalii. Din detalii poți sări la pagina principală (`/?name=…` sau `/?q=<număr radio>`).
 
 ## Sincronizarea
 
-Înainte de valorile din SCADA, sincronizarea salvează și **rândurile brute** din getmgdb în colecția `src_billing` ([lib/source-sync.ts](lib/source-sync.ts)): pagina Facturare rămâne la zi chiar dacă SCADA nu răspunde. Se scriu doar rândurile schimbate (hash pe conținut). Serverul ține lista în memorie (gzip, ETag = amprenta datelor), iar browserul o păstrează în IndexedDB și o verifică la 60 s (304 când nu s-a schimbat nimic).
+Înainte de valorile din SCADA, sincronizarea salvează și **rândurile brute** din lorawandb și getmgdb în colecțiile `src_lorawan` și `src_billing` ([lib/source-sync.ts](lib/source-sync.ts)): paginile pe sursă rămân la zi chiar dacă SCADA nu răspunde. Se scriu doar rândurile schimbate (hash pe conținut); din lorawandb se păstrează doar câmpurile de identificare (**fără** `deviceData` și chei LoRaWAN). Lista contoarelor din aplicație NU vine din lorawandb, ci din SCADA. Serverul ține lista în memorie (gzip, ETag = amprenta datelor), iar browserul o păstrează în IndexedDB și o verifică la 60 s (304 când nu s-a schimbat nimic).
 
-`scripts/sync-meters.ts` (pm2: `<nume>-sync`, la 10 minute): citește facturarea (getmgdb), lista contoarelor din SCADA (pe client, pagini de 1000) și valorile curente (loturi de 500), cu o **pauză între cereri** (`TB_PAUSE_MS`, implicit 150 ms) ca încărcarea serverului SCADA să rămână mică. Combină totul și scrie în colecția `meters` **doar contoarele ale căror date s-au schimbat** (hash pe conținut). Contoarele care nu mai sunt în SCADA se șterg (cu plasă de siguranță dacă dispar prea multe deodată). **Doar citire** din SCADA: clientul refuză orice apel în afară de login, interogări și citiri de liste / serii. Fără `TB_URL` nu pleacă nicio cerere.
+`scripts/sync-meters.ts` (pm2: `<nume>-sync`, o dată pe oră, la minutul 0): citește facturarea (getmgdb), lista contoarelor din SCADA (pe client, pagini de 1000) și valorile curente (loturi de 500), cu o **pauză între cereri** (`TB_PAUSE_MS`, implicit 150 ms) ca încărcarea serverului SCADA să rămână mică. Combină totul și scrie în colecția `meters` **doar contoarele ale căror date s-au schimbat** (hash pe conținut). Contoarele care nu mai sunt în SCADA se șterg (cu plasă de siguranță dacă dispar prea multe deodată). **Doar citire** din SCADA: clientul refuză orice apel în afară de login, interogări și citiri de liste / serii. Fără `TB_URL` nu pleacă nicio cerere.
 
 ```bash
 npm run sync:meters                       # sincronizare completă
@@ -32,9 +33,8 @@ npm run sync:meters -- --dry              # doar citește și combină; afișeaz
 npm run sync:meters -- --dry --out f.json # la fel, + salvează documentele într-un fișier
 npm run sync:meters -- --load f.json      # scrie documentele din fișier (fără rețea) — încărcare inițială
 npm run sync:meters -- --patch-geo        # completează coordonatele pe documentele existente, din atributele lor (fără rețea)
-npm run sync:sources                      # doar facturarea brută din getmgdb → `src_billing` (fără SCADA)
-npm run sync:sources -- --dry             # o citește și o numără, fără să scrie nimic
-npm run sync:sources -- --drop-lorawan    # șterge colecția veche `src_lorawan` (pagina /lorawan a fost scoasă)
+npm run sync:sources                      # doar rândurile brute din lorawandb + getmgdb → `src_lorawan` / `src_billing` (fără SCADA)
+npm run sync:sources -- --dry             # le citește și numără, fără să scrie nimic
 npm run check                             # verifică filtrele, agregările, actualizările pe loc și combinarea (date sintetice)
 ```
 
@@ -60,9 +60,9 @@ npm ci && npm run seed:user -- admin@exemplu.md ParolaPuternica "Nume" super_adm
 pm2 startup && pm2 save                          # pornire automată după reboot
 ```
 
-[ecosystem.config.js](ecosystem.config.js) pornește trei procese: aplicația (un singur proces, intenționat: lista din memorie e per proces), `<nume>-sync` (sincronizarea la 10 minute) și `<nume>-autodeploy` (la un minut face `git fetch` și, dacă există commit nou, rulează [deploy/deploy.sh](deploy/deploy.sh); la build eșuat revine la commit-ul anterior). Fără secrete în GitHub și fără SSH spre server. Variantă alternativă: [.github/workflows/deploy.yml](.github/workflows/deploy.yml) (GitHub Actions + SSH) — nu o folosi împreună cu `autodeploy`.
+[ecosystem.config.js](ecosystem.config.js) pornește trei procese: aplicația (un singur proces, intenționat: lista din memorie e per proces), `<nume>-sync` (sincronizarea, o dată pe oră) și `<nume>-autodeploy` (la un minut face `git fetch` și, dacă există commit nou, rulează [deploy/deploy.sh](deploy/deploy.sh); la build eșuat revine la commit-ul anterior). Fără secrete în GitHub și fără SSH spre server. Variantă alternativă: [.github/workflows/deploy.yml](.github/workflows/deploy.yml) (GitHub Actions + SSH) — nu o folosi împreună cu `autodeploy`.
 
-**Rețea:** serverul trebuie să ajungă la SCADA (`TB_URL`, de preferat adresa internă `http://192.168.77.24:8080`) și la getmgdb din LAN. `TB_URL` e obligatoriu: fără el nu se face nicio cerere către SCADA. Exemplu nginx: [deploy/nginx.conf.example](deploy/nginx.conf.example).
+**Rețea:** serverul trebuie să ajungă la SCADA (`TB_URL`, de preferat adresa internă `http://192.168.77.24:8080`) și la lorawandb / getmgdb din LAN. `TB_URL` e obligatoriu: fără el nu se face nicio cerere către SCADA. Exemplu nginx: [deploy/nginx.conf.example](deploy/nginx.conf.example).
 
 **Alt proiect pe același server:** `PORT` și `PM2_NAME` diferite în `.env.local`, un record DNS `A` pentru subdomeniu, un site nginx nou (`proxy_pass` spre portul ales) și certificat (`certbot --nginx -d subdomeniu`). Cookie-urile sunt per subdomeniu.
 

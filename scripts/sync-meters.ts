@@ -12,7 +12,7 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { connectMongo } from "../lib/mongo-core";
-import { buildDocs, fetchBilling, fetchDevices, fetchLatest, type Dev, type MeterDoc } from "../lib/meter-sync";
+import { buildDocs, fetchBilling, fetchDevices, fetchLatest, fetchLorawan, type Dev, type MeterDoc } from "../lib/meter-sync";
 import { validCoords } from "../lib/meter-shared";
 import { writeSources } from "../lib/source-sync";
 
@@ -82,14 +82,14 @@ async function main() {
     devices = limit ? all.slice(0, limit) : all;
     log(`  ${all.length} contoare în total`);
 
-    // pagina „Facturare”: rândurile brute se salvează ÎNAINTE de valorile din SCADA, ca să rămână la zi chiar dacă SCADA nu răspunde
+    // paginile „Dispozitive LoRaWAN” și „Facturare”: rândurile brute se salvează ÎNAINTE de valorile din SCADA, ca să rămână la zi chiar dacă SCADA nu răspunde
     if (!dry && !limit && process.env.DATABASE_URL) {
       const c = await connectMongo(process.env.DATABASE_URL);
       try {
-        const errors = await writeSources(c.db(), billing, log);
-        if (errors.length) log(`ATENȚIE: facturarea brută nu s-a scris complet — ${errors.join(" | ")}`);
+        const errors = await writeSources(c.db(), await fetchLorawan(), billing, log);
+        if (errors.length) log(`ATENȚIE: sursele brute nu s-au scris complet — ${errors.join(" | ")}`);
       } catch (e) {
-        log(`ATENȚIE: facturarea brută nu s-a scris — ${(e as Error).message}`);
+        log(`ATENȚIE: sursele brute nu s-au scris — ${(e as Error).message}`);
       } finally {
         await c.close();
       }

@@ -1,15 +1,23 @@
 import { createHash } from "node:crypto";
-import { branchLabel } from "./meter-shared";
+import { METER_NAME, branchLabel } from "./meter-shared";
 import type { ColDef, SourceId, SourceRow, SourceWire } from "./source-shared";
 
 /**
- * Sursa brută „Facturare” (getmgdb): rândurile de facturare Moldovagaz — filială, cont, număr radio, adresă, consumator, secție, controlor…
- * Aici sunt (1) extragerea rândului brut pentru baza de date, (2) rândul „plat” cu coloane derivate DOAR din aceeași sursă (ex. adresa din oraș + stradă + casă)
- * și (3) punerea lor pe coloane pentru browser. Combinarea cu dispozitivele din SCADA (legătura prin NUM_RADIO) se face doar în pagina principală (lib/meter-sync.ts).
+ * Cele două surse brute, fiecare cu propria pagină:
+ *  - lorawandb (primul IP): lista dispozitivelor SCADA — id, nume, profil, etichetă, client, data creării;
+ *  - getmgdb (al doilea IP): facturarea Moldovagaz — filială, cont, număr radio, adresă, consumator, secție, controlor…
+ * Aici sunt (1) extragerea rândului brut pentru baza de date, (2) rândul „plat” cu coloane derivate DOAR din aceeași sursă
+ * (ex. seria din numele dispozitivului, adresa din oraș + stradă + casă) și (3) punerea lor pe coloane pentru browser.
+ * Combinarea celor două surse (legătura prin NUM_RADIO, valorile din SCADA) se face doar în pagina principală (lib/meter-sync.ts).
  */
 
 const sha = (s: string) => createHash("sha1").update(s).digest("hex").slice(0, 20);
 const clean = (v: unknown): string => String(v ?? "").replace(/\s+/g, " ").trim();
+const idOf = (v: unknown): string | null => {
+  if (typeof v === "string") return v.trim() || null;
+  if (v && typeof v === "object" && typeof (v as { id?: unknown }).id === "string") return (v as { id: string }).id;
+  return null;
+};
 const numOrNull = (v: unknown): number | null => {
   const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
   return Number.isFinite(n) ? n : null;
@@ -17,7 +25,42 @@ const numOrNull = (v: unknown): number | null => {
 
 /* ───────────────────── 1) rândul brut, așa cum se păstrează în baza de date ───────────────────── */
 
+/** Un dispozitiv din lorawandb. Se păstrează doar câmpurile de identificare: `deviceData` și orice alte câmpuri (posibile chei LoRaWAN) NU se copiază. */
+export type RawLorawan = {
+  name: string;
+  type: string | null;
+  label: string | null;
+  createdTime: number | null;
+  customerId: string | null;
+  ownerId: string | null;
+  tenantId: string | null;
+  deviceProfileId: string | null;
+  description: string | null;
+};
 export type SrcDoc<T> = { _id: string; h: string; d: T };
+
+export function lorawanDocs(devices: unknown[]): SrcDoc<RawLorawan>[] {
+  const out: SrcDoc<RawLorawan>[] = [];
+  for (const x of devices) {
+    const r = x as Record<string, unknown> | null;
+    const id = r ? idOf(r.id) : null;
+    if (!r || !id) continue;
+    const info = (r.additionalInfo ?? null) as Record<string, unknown> | null;
+    const d: RawLorawan = {
+      name: clean(r.name),
+      type: clean(r.type) || null,
+      label: clean(r.label) || null,
+      createdTime: numOrNull(r.createdTime),
+      customerId: idOf(r.customerId),
+      ownerId: idOf(r.ownerId),
+      tenantId: idOf(r.tenantId),
+      deviceProfileId: idOf(r.deviceProfileId),
+      description: info && typeof info.description === "string" ? clean(info.description) || null : null,
+    };
+    out.push({ _id: id, h: sha(JSON.stringify(d)), d });
+  }
+  return out;
+}
 
 export type RawBilling = Record<string, string | number | null>;
 
@@ -44,6 +87,52 @@ export function billingDocs(rows: unknown[]): SrcDoc<RawBilling>[] {
 /* ───────────────────── 2) rândul „plat” + definițiile coloanelor ───────────────────── */
 
 type Doc = { _id: string; d: Record<string, unknown> };
+
+const LORAWAN_COLS: ColDef[] = [
+  { key: "name", label: "Dispozitiv", kind: "text", show: true, w: 250, search: true, mono: true },
+  { key: "serial", label: "Serie (număr radio)", kind: "text", show: true, w: 150, search: true, mono: true, hint: "Cele 8 cifre din mijlocul numelui (S2154_00070948_2022 → 00070948); aceeași serie ca „NUM_RADIO” din facturare." },
+  { key: "model", label: "Model", kind: "dict", show: true, w: 100, chart: true, main: true, hint: "Cele 4 cifre de la începutul numelui (S2154_… → 2154)." },
+  { key: "year", label: "An", kind: "dict", show: true, w: 90, chart: true, main: true, hint: "Ultimele 4 cifre din nume (…_2022 → 2022)." },
+  { key: "type", label: "Profil", kind: "dict", show: true, w: 230, chart: true, main: true, kpi: "Profiluri" },
+  { key: "customer", label: "Client SCADA", kind: "dict", show: true, w: 150, short: 8, chart: true, main: true, kpi: "Clienți", hint: "Identificatorul clientului din SCADA (lorawandb nu dă numele)." },
+  { key: "label", label: "Etichetă", kind: "text", show: true, w: 160, search: true },
+  { key: "created", label: "Creat în SCADA", kind: "date", show: true, w: 170, time: true, chart: true },
+  { key: "dup", label: "Serie repetată", kind: "dict", show: true, w: 130, chart: true, yes: "Serii repetate", hint: "Același număr radio apare la mai multe dispozitive din lista lorawandb." },
+  { key: "std", label: "Nume standard", kind: "dict", chart: true, hint: "Numele are forma S2154_00070948_2022 (model, serie, an)." },
+  { key: "id", label: "ID dispozitiv", kind: "text", mono: true, search: true },
+  { key: "ownerId", label: "ID proprietar", kind: "dict", short: 8 },
+  { key: "tenantId", label: "ID tenant", kind: "dict", short: 8 },
+  { key: "deviceProfileId", label: "ID profil", kind: "dict", short: 8 },
+  { key: "description", label: "Descriere", kind: "text", search: true },
+];
+
+export function lorawanTable(docs: Doc[]): { cols: ColDef[]; rows: SourceRow[] } {
+  const serials = new Map<string, number>();
+  const parsed = docs.map((x) => {
+    const name = clean(x.d.name);
+    const m = METER_NAME.exec(name);
+    if (m) serials.set(m[2], (serials.get(m[2]) ?? 0) + 1);
+    return { x, name, m };
+  });
+  const rows: SourceRow[] = parsed.map(({ x, name, m }) => ({
+    name,
+    serial: m ? m[2] : null,
+    model: m ? m[1] : "alt",
+    year: m ? m[3] : "alt",
+    type: clean(x.d.type) || null,
+    customer: clean(x.d.customerId) || null,
+    label: clean(x.d.label) || null,
+    created: numOrNull(x.d.createdTime),
+    dup: m && (serials.get(m[2]) ?? 0) > 1 ? "Da" : "Nu",
+    std: m ? "Da" : "Nu",
+    id: x._id,
+    ownerId: clean(x.d.ownerId) || null,
+    tenantId: clean(x.d.tenantId) || null,
+    deviceProfileId: clean(x.d.deviceProfileId) || null,
+    description: clean(x.d.description) || null,
+  }));
+  return { cols: LORAWAN_COLS, rows };
+}
 
 const pad8 = (s: unknown) => clean(s).padStart(8, "0");
 
@@ -116,8 +205,8 @@ export function billingTable(docs: Doc[]): { cols: ColDef[]; rows: SourceRow[] }
   return { cols, rows };
 }
 
-export function sourceTable(_source: SourceId, docs: Doc[]): { cols: ColDef[]; rows: SourceRow[] } {
-  return billingTable(docs);
+export function sourceTable(source: SourceId, docs: Doc[]): { cols: ColDef[]; rows: SourceRow[] } {
+  return source === "lorawan" ? lorawanTable(docs) : billingTable(docs);
 }
 
 /* ───────────────────── 3) pe coloane, pentru browser ───────────────────── */
