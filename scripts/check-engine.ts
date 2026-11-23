@@ -19,6 +19,8 @@ import { EMPTY_TOKEN, type ColDef, type SourceRow } from "../lib/source-shared";
 import { NO_SFILTERS, activeCount, binsToDays, describeFilters, dictCounts, filtersFromEntries, runFilter as runSourceFilter, setRange, timeAxis, timeCounts, toQuery, type SFilters } from "../lib/source-filter";
 import { sourceToCsv } from "../lib/source-csv";
 import { writeSource } from "../lib/source-sync";
+import * as NA from "../lib/night-analysis";
+import { MAX_READINGS, appendReadings, readingOf } from "../lib/meter-readings";
 import { EXCLUDED_PROFILE, GAS_CUSTOMERS } from "../lib/meter-scope";
 import type { Db } from "mongodb";
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -302,11 +304,11 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   const walk = (d: string): string[] => readdirSync(d).flatMap((n) => (n === "node_modules" || n === ".next" || n.startsWith(".") ? [] : statSync(join(d, n)).isDirectory() ? walk(join(d, n)) : /\.(ts|tsx)$/.test(n) ? [join(d, n)] : []));
   const files = ["app", "lib", "scripts"].flatMap(walk).filter((f) => !f.endsWith("check-engine.ts"));
   const fetches = files.flatMap((f) => (readFileSync(f, "utf8").match(/\bfetch\(/g) ?? []).map(() => f.replace(/\\/g, "/")));
-  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts"]);
+  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx"]);
   check("read-only: fetch() doar în fișierele așteptate", fetches.every((f) => allowedFetch.has(f)), [...new Set(fetches)].join(", "));
   const mutating = files.filter((f) => /method:\s*"(PUT|DELETE|PATCH)"|\.(deleteOne|deleteMany|drop|updateMany|updateOne|insertOne|insertMany|replaceOne|bulkWrite)\(/.test(readFileSync(f, "utf8"))).map((f) => f.replace(/\\/g, "/"));
   // scrieri în baza NOASTRĂ: doar sesiuni / utilizator (login, seed) și colecția `meters` (sincronizare); niciodată în surse
-  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts"]);
+  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts"]);
   check("read-only: scrieri în baza de date doar în sesiuni, seed:user, sync-meters, load-history și lib/source-sync", mutating.every((f) => allowedWrites.has(f)), mutating.join(", "));
   const syncSrc = readFileSync("scripts/sync-meters.ts", "utf8");
   const syncCollections = syncSrc.match(/client\.db\(\)\.collection[^\n]*/g) ?? [];
@@ -566,7 +568,66 @@ const section7 = (async () => {
   check("scriere surse: sync-meters le scrie înainte de ThingsBoard și nu în modul --dry / --limit", metersSync.indexOf("writeSources(") > 0 && metersSync.indexOf("writeSources(") < metersSync.indexOf("fetchLatest(") && /!dry && !limit/.test(metersSync));
 })();
 
-section7.then(() => {
+/* ───────── 8) consum nemăsurat: nopți, istoric propriu de citiri ───────── */
+const section8 = (async () => {
+  const { H, DAY } = NA;
+  const t1 = Date.UTC(2026, 10, 23, 12, 0);
+  check("noapte: decalajul Moldovei iarna = +2 h, vara = +3 h", NA.offsetAt(t1) === 2 * H && NA.offsetAt(Date.UTC(2026, 6, 15, 12)) === 3 * H);
+  check("noapte: începutul zilei locale = 00:00 ora Moldovei (22:00 UTC)", NA.dayStart(t1) === Date.UTC(2026, 10, 22, 22, 0));
+  const days5 = NA.lastDays(t1, 5);
+  check("noapte: ultimele 5 zile complete, consecutive, fără ziua de azi", days5.length === 5 && days5[4] === Date.UTC(2026, 10, 21, 22) && days5.every((d, i) => i === 0 || d - days5[i - 1] === DAY));
+  const dd = NA.lastDays(Date.UTC(2026, 9, 28, 12), 5); // 23–27 octombrie: pe 25 se trece la ora de iarnă (zi de 25 h)
+  const gaps = dd.slice(1).map((d, i) => d - dd[i]);
+  check("noapte: la schimbarea orei o zi are 25 h și nu se pierde nicio zi", dd.length === 5 && gaps.includes(25 * H) && gaps.every((g) => g === 24 * H || g === 25 * H || g === 23 * H));
+  const P = (t: number, v: number, tp: number | null = null): NA.Pt => ({ t, v, tp });
+  const pts = [P(0, 100), P(4 * H, 104), P(10 * H, 110), P(30 * H, 130)];
+  check("interpolare: între citiri vecine, exact la citire, și NaN în afara seriei", NA.volumeAt(pts, 2 * H) === 102 && NA.volumeAt(pts, 4 * H) === 104 && NA.volumeAt(pts, 7 * H) === 107 && Number.isNaN(NA.volumeAt(pts, -1)) && Number.isNaN(NA.volumeAt(pts, 31 * H)));
+  check("interpolare: citiri la mai mult de 8 h una de alta ⇒ necunoscut (nu inventăm consum)", Number.isNaN(NA.volumeAt(pts, 20 * H)));
+  // serie sintetică: citiri la 00 / 06 / 12 / 18, consum 0 noaptea și 0,5 m³/h ziua (9 m³ pe zi), temperaturi 24 / 23 / 20 / 21
+  const D = NA.lastDays(Date.UTC(2026, 10, 23, 12), 3);
+  const series: NA.Pt[] = [];
+  let cum = 500;
+  for (let k = 0; k <= 3 * 4 + 1; k++) {
+    const t = D[0] + k * 6 * H;
+    if (k > 0) { const hod = (k - 1) % 4; cum += hod === 0 ? 0 : 3; } // intervalul 00→06 nu consumă, celelalte trei câte 3 m³
+    series.push(P(t, cum, [24, 23, 20, 21][k % 4]));
+  }
+  const m = NA.nightMetrics(series, D);
+  check("nopți: consum de noapte 0, de zi 9 m³; temperatură de noapte 24 °C, medie pe zi 22 °C", m.nc.every((x) => x === 0) && m.dc.every((x) => x === 9) && m.nt.every((x) => x === 24) && m.ta.every((x) => x === 22), JSON.stringify({ nc: m.nc, dc: m.dc, nt: m.nt, ta: m.ta }));
+  const sparse = NA.nightMetrics(series.filter((_, k) => k % 2 === 0), D); // citiri la 12 h ⇒ prea rare
+  check("nopți: citiri la 12 h una de alta ⇒ nopțile sunt necunoscute (null), nu 0", sparse.nc.every((x) => x === null));
+  const PP = NA.DEFAULT_PARAMS;
+  const row = m;
+  check("suspect: consum de noapte ≤ prag, consum de zi ≥ prag și temperatură ≥ prag ⇒ potrivire", NA.nightMatches(row, 0, PP) && NA.countMatches(row, { ...PP, nights: 3, minNights: 3 }).matched === 3);
+  check("suspect: fiecare condiție contează (temperatură mai mare, zi mai mare, noapte mai mică)", !NA.nightMatches(row, 0, { ...PP, minTemp: 25 }) && !NA.nightMatches(row, 0, { ...PP, minDay: 10 }) && NA.nightMatches(row, 0, { ...PP, minTemp: null, minDay: 0 }));
+  check("suspect: temperatura de comparat poate fi media pe zi (22 °C) în loc de minima din noapte (24 °C)", NA.nightMatches(row, 0, { ...PP, tempMode: "day", minTemp: 22 }) && !NA.nightMatches(row, 0, { ...PP, tempMode: "day", minTemp: 23 }));
+  const noisy = { nc: [0, 1.5, null, 0.2], dc: [9, 9, 9, 2], nt: [24, 24, 24, 24], ta: [22, 22, 22, 22] };
+  check("suspect: noapte cu consum peste prag, necunoscută sau cu consum de zi mic nu se potrivește", NA.nightMatches(noisy, 0, PP) && !NA.nightMatches(noisy, 1, PP) && !NA.nightMatches(noisy, 2, PP) && !NA.nightMatches(noisy, 3, PP) && NA.countMatches(noisy, { ...PP, nights: 4 }).matched === 1 && NA.countMatches(noisy, { ...PP, nights: 4 }).known === 3);
+  check("suspect: fără temperatură cunoscută și temperatură cerută ⇒ nu se potrivește (nu presupunem)", !NA.nightMatches({ nc: [0], dc: [9], nt: [null], ta: [null] }, 0, PP) && NA.nightMatches({ nc: [0], dc: [9], nt: [null], ta: [null] }, 0, { ...PP, minTemp: null }));
+
+  // istoricul propriu de citiri
+  const tel = (t: number, v: string, tT: number | null, tv = "23,5") => ({ Volume_m3_Total: { t, v }, ...(tT === null ? {} : { temp: { t: tT, v: tv } }) });
+  const r1 = readingOf({ tel: tel(1_000_000_000, "1234.5", 1_000_000_000 + 2 * H) });
+  check("citire: volum + temperatura din același mesaj (la cel mult 6 h), cu virgulă zecimală", r1?.v === 1234.5 && r1.tp === 23.5 && r1.t === 1_000_000_000);
+  check("citire: temperatură veche de peste 6 h ⇒ null; volum negativ / lipsă ⇒ fără citire", readingOf({ tel: tel(1_000_000_000, "5", 1_000_000_000 - 7 * H) })?.tp === null && readingOf({ tel: tel(1_000_000_000, "-3", null) }) === null && readingOf({ tel: {} }) === null);
+  const stored = new Map<string, number>();
+  const opsSeen: { insertOne?: { document: { _id: string; lt: number } }; updateOne?: { filter: { _id: string; lt: { $lt: number } }; update: { $push: Record<string, { $slice: number }>; $set: { lt: number } } } }[] = [];
+  const usedC = new Set<string>();
+  const rcoll = {
+    find: () => ({ async *[Symbol.asyncIterator]() { for (const [k, lt] of stored) yield { _id: k, lt }; } }),
+    bulkWrite: async (ops: typeof opsSeen) => { for (const o of ops) { opsSeen.push(o); if (o.insertOne) stored.set(o.insertOne.document._id, o.insertOne.document.lt); else if (o.updateOne) stored.set(o.updateOne.filter._id, o.updateOne.update.$set.lt); } },
+  };
+  const rdb = { collection: (n: string) => (usedC.add(n), rcoll) } as unknown as Db;
+  const mk = (id: string, t: number) => ({ _id: id, tel: tel(t, "10", t) });
+  const a1 = await appendReadings(rdb, [mk("a", 1000), mk("b", 1000), { _id: "c", tel: {} }]);
+  const a2 = await appendReadings(rdb, [mk("a", 1000), mk("b", 2000)]);
+  check("istoric: prima dată creează câte un document pe contor cu citire; a doua oară adaugă doar citirea NOUĂ", a1.created === 2 && a1.appended === 0 && a2.created === 0 && a2.appended === 1 && a2.unchanged === 1);
+  const up = opsSeen.find((o) => o.updateOne)!.updateOne!;
+  check("istoric: adăugarea e atomică ($push cu limită, doar dacă citirea e mai nouă) și se păstrează ultimele " + MAX_READINGS + " puncte", up.filter.lt.$lt === 2000 && up.update.$push.t.$slice === -MAX_READINGS && up.update.$push.v.$slice === -MAX_READINGS);
+  check("istoric: scrie doar în colecția meter_readings, fără ștergeri", [...usedC].every((n) => n === "meter_readings") && opsSeen.every((o) => o.insertOne || o.updateOne));
+})();
+
+section7.then(() => section8).then(() => {
   console.log(bad ? `\n${bad} EȘECURI` : "\nToate verificările au trecut.");
   process.exit(bad ? 1 : 0);
 });

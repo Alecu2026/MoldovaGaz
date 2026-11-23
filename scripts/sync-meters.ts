@@ -15,6 +15,8 @@ import { connectMongo } from "../lib/mongo-core";
 import { buildDocs, fetchBilling, fetchDevices, fetchLatest, fetchLorawan, type Dev, type MeterDoc } from "../lib/meter-sync";
 import { validCoords } from "../lib/meter-shared";
 import { writeSources } from "../lib/source-sync";
+import { appendReadings } from "../lib/meter-readings";
+import { maybeAnalyze } from "../lib/night-job";
 
 const log = (m: string) => console.log(`[${new Date().toISOString()}] ${m}`);
 
@@ -141,6 +143,15 @@ async function main() {
       else if (gone.length) log(`ATENȚIE: ${gone.length} contoare lipsesc din sursă — NU le șterg (prea multe, sursa pare incompletă)`);
     }
     log(`gata: ${changed.length} documente scrise (${fresh.length - changed.length} neschimbate), ${removed} șterse, total acum ${await coll.estimatedDocumentCount()} (${Math.round((Date.now() - t0) / 1000)} s)`);
+    // istoricul propriu de citiri (pentru „Consum nemăsurat”) și analiza nopților (o dată pe zi); o eroare aici NU strică sincronizarea
+    if (!limit) {
+      try {
+        await appendReadings(client.db(), fresh, log);
+        await maybeAnalyze(client.db(), log);
+      } catch (e) {
+        log(`ATENȚIE: istoricul / analiza nopților — ${(e as Error).message}`);
+      }
+    }
   } finally {
     await client.close();
   }

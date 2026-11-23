@@ -11,6 +11,7 @@
     "check": "tsx scripts/check-engine.ts",
     "sync:meters": "tsx scripts/sync-meters.ts",
     "sync:sources": "tsx scripts/sync-sources.ts",
+    "analyze:nights": "tsx scripts/analyze-nights.ts",
     "history:fetch": "tsx scripts/fetch-history.ts",
     "history:load": "tsx scripts/load-history.ts"
   },
