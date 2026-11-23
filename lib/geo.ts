@@ -100,3 +100,11 @@ export function addressLinks(address: string): { google: string; waze: string; a
     apple: `https://maps.apple.com/?q=${q}`,
   };
 }
+
+const RAD = Math.PI / 180;
+/** distanța pe sferă între două puncte, în km */
+export function distanceKm(a1: number, o1: number, a2: number, o2: number): number {
+  const dLa = (a2 - a1) * RAD, dLo = (o2 - o1) * RAD;
+  const h = Math.sin(dLa / 2) ** 2 + Math.cos(a1 * RAD) * Math.cos(a2 * RAD) * Math.sin(dLo / 2) ** 2;
+  return 12742 * Math.asin(Math.min(1, Math.sqrt(h)));
+}

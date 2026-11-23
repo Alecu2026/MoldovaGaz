@@ -1,5 +1,5 @@
 import { METER_NAME } from "./meter-shared";
-import type { IntegrationMsg, Parsed } from "./integration";
+import type { GwHit, IntegrationMsg, Parsed } from "./integration";
 
 /**
  * Adaptor pentru uplink-urile BRUTE ale serverului LoRaWAN (ChirpStack, decodor Jooby), așa cum le trimite rețeaua:
@@ -92,8 +92,32 @@ export function uplinkToMsg(x: Record<string, unknown>, now: number = Date.now()
   if (fCnt !== null) attrs.c_fCnt = String(fCnt);
   if (typeof x.applicationName === "string") attrs.c_applicationName = x.applicationName;
 
+  const gws = gatewaysOf(x.rxInfo);
   return {
     ok: true,
-    msg: { id: null, name: null, eui: euiRaw, nameKey: nameKey(dev), tb: {}, bill: null, attrs, tel, pulse: pulse !== null ? { t, v: pulse } : null, fcnt: fCnt },
+    msg: { id: null, name: null, eui: euiRaw, nameKey: nameKey(dev), tb: {}, bill: null, attrs, tel, pulse: pulse !== null ? { t, v: pulse } : null, fcnt: fCnt, ...(gws.length ? { gws } : {}) },
   };
+}
+
+/** Poziție validă în Moldova (cu puțină rezervă); (0, 0) și orice în afară = fără poziție. */
+export const gwPosition = (la: unknown, lo: unknown): [number, number] | null => {
+  const a = num(la), b = num(lo);
+  return a !== null && b !== null && a > 45.3 && a < 48.7 && b > 26.5 && b < 30.4 ? [a, b] : null;
+};
+
+/** Antenele din `rxInfo` (ChirpStack): id = gatewayID (sau numele), cel mult 16 pe mesaj, fără dubluri. */
+export function gatewaysOf(rxInfo: unknown): GwHit[] {
+  if (!Array.isArray(rxInfo)) return [];
+  const out = new Map<string, GwHit>();
+  for (const r of rxInfo.slice(0, 16)) {
+    if (!isObj(r)) continue;
+    const name = typeof r.name === "string" ? r.name.trim().slice(0, 80) : "";
+    const rawId = typeof r.gatewayID === "string" ? r.gatewayID : typeof r.gatewayId === "string" ? r.gatewayId : "";
+    const id = (rawId || name).trim().slice(0, 80);
+    if (!id || id.includes("$") || id.includes(".")) continue;
+    const loc = isObj(r.location) ? r.location : null;
+    const pos = loc ? gwPosition(loc.latitude, loc.longitude) : null;
+    out.set(id, { id, name: name || id, la: pos ? pos[0] : null, lo: pos ? pos[1] : null, rssi: num(r.rssi), snr: num(r.loRaSNR) });
+  }
+  return [...out.values()];
 }

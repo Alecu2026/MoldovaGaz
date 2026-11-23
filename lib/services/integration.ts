@@ -4,6 +4,7 @@ import { appendReadingsFor } from "../meter-readings";
 import { mergeDerive, mergeMsgs, parseMessage, type IntegrationMsg, type MeterDocIng } from "../integration";
 import { nameKey } from "../integration-uplink";
 import { COLLECTIONS, col, getDb } from "../mongo";
+import { recordGateways } from "./gateways";
 import { bumpMeterEpoch, getStore } from "./meter-dataset";
 
 /**
@@ -245,6 +246,12 @@ async function drainOnce(): Promise<number> {
     [...per].map(([id, e]) => ({ updateOne: { filter: { _id: id as never }, update: { $inc: { n: e.n }, $max: { last: e.last }, $set: { name: existing.get(id)?.tb.name ?? by.get(id)?.name ?? "", at: Date.now() } }, upsert: true } })) as never,
     { ordered: false },
   );
+  // antenele care au auzit mesajele (pentru harta antenelor); o eroare aici nu oprește aplicarea mesajelor
+  try {
+    await recordGateways(docs, Date.now());
+  } catch (e) {
+    console.error("[integration] evidența antenelor a eșuat:", (e as Error).message);
+  }
   // abia acum se șterg din cutie (dacă ceva a eșuat mai sus, mesajele rămân și se reiau)
   await inbox.deleteMany({ _id: { $in: docs.map((d) => d._id) } });
 

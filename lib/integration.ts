@@ -20,6 +20,9 @@ const KEY = /^[A-Za-z0-9_:. -]{1,64}$/;
 const SENSITIVE = /key|secret|token|pass|credential|nwk|appskey/i;
 const FUTURE_MS = 36 * 3_600_000;
 
+/** O antenă care a auzit un mesaj: id (devine cheia), nume, poziție (grade, sau null), semnal. */
+export type GwHit = { id: string; name: string; la: number | null; lo: number | null; rssi: number | null; snr: number | null };
+
 export type IntegrationMsg = {
   id: string | null;
   name: string | null;
@@ -30,6 +33,8 @@ export type IntegrationMsg = {
   tel: Record<string, { t: number; v: string }>;
   /** cheia de nume „model_serie_an” (fără prefixul S / SN): potrivire de rezervă a contorului pentru uplink-uri (vezi integration-uplink.ts) */
   nameKey?: string | null;
+  /** antenele (gateway-uri) care au auzit mesajul, din `rxInfo` (vezi lib/services/gateways.ts); coordonatele lipsesc când antena nu are poziție validă */
+  gws?: GwHit[];
   /** contorul de impulsuri al uplink-ului (1 impuls = 10 L); volumul total se calculează la aplicare din atributele contorului */
   pulse?: { t: number; v: number } | null;
   /** contorul de cadre LoRaWAN al uplink-ului: un mesaj cu fCnt mai mic decât cel deja primit e vechi și nu are voie să dea valorile înapoi */
@@ -153,7 +158,7 @@ export function mergeMsgs(a: IntegrationMsg, b: IntegrationMsg): IntegrationMsg 
   if (isStaleFcnt(b.fcnt, a.fcnt) && !(b.pulse && a.pulse && b.pulse.v > a.pulse.v)) return a; // b a sosit după a, dar e un cadru mai vechi
   const tel = { ...a.tel };
   for (const [k, e] of Object.entries(b.tel)) if (!tel[k] || e.t >= tel[k].t) tel[k] = e;
-  return { id: b.id ?? a.id, name: b.name ?? a.name, eui: b.eui ?? a.eui, nameKey: b.nameKey ?? a.nameKey ?? null, tb: { ...a.tb, ...b.tb }, bill: b.bill ?? a.bill, attrs: { ...a.attrs, ...b.attrs }, tel, pulse: b.pulse ?? a.pulse ?? null, fcnt: b.fcnt ?? a.fcnt ?? null };
+  return { id: b.id ?? a.id, name: b.name ?? a.name, eui: b.eui ?? a.eui, nameKey: b.nameKey ?? a.nameKey ?? null, tb: { ...a.tb, ...b.tb }, bill: b.bill ?? a.bill, attrs: { ...a.attrs, ...b.attrs }, tel, pulse: b.pulse ?? a.pulse ?? null, fcnt: b.fcnt ?? a.fcnt ?? null, ...(b.gws ?? a.gws ? { gws: b.gws ?? a.gws } : {}) };
 }
 
 export type MeterDocIng = MeterDoc & { ing?: number };

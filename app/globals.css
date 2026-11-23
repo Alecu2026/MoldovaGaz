@@ -1066,3 +1066,42 @@ button.badge-btn:hover {
   .appnav a { flex: 1; align-items: center; justify-content: center; padding: 0 8px; font-size: 12.5px; }
   .appnav-sub { display: none; }
 }
+
+/* ───────── Antene (gateway-uri) pe hartă ───────── */
+.gw-overlay { position: absolute; inset: 0; z-index: 460; pointer-events: none; overflow: hidden; }
+.gw-pin { position: absolute; left: 0; top: 0; width: 24px; height: 24px; padding: 0; border: 0; background: transparent; cursor: pointer; pointer-events: auto; visibility: hidden; }
+.gw-pin span { display: block; width: 18px; height: 18px; margin: 3px; border-radius: 4px; transform: rotate(45deg); border: 2.5px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+.gw-pin.gw-on span { background: #0ca30c; }
+.gw-pin.gw-slow span { background: #fab219; }
+.gw-pin.gw-off span { background: #d03b3b; }
+.gw-pin.gw-sel span { outline: 3px solid #2a78d6; outline-offset: 2px; }
+.gw-dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; transform: rotate(45deg); vertical-align: middle; margin-right: 3px; }
+.gw-dot.gw-on { background: #0ca30c; }
+.gw-dot.gw-slow { background: #fab219; }
+.gw-dot.gw-off { background: #d03b3b; }
+.gw-legend {
+  position: absolute; right: 10px; top: 10px; z-index: 600; display: grid; gap: 3px; padding: 8px 10px; max-width: 240px; font-size: 12px;
+  background: color-mix(in oklab, var(--surface) 92%, transparent); border: 1px solid var(--border); border-radius: 10px;
+}
+.gw-leg-t { font-weight: 600; }
+.gw-panel {
+  position: absolute; right: 10px; top: 10px; bottom: 26px; z-index: 710; width: min(380px, calc(100% - 20px)); overflow: auto; padding: 10px 12px;
+  background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: var(--shadow); font-size: 12.5px;
+}
+.gw-panel-sm { bottom: auto; max-height: 55%; }
+.gw-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; }
+.gw-stats div { display: grid; gap: 1px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; }
+.gw-stats b { font-size: 15px; }
+.gw-stats span { font-size: 11px; color: var(--muted, #6b6b6b); }
+.gw-dev { margin: 8px 0; padding: 6px 10px; border-left: 4px solid var(--border-strong); background: color-mix(in oklab, var(--surface) 94%, var(--text)); border-radius: 6px; }
+.gw-dev-t { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; opacity: .75; }
+.gw-kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; margin: 4px 0; }
+.gw-kv span { opacity: .75; }
+.gw-sec { margin: 10px 0 4px; font-weight: 700; }
+.gw-recent { max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.gw-recent table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.gw-recent th, .gw-recent td { padding: 3px 6px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+.gw-recent th { position: sticky; top: 0; background: var(--surface); }
+.gw-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 8px; }
+.gw-badge { margin-left: 6px; padding: 1px 6px; border-radius: 99px; background: #0ca30c; color: #fff; font-size: 11px; }
+.link-btn { background: none; border: 0; padding: 0; color: var(--accent, #2a78d6); cursor: pointer; text-align: left; font: inherit; text-decoration: underline; }

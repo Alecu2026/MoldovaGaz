@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { boundsOf, buildClusters, latFromY, lonFromX, mapLinks, worldSize, type Clusters } from "@/lib/geo";
 import { FLAG, PROBLEM_FLAGS } from "@/lib/meter-shared";
 import type { MeterStore } from "@/lib/meter-store";
+import GatewayLayer from "./GatewayLayer";
 
 /**
  * Harta tuturor contoarelor filtrate. Optimizare:
@@ -86,7 +87,10 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
   const mapRef = useRef<L.Map | null>(null);
   const [by, setBy] = useState<ColorBy>("status");
   const [sel, setSel] = useState<number | null>(null);
+  const [mapObj, setMapObj] = useState<L.Map | null>(null);
+  const [gwOn, setGwOn] = useState(true);
   const [now] = useState(() => Date.now());
+  const pickGateway = useCallback(() => setSel(null), []);
   // starea citită de funcția de desenare (se actualizează în efecte, nu la randare)
   const live = useRef({ store, idx, by, now, sel: null as number | null });
   const cache = useRef<{ zoom: number; cl: Clusters }[]>([]);
@@ -207,6 +211,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
     const map = L.map(box, { center: [46.9, 28.5], zoom: 8, minZoom: 5, maxZoom: 19, zoomControl: true, preferCanvas: true, worldCopyJump: false });
     L.tileLayer(TILE_URL, { maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>' }).addTo(map);
     mapRef.current = map;
+    setMapObj(map);
 
     const onMove = () => schedule();
     const onZoomStart = () => {
@@ -260,6 +265,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
       raf.current = 0;
       map.remove();
       mapRef.current = null;
+      setMapObj(null);
     };
   }, [schedule, hitTest]);
 
@@ -286,6 +292,8 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
 
   const picked = sel !== null ? store.view(sel) : null;
   const links = picked && picked.lat !== null && picked.lon !== null ? mapLinks(picked.lat, picked.lon) : null;
+  const pid = picked?.id ?? null, pname = picked?.name ?? "", plat = picked?.lat ?? null, plon = picked?.lon ?? null;
+  const gwMeter = useMemo(() => (pid !== null && plat !== null && plon !== null ? { id: pid, name: pname, la: plat, lo: plon } : null), [pid, pname, plat, plon]);
 
   return (
     <div className="mapwrap">
@@ -303,6 +311,9 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
         <button type="button" className="btn" onClick={fit} disabled={stats.withGeo === 0}>
           Încadrează rezultatele
         </button>
+        <label className="chk" style={{ alignSelf: "center" }}>
+          <input type="checkbox" checked={gwOn} onChange={(e) => setGwOn(e.target.checked)} /> Arată antenele
+        </label>
         <div className="map-count" role="status" aria-live="polite">
           <strong>{nf.format(stats.withGeo)}</strong> contoare pe hartă
           {stats.without > 0 && <span className="cell-sub"> · {nf.format(stats.without)} filtrate fără coordonate (nu apar pe hartă)</span>}
@@ -334,6 +345,14 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
             <span>Grup de contoare (click = zoom)</span>
           </div>
         </div>
+
+        <GatewayLayer
+          map={mapObj}
+          enabled={gwOn}
+          meter={gwMeter}
+          onOpen={onOpen}
+          onPickGateway={pickGateway}
+        />
 
         {picked && (
           <div ref={popRef} className="map-popup" role="dialog" aria-label={`Contor ${picked.name}`}>

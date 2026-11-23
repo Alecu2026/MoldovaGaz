@@ -20,7 +20,8 @@ import { NO_SFILTERS, activeCount, binsToDays, describeFilters, dictCounts, filt
 import { sourceToCsv } from "../lib/source-csv";
 import { writeSource } from "../lib/source-sync";
 import * as NA from "../lib/night-analysis";
-import { looksLikeUplink, nameKey, uplinkToMsg } from "../lib/integration-uplink";
+import { distanceKm as kmDist } from "../lib/geo";
+import { gatewaysOf, looksLikeUplink, nameKey, uplinkToMsg } from "../lib/integration-uplink";
 import { MAX_BATCH, isStaleFcnt, isStaleUplink, ingestIsNewer, mergeDerive, mergeMsgs, normTs, parseMessage, type MeterDocIng } from "../lib/integration";
 import { MAX_READINGS, appendReadings, readingOf } from "../lib/meter-readings";
 import { EXCLUDED_PROFILE, GAS_CUSTOMERS } from "../lib/meter-scope";
@@ -306,11 +307,11 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   const walk = (d: string): string[] => readdirSync(d).flatMap((n) => (n === "node_modules" || n === ".next" || n.startsWith(".") ? [] : statSync(join(d, n)).isDirectory() ? walk(join(d, n)) : /\.(ts|tsx)$/.test(n) ? [join(d, n)] : []));
   const files = ["app", "lib", "scripts"].flatMap(walk).filter((f) => !f.endsWith("check-engine.ts"));
   const fetches = files.flatMap((f) => (readFileSync(f, "utf8").match(/\bfetch\(/g) ?? []).map(() => f.replace(/\\/g, "/")));
-  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "scripts/bench-integration.ts"]);
+  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "app/components/GatewayLayer.tsx", "scripts/bench-integration.ts"]);
   check("read-only: fetch() doar în fișierele așteptate", fetches.every((f) => allowedFetch.has(f)), [...new Set(fetches)].join(", "));
   const mutating = files.filter((f) => /method:\s*"(PUT|DELETE|PATCH)"|\.(deleteOne|deleteMany|drop|updateMany|updateOne|insertOne|insertMany|replaceOne|bulkWrite)\(/.test(readFileSync(f, "utf8"))).map((f) => f.replace(/\\/g, "/"));
   // scrieri în baza NOASTRĂ: doar sesiuni / utilizator (login, seed) și colecția `meters` (sincronizare); niciodată în surse
-  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts"]);
+  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts", "lib/services/gateways.ts"]);
   check("read-only: scrieri în baza de date doar în sesiuni, seed:user, sync-meters, load-history și lib/source-sync", mutating.every((f) => allowedWrites.has(f)), mutating.join(", "));
   const syncSrc = readFileSync("scripts/sync-meters.ts", "utf8");
   const syncCollections = syncSrc.match(/client\.db\(\)\.collection[^\n]*/g) ?? [];
@@ -479,6 +480,17 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   const ds = U(up({}, [{ battery: { highLoadVoltage: 3260, internalRes: 16978, lowLoadVoltage: 3629, remCapacity: 97.24 }, dwQuality: 100, ieType: "DeviceStatus", lastEventSeq: 31, temp: 18 }]));
   check("uplink: DeviceStatus ⇒ baterie (JSON, ca în SCADA) și temperatură; fără impulsuri", JSON.parse(ds.tel.battery.v).remCapacity === 97.24 && ds.tel.temp.v === "18" && ds.tel.ieType.v === "DeviceStatus" && ds.pulse === null && !("offline" in ds.tel));
   check("uplink: CurrentData (cmd 7) dă tot impulsuri", U(up({}, [{ cmd: 7, ieType: "CurrentData", magnet: 0, value: 252751 }])).pulse?.v === 252751);
+  const rxs = [
+    { gatewayID: "AA11", name: "M-2F4750", rssi: -99, loRaSNR: 6.5, location: { latitude: 47.3972, longitude: 28.8104 } },
+    { gatewayID: "BB22", name: "Fara_Pozitie", rssi: -120, loRaSNR: -9, location: { latitude: 0, longitude: 0 } },
+    { gatewayID: "CC33", name: "Departe", rssi: -80, loRaSNR: 9, location: { latitude: 51.5, longitude: 28.0 } },
+    { gatewayID: "AA11", name: "M-2F4750", rssi: -50, loRaSNR: 1, location: { latitude: 47.3972, longitude: 28.8104 } },
+  ];
+  const gw = U(up({ rxInfo: rxs })).gws ?? [];
+  check("antene: id, nume, semnal; aceeași antenă de două ori ⇒ o singură dată", gw.length === 3 && gw[0].id === "AA11" && gw[0].name === "M-2F4750" && gw.some((g) => g.id === "BB22"));
+  check("antene: poziția (0, 0) sau în afara Moldovei ⇒ fără poziție; poziția validă se păstrează", gw.find((g) => g.id === "BB22")?.la === null && gw.find((g) => g.id === "CC33")?.la === null && gw[0].la === 47.3972 && gw[0].lo === 28.8104);
+  check("antene: fără rxInfo ⇒ fără câmpul gws; id cu $ sau . se ignoră", U(up({ rxInfo: [] })).gws === undefined && gatewaysOf([{ gatewayID: "a.b", name: "x" }, { gatewayID: "$x", name: "y" }]).length === 0);
+  check("antene: distanța pe sferă (Chișinău–Comrat ≈ 81 km, aceeași poziție = 0)", Math.abs(kmDist(47.0105, 28.8638, 46.2922, 28.676) - 81) < 6 && kmDist(47, 28, 47, 28) === 0);
   const pm = parseMessage(up(), NOW);
   check("uplink: parseMessage îl recunoaște singur; devEUI greșit ⇒ respins cu motiv", pm.ok && pm.msg.eui === "001a798816011d62" && !uplinkToMsg({ devEUI: "xyz", object: {} } as never, NOW).ok);
 
