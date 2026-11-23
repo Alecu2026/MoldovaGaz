@@ -90,6 +90,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
   const [mapObj, setMapObj] = useState<L.Map | null>(null);
   const [gwOn, setGwOn] = useState(true);
   const [legendOn, setLegendOn] = useState(true);
+  const [metersOn, setMetersOn] = useState(true);
   const [full, setFull] = useState(false);
   const [pseudo, setPseudo] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -125,7 +126,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
     else setPseudo(true);
   };
   // starea citită de funcția de desenare (se actualizează în efecte, nu la randare)
-  const live = useRef({ store, idx, by, now, sel: null as number | null });
+  const live = useRef({ store, idx, by, now, sel: null as number | null, metersOn: true });
   const cache = useRef<{ zoom: number; cl: Clusters }[]>([]);
   const raf = useRef(0);
 
@@ -147,7 +148,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
     raf.current = 0;
     const map = mapRef.current, canvas = canvasRef.current;
     if (!map || !canvas) return;
-    const { store: st, idx: ix, by: color, now: t, sel: selected } = live.current;
+    const { store: st, idx: ix, by: color, now: t, sel: selected, metersOn: showMeters } = live.current;
     const size = map.getSize();
     const dpr = window.devicePixelRatio || 1;
     if (canvas.width !== Math.round(size.x * dpr) || canvas.height !== Math.round(size.y * dpr)) {
@@ -175,7 +176,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
     ctx.font = "600 11px system-ui, sans-serif";
     ctx.lineWidth = 1.75;
     ctx.strokeStyle = "#ffffff";
-    for (let c = 0; c < cl.n; c++) {
+    for (let c = 0; c < (showMeters ? cl.n : 0); c++) { // contoarele ascunse: rămân doar antenele
       const sx = cl.x[c] - ox, sy = cl.y[c] - oy;
       if (sx < -30 || sx > size.x + 30 || sy < -30 || sy > size.y + 30) continue;
       const n = cl.cnt[c];
@@ -219,7 +220,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
   /* ───── cel mai apropiat punct / bulă sub cursor ───── */
   const hitTest = useCallback((px: number, py: number): { c: number; cl: Clusters; r: number } | null => {
     const map = mapRef.current;
-    if (!map) return null;
+    if (!map || !live.current.metersOn) return null;
     const cl = cache.current.find((c) => c.zoom === map.getZoom())?.cl;
     if (!cl) return null;
     const size = map.getSize();
@@ -304,10 +305,10 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
 
   /* ───── date / culoare / selecție noi ⇒ redesenare ───── */
   useEffect(() => {
-    live.current = { store, idx, by, now, sel };
+    live.current = { store, idx, by, now, sel, metersOn };
     cache.current = []; // bulele depind de rândurile filtrate
     schedule();
-  }, [store, idx, by, now, sel, rev, schedule]);
+  }, [store, idx, by, now, sel, rev, metersOn, schedule]);
 
   /* ───── încadrare pe rezultate: la prima afișare și când se schimbă filtrele ───── */
   useEffect(() => {
@@ -345,6 +346,9 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
           Încadrează rezultatele
         </button>
         <label className="chk" style={{ alignSelf: "center" }}>
+          <input type="checkbox" checked={metersOn} onChange={(e) => { setMetersOn(e.target.checked); if (!e.target.checked) setSel(null); }} /> Arată contoarele
+        </label>
+        <label className="chk" style={{ alignSelf: "center" }}>
           <input type="checkbox" checked={gwOn} onChange={(e) => setGwOn(e.target.checked)} /> Arată antenele
         </label>
         <label className="chk" style={{ alignSelf: "center" }}>
@@ -371,7 +375,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
           </div>
         )}
 
-        {legendOn && (
+        {legendOn && metersOn && (
         <div className="map-legend" aria-label="Legendă">
           <button type="button" className="map-x" aria-label="Închide legenda" onClick={closeLegend}>×</button>
           {LABELS[by].map((l, k) => (
