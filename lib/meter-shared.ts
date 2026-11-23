@@ -9,11 +9,19 @@
 
 /** Biți din `fl` (stare a rândului). DUP = seria (numărul radio) apare la mai multe dispozitive din ThingsBoard. */
 export const FLAG = { DUP: 1, BATT: 2, BTN: 4, MAG: 8, OFFLINE: 16, STATUS: 32, INACTIVE: 64, BILLED: 128 } as const;
-/** „Alertă” = baterie slabă sau contor offline. */
-export const ALERT_FLAGS = FLAG.BATT | FLAG.OFFLINE;
-/** „Probleme” raportate de contor (baterie, offline, buton, magnet). „OK” = are raport de stare și niciuna dintre ele. */
-export const PROBLEM_FLAGS = FLAG.BATT | FLAG.OFFLINE | FLAG.BTN | FLAG.MAG;
-export const isStatusOk = (fl: number): boolean => (fl & FLAG.STATUS) !== 0 && (fl & PROBLEM_FLAGS) === 0;
+/**
+ * „Alertă” = baterie slabă sau contor INACTIV în SCADA (atributul `active` = false, calculat de platformă din activitate), ca în SCADA.
+ * Câmpul `offline` pe care contorul îl trimite în propriul mesaj (FLAG.OFFLINE) NU e o alertă: 57% dintre contoare îl trimit chiar în mesajul cu citirea de azi.
+ */
+export const ALERT_FLAGS = FLAG.BATT | FLAG.INACTIVE;
+/** „Probleme” raportate de contor (baterie, buton, magnet). „OK” = are raport de stare, niciuna dintre ele și nu e inactiv. */
+export const PROBLEM_FLAGS = FLAG.BATT | FLAG.BTN | FLAG.MAG;
+export const isStatusOk = (fl: number): boolean => (fl & FLAG.STATUS) !== 0 && (fl & (PROBLEM_FLAGS | FLAG.INACTIVE)) === 0;
+
+/** Treptele de activitate, ca în raportul din SCADA, după ultima citire: activ 24 h · avertizare 1–7 zile · critic peste 7 zile · fără nicio citire. */
+export const ACT = { ACTIVE: 0, WARN: 1, CRIT: 2, NONE: 3 } as const;
+export const DAY_MS = 86_400_000;
+export const activityOf = (ts: number, now: number): 0 | 1 | 2 | 3 => (ts <= 0 ? 3 : now - ts < DAY_MS ? 0 : now - ts < 7 * DAY_MS ? 1 : 2);
 
 /** Tipurile de mesaj (ieType) se țin într-o mască pe 32 de biți: primele 31 au bitul lor, restul se strâng în ultimul (index 31). */
 export const TYPE_SLOTS = 31;

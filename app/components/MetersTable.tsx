@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { FLAG, METER_NAME, PROBLEM_FLAGS, isStatusOk, type RowView } from "@/lib/meter-shared";
+import { FLAG, METER_NAME, PROBLEM_FLAGS, activityOf, isStatusOk, type RowView } from "@/lib/meter-shared";
 import { metersToCsv } from "@/lib/meter-csv";
 import { aggregate, makeCtx, type Agg } from "@/lib/meter-aggregate";
 import { NO_FILTERS, activeFilters, runFilter, toQuery, type Filters, type Sort, type SortKey } from "@/lib/meter-filter";
@@ -183,7 +183,7 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
         <Stat k="Total contoare" v={nf.format(total)} s={store && store.total !== store.n ? `în baza de date: ${nf.format(store.total)}` : ready ? "toate încărcate" : "se încarcă…"} />
         <Stat k="Filtrate" v={result ? nf.format(result.matched) : "—"} s={result && store && store.n > 0 ? `${((result.matched / store.n) * 100).toFixed(result.matched === store.n ? 0 : 1)}% din total` : " "} busy={pending} />
         <Stat k="Volume (m³)" v={result ? nf.format(Math.round(result.volume)) : "—"} s="suma ultimelor citiri filtrate" busy={pending} />
-        <Stat k="Alerte" v={result ? nf.format(result.alerts) : "—"} s="baterie slabă / offline" alert={!!result && result.alerts > 0} busy={pending} />
+        <Stat k="Alerte" v={result ? nf.format(result.alerts) : "—"} s="baterie slabă / inactiv în SCADA" alert={!!result && result.alerts > 0} busy={pending} />
         <Stat k="Ultima citire" v={newestTs ? fmtTime(newestTs).slice(11) : "—"} s={newestTs ? <Ago ts={newestTs} /> : " "} />
       </section>
 
@@ -348,6 +348,12 @@ function Grid(p: GridProps) {
   const { store, idx, head, sort } = p;
   const vpRef = useRef<HTMLDivElement>(null);
   const [vp, setVp] = useState({ top: 0, h: 600 });
+  // „acum” pentru treptele de activitate; se reîmprospătează la un minut (re-randează doar rândurile vizibile)
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     const el = vpRef.current;
@@ -382,7 +388,7 @@ function Grid(p: GridProps) {
 
   const rows: React.ReactNode[] = [];
   if (store && idx) {
-    for (let i = first; i < last; i++) rows.push(<Row key={store.id[idx[i]]} r={store.view(idx[i])} i={i} top={i * ROW_H} selected={store.id[idx[i]] === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} onSerial={p.onSerial} />);
+    for (let i = first; i < last; i++) rows.push(<Row key={store.id[idx[i]]} r={store.view(idx[i])} i={i} top={i * ROW_H} selected={store.id[idx[i]] === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} onSerial={p.onSerial} now={now} />);
   }
 
   const headMode = !idx; // lista completă încă nu e gata: primele rânduri vin din HTML
@@ -418,7 +424,7 @@ function Grid(p: GridProps) {
         {headMode && !p.error && (
           <div role="rowgroup">
             {head.map((r, i) => (
-              <Row key={r.id} r={r} i={i} top={0} selected={r.id === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} onSerial={p.onSerial} flow />
+              <Row key={r.id} r={r} i={i} top={0} selected={r.id === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} onSerial={p.onSerial} flow now={now} />
             ))}
             {head.length === 0 && p.loading && <SkeletonRows />}
             {p.loading && head.length > 0 && <div className="cell-sub" style={{ padding: 14 }}>Se încarcă lista completă…</div>}
@@ -484,10 +490,11 @@ function sigClass(rssi: number | null): string {
   return rssi >= -105 ? "good" : rssi >= -115 ? "mid" : "bad";
 }
 
-function Row({ r, i, top, selected, onOpen, onDevice, onSerial, flow }: { r: RowView; i: number; top: number; selected: boolean; onOpen: (id: string) => void; onDevice: (id: string) => void; onSerial: (serial: string) => void; flow?: boolean }) {
+function Row({ r, i, top, selected, onOpen, onDevice, onSerial, flow, now }: { r: RowView; i: number; top: number; selected: boolean; onOpen: (id: string) => void; onDevice: (id: string) => void; onSerial: (serial: string) => void; flow?: boolean; now: number }) {
   const f = r.fl;
+  const act = activityOf(r.ts, now); // 0 activ 24 h · 1 avertizare 1–7 zile · 2 critic > 7 zile · 3 fără citire (ca în SCADA)
   const statusOk = isStatusOk(f); // „OK” = raport de stare fără probleme (inactiv / serie repetată se afișează în plus)
-  const anyBadge = statusOk || (f & (PROBLEM_FLAGS | FLAG.INACTIVE | FLAG.DUP)) !== 0;
+  const anyBadge = statusOk || (f & (PROBLEM_FLAGS | FLAG.INACTIVE | FLAG.DUP | FLAG.OFFLINE)) !== 0 || act === 1 || act === 2;
   const serial = METER_NAME.exec(r.name)?.[2];
   return (
     <div
@@ -566,9 +573,11 @@ function Row({ r, i, top, selected, onOpen, onDevice, onSerial, flow }: { r: Row
       </div>
       <div role="cell">
         <div className="badges">
-          {f & FLAG.OFFLINE ? <span className="badge danger">Offline</span> : null}
+          {act === 1 ? <span className="badge warn" title="Ultima citire acum 1–7 zile">Avertizare</span> : null}
+          {act === 2 ? <span className="badge danger" title="Ultima citire acum mai mult de 7 zile">Critic</span> : null}
+          {f & FLAG.OFFLINE ? <span className="badge" title="Câmpul „offline” trimis de contor în propriul mesaj. Nu înseamnă că nu comunică.">Raportat offline</span> : null}
           {f & FLAG.BATT ? <span className="badge danger">Baterie slabă</span> : null}
-          {f & FLAG.INACTIVE ? <span className="badge warn">Inactiv</span> : null}
+          {f & FLAG.INACTIVE ? <span className="badge danger" title="Inactiv în SCADA (atributul active = false)">Inactiv</span> : null}
           {f & FLAG.DUP ? (
             <button type="button" className="badge warn badge-btn" title={`Același număr radio (${serial ?? "?"}) apare la mai multe dispozitive. Click: arată-le împreună.`} onClick={(e) => { e.stopPropagation(); if (serial) onSerial(serial); }}>
               Serie repetată

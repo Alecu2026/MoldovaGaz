@@ -1,4 +1,4 @@
-import { ALERT_FLAGS, FLAG, isStatusOk } from "./meter-shared";
+import { ALERT_FLAGS, FLAG, activityOf, isStatusOk } from "./meter-shared";
 import type { MeterStore } from "./meter-store";
 
 /**
@@ -59,8 +59,11 @@ export const NO_FILTERS: Filters = {
 export const RANGE_MS: Record<string, number> = { "1h": 3_600_000, "24h": 86_400_000, "7d": 7 * 86_400_000, "30d": 30 * 86_400_000 };
 const FLAG_MASK: Record<string, number> = { alert: ALERT_FLAGS, batt: FLAG.BATT, offline: FLAG.OFFLINE, button: FLAG.BTN, magnet: FLAG.MAG, inactive: FLAG.INACTIVE, dup: FLAG.DUP };
 export const FLAG_LABELS: Record<string, string> = {
-  alert: "Alerte (baterie / offline)", batt: "Baterie slabă", offline: "Offline", button: "Buton apăsat", magnet: "Magnet detectat", inactive: "Inactiv în SCADA", dup: "Serie repetată", ok: "OK (raport de stare fără probleme)", nostatus: "Fără raport de stare",
+  alert: "Alerte (baterie slabă / inactiv)", batt: "Baterie slabă", offline: "Raportat offline de contor", button: "Buton apăsat", magnet: "Magnet detectat", inactive: "Inactiv în SCADA", dup: "Serie repetată", ok: "OK (raport de stare fără probleme)", nostatus: "Fără raport de stare",
+  act: "Activ (citire în ultimele 24 h)", warn: "Avertizare (1–7 zile fără citire)", crit: "Critic (peste 7 zile fără citire)", noact: "Fără nicio citire",
 };
+/** Treptele de activitate (token → bitul treptei, vezi activityOf). */
+export const ACT_TOKENS: Record<string, number> = { act: 1, warn: 2, crit: 4, noact: 8 };
 
 /** a|b|c ↔ ["a","b","c"] */
 export const toList = (s: string): string[] => (s ? s.split("|").filter(Boolean) : []);
@@ -136,13 +139,14 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
     if (tyMaskWant === 0) return empty;
   }
   let flagMask = 0;
-  let wantOk = false, wantNoStatus = false;
+  let wantOk = false, wantNoStatus = false, actWant = 0;
   for (const k of toList(f.flag)) {
     flagMask |= FLAG_MASK[k] ?? 0;
+    actWant |= ACT_TOKENS[k] ?? 0;
     if (k === "ok") wantOk = true;
     if (k === "nostatus") wantNoStatus = true;
   }
-  const flagOn = flagMask !== 0 || wantOk || wantNoStatus;
+  const flagOn = flagMask !== 0 || wantOk || wantNoStatus || actWant !== 0;
   let frOk: Uint8Array | null = null;
   if (f.fr) {
     frOk = new Uint8Array(10_001);
@@ -217,7 +221,7 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
     if (tyMaskWant !== 0 && (tm[i] & tyMaskWant) === 0) continue;
     const flags = fl[i];
     // stările bifate se combină cu SAU (inclusiv „OK” și „fără raport de stare”)
-    if (flagOn && !((flagMask !== 0 && (flags & flagMask) !== 0) || (wantOk && isStatusOk(flags)) || (wantNoStatus && (flags & FLAG.STATUS) === 0))) continue;
+    if (flagOn && !((flagMask !== 0 && (flags & flagMask) !== 0) || (wantOk && isStatusOk(flags)) || (wantNoStatus && (flags & FLAG.STATUS) === 0) || (actWant !== 0 && (actWant & (1 << activityOf(t, now))) !== 0))) continue;
     if (billedNeed !== 0 && (billedNeed === 1) !== ((flags & FLAG.BILLED) !== 0)) continue;
     if (geoNeed !== 0 && (geoNeed === 1) !== (st.la[i] === st.la[i] && st.lo[i] === st.lo[i])) continue;
     if (frOk !== null && frOk[((fr[i] / 100) + 0.5) | 0] === 0) continue;

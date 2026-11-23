@@ -90,6 +90,10 @@ function Range({ label, unit, min, max, onMin, onMax }: { label: string; unit?: 
 
 const STATE_OPTS = (all: Agg | null): Opt[] => [
   { value: "alert", label: FLAG_LABELS.alert, count: all?.flags.alert },
+  { value: "act", label: FLAG_LABELS.act, count: all?.flags.act },
+  { value: "warn", label: FLAG_LABELS.warn, count: all?.flags.warn },
+  { value: "crit", label: FLAG_LABELS.crit, count: all?.flags.crit },
+  { value: "noact", label: FLAG_LABELS.noact, count: all?.flags.noact },
   { value: "offline", label: FLAG_LABELS.offline, count: all?.flags.offline },
   { value: "batt", label: FLAG_LABELS.batt, count: all?.flags.batt },
   { value: "inactive", label: FLAG_LABELS.inactive, count: all?.flags.inactive },

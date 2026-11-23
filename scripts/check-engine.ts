@@ -8,7 +8,7 @@
 import { aggregate, makeCtx, FRESH_EDGES } from "../lib/meter-aggregate";
 import { NO_FILTERS, runFilter, type Filters, type Sort } from "../lib/meter-filter";
 import { MeterStore } from "../lib/meter-store";
-import { ALERT_FLAGS, FLAG, PROBLEM_FLAGS, isStatusOk, validCoords, type ColsWire, type DatasetWire, type DeltaWire } from "../lib/meter-shared";
+import { ALERT_FLAGS, FLAG, PROBLEM_FLAGS, activityOf, isStatusOk, validCoords, type ColsWire, type DatasetWire, type DeltaWire } from "../lib/meter-shared";
 import { buildDocs, fetchDevices, type Bill, type Dev } from "../lib/meter-sync";
 import { assertReadOnly, tbCustomerDevices } from "../lib/thingsboard";
 import { pack, unpack, type Pts } from "../lib/meter-history";
@@ -173,6 +173,21 @@ for (const key of ["dev", "br", "gw", "rssi", "snr", "val", "bat", "dc", "fc"] a
   }
 }
 
+// stări ca în SCADA: „offline” raportat de contor NU e alertă; alerta = baterie slabă sau inactiv; „OK” exclude și inactivii; filtrele pe trepte de activitate
+{
+  const fl = (a: number, ...b: number[]) => b.reduce((x, y) => x | y, a);
+  check("stări: «offline» din mesajul contorului nu mai e alertă și nici problemă; inactiv = alertă", (FLAG.OFFLINE & ALERT_FLAGS) === 0 && (FLAG.OFFLINE & PROBLEM_FLAGS) === 0 && (FLAG.INACTIVE & ALERT_FLAGS) !== 0 && (FLAG.BATT & ALERT_FLAGS) !== 0);
+  check("stări: OK = raport de stare fără baterie / buton / magnet și fără inactiv; offline raportat nu strică OK", isStatusOk(FLAG.STATUS) && isStatusOk(fl(FLAG.STATUS, FLAG.OFFLINE)) && !isStatusOk(fl(FLAG.STATUS, FLAG.INACTIVE)) && !isStatusOk(fl(FLAG.STATUS, FLAG.BATT)) && !isStatusOk(0));
+  const H = 3_600_000, D = 24 * H, t = 1_800_000_000_000;
+  check("activitate: pragurile 24 h / 7 zile și «fără citire»", activityOf(t - 23 * H, t) === 0 && activityOf(t - 24 * H, t) === 1 && activityOf(t - 6 * D, t) === 1 && activityOf(t - 7 * D, t) === 2 && activityOf(t - 90 * D, t) === 2 && activityOf(0, t) === 3);
+  for (const toks of ["act", "warn", "crit", "noact", "warn|crit", "act|inactive", "crit|ok"]) {
+    const r = runFilter(st, F({ flag: toks }), SORT, now);
+    const want = Array.from({ length: st.n }, (_, i) => i).filter((i) => toks.split("|").some((k) => (k === "act" && activityOf(st.ts[i], now) === 0) || (k === "warn" && activityOf(st.ts[i], now) === 1) || (k === "crit" && activityOf(st.ts[i], now) === 2) || (k === "noact" && activityOf(st.ts[i], now) === 3) || (k === "inactive" && (st.fl[i] & FLAG.INACTIVE) !== 0) || (k === "ok" && isStatusOk(st.fl[i]))));
+    const got = new Set(Array.from(r.idx));
+    check(`filtru stare «${toks}» = varianta naivă (SAU între trepte și stări)`, r.matched === want.length && got.size === want.length && want.every((i) => got.has(i)), `${want.length} rânduri`);
+  }
+}
+
 // agregări
 for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comrat|20 · Orhei", rssiMin: "-120" })]] as [string, Filters][]) {
   const idx = label === "toate" ? null : runFilter(st, f, SORT, now).idx;
@@ -192,8 +207,10 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   check(`agregare ${label}: fresh < 1 oră`, a.fresh[0] === rows.filter((i) => st.ts[i] > 0 && now - st.ts[i] < FRESH_EDGES[1]).length);
   check(`agregare ${label}: gateway + fără = n`, sum(a.gws) + a.noGw === rows.length);
   check(`agregare ${label}: frecvențe = porturi = modele = ani = n`, sum(a.freq) === rows.length && sum(a.ports) === rows.length && sum(a.models) === rows.length && sum(a.years) === rows.length);
-  check(`agregare ${label}: OK / fără raport`, a.flags.statusOk === rows.filter((i) => isStatusOk(st.fl[i])).length && a.flags.noStatus === rows.filter((i) => !(st.fl[i] & FLAG.STATUS)).length && PROBLEM_FLAGS === 30);
+  check(`agregare ${label}: OK / fără raport`, a.flags.statusOk === rows.filter((i) => isStatusOk(st.fl[i])).length && a.flags.noStatus === rows.filter((i) => !(st.fl[i] & FLAG.STATUS)).length && PROBLEM_FLAGS === 14); // baterie 2 + buton 4 + magnet 8 (offline = 16 nu mai e problemă)
   check(`agregare ${label}: stări`, a.flags.batt === rows.filter((i) => st.fl[i] & FLAG.BATT).length && a.flags.alert === rows.filter((i) => st.fl[i] & ALERT_FLAGS).length && a.flags.billed + a.flags.noBilled === rows.length);
+  const actOf = (k: number) => rows.filter((i) => activityOf(st.ts[i], now) === k).length;
+  check(`agregare ${label}: trepte de activitate (activ / avertizare / critic / fără citire) = varianta naivă și însumează n`, a.flags.act === actOf(0) && a.flags.warn === actOf(1) && a.flags.crit === actOf(2) && a.flags.noact === actOf(3) && a.flags.act + a.flags.warn + a.flags.crit + a.flags.noact === rows.length, `${a.flags.act} / ${a.flags.warn} / ${a.flags.crit} / ${a.flags.noact}`);
   const inTime = rows.filter((i) => st.ts[i] > 0 && st.ts[i] >= ctx.tStart && st.ts[i] < ctx.tStart + ctx.tN * ctx.tStep).length;
   check(`agregare ${label}: găleți de timp`, sum(a.time) === inTime, `${ctx.tN} găleți`);
   const topOk = a.topDc.every((x, k) => k === 0 || a.topDc[k - 1][1] >= x[1]) && a.topDc.length === Math.min(10, rows.filter((i) => st.dc[i] >= 0).length);

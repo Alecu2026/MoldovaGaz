@@ -1,7 +1,7 @@
 import { FLAG } from "./meter-shared";
 import type { MeterStore } from "./meter-store";
 
-const HEAD = ["ultima_citire", "contor", "devEUI", "filiala", "oras", "profil", "aplicatie", "concentrator", "rssi", "snr", "frecventa_mhz", "fcnt", "port", "tip_mesaj", "volume_m3", "baterie_pct", "consum_zilnic_l", "consum_lunar_l", "offline", "baterie_slaba", "inactiv", "buton", "magnet", "cu_facturare"];
+const HEAD = ["ultima_citire", "contor", "devEUI", "filiala", "oras", "profil", "aplicatie", "concentrator", "rssi", "snr", "frecventa_mhz", "fcnt", "port", "tip_mesaj", "volume_m3", "baterie_pct", "consum_zilnic_l", "consum_lunar_l", "raportat_offline_de_contor", "baterie_slaba", "inactiv", "buton", "magnet", "cu_facturare"];
 
 const esc = (s: string) => (/[";\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
 

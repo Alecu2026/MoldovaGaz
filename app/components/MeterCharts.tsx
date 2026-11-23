@@ -43,9 +43,13 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
   const models = useMemo(() => byDict(store.models, flt.models, all.models), [store.models, flt.models, all.models]);
 
   const flagItems: BarItem[] = [
-    { key: "offline", label: "Offline", value: flt.flags.offline, ghost: all.flags.offline, tone: "critical", glyph: "✕" },
+    { key: "act", label: "Activ (citire în ultimele 24 h)", value: flt.flags.act, ghost: all.flags.act, tone: "good", glyph: "✓" },
+    { key: "warn", label: "Avertizare (1–7 zile fără citire)", value: flt.flags.warn, ghost: all.flags.warn, tone: "warning", glyph: "◆" },
+    { key: "crit", label: "Critic (peste 7 zile fără citire)", value: flt.flags.crit, ghost: all.flags.crit, tone: "critical", glyph: "✕" },
+    { key: "noact", label: "Fără nicio citire", value: flt.flags.noact, ghost: all.flags.noact, tone: "neutral", glyph: "○" },
+    { key: "offline", label: "Raportat offline de contor (câmp din mesajul lui)", value: flt.flags.offline, ghost: all.flags.offline, tone: "neutral", glyph: "○" },
     { key: "batt", label: "Baterie slabă", value: flt.flags.batt, ghost: all.flags.batt, tone: "serious", glyph: "▲" },
-    { key: "inactive", label: "Inactiv în SCADA", value: flt.flags.inactive, ghost: all.flags.inactive, tone: "warning", glyph: "◆" },
+    { key: "inactive", label: "Inactiv în SCADA (alertă)", value: flt.flags.inactive, ghost: all.flags.inactive, tone: "critical", glyph: "✕" },
     { key: "dup", label: "Serie repetată (același număr radio)", value: flt.flags.dup, ghost: all.flags.dup, tone: "warning", glyph: "◆" },
     { key: "button", label: "Buton apăsat", value: flt.flags.button, ghost: all.flags.button, tone: "warning", glyph: "◆" },
     { key: "magnet", label: "Magnet detectat", value: flt.flags.magnet, ghost: all.flags.magnet, tone: "warning", glyph: "◆" },
@@ -158,8 +162,8 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
           <ColumnChart unit="contoare" bars={timeBars} ariaLabel="Contoare după momentul ultimei citiri" selected={fromMs === fromMs || toMs === toMs ? timeSel : undefined} onBrush={timeBrush} onBar={(i) => timeBrush(i, i)} labelWidth={96} />
         </ChartCard>
 
-        <ChartCard title="Stare și alerte" hint="click pe o stare ca s-o filtrezi (se combină cu SAU)" table={tableOf(flagItems)}>
-          <BarList unit="contoare" items={flagItems} selected={flagSelected} onToggle={toggleFlag} top={9} ariaLabel="Stări ale contoarelor" />
+        <ChartCard title="Stare și alerte" hint="activitatea (după ultima citire) ca în SCADA; „offline” e câmpul trimis de contor, nu starea conexiunii. Click filtrează (SAU)" table={tableOf(flagItems)}>
+          <BarList unit="contoare" items={flagItems} selected={flagSelected} onToggle={toggleFlag} top={14} ariaLabel="Stări ale contoarelor" />
         </ChartCard>
 
         <ChartCard title="Contoare pe filială" hint="filiala din facturare (FIL), altfel din clientul SCADA" table={tableOf(branches)}>
