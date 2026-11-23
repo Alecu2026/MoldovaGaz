@@ -3,12 +3,14 @@
  * Logică pură (fără baze de date), testată în `npm run check`.
  *
  *  - un „flux” = un expeditor; implicit unul singur, sau câmpul `stream` / `source` / `sender` al mesajului dacă sunt mai mulți;
- *  - numărul se caută la rădăcina mesajului, în câmpul `counter` (sau `cnt`, `seq`, `sequence`, `msgCounter`, `messageCounter`, `msgCnt`, `counterId`);
+ *  - numărul se caută la rădăcina mesajului (apoi în `object` sau `data`), în câmpul `msg_counter` (sau `counter`, `cnt`, `seq`, `sequence`, `message_counter`, `msg_cnt`, `counter_id`; majusculele, „_” și „-” nu contează);
  *  - un număr mai mare decât ultimul + 1 înseamnă că s-a SĂRIT peste numerele dintre ele: se notează ca „lipsă” (cu ora la care s-a observat);
  *  - un număr care sosește mai târziu și acoperă o lipsă o închide („sosit târziu”: mesajele au venit în altă ordine, nu s-au pierdut);
  *  - un număr deja primit e „duplicat” (ex. expeditorul a reîncercat după un 503): nu e pierdere.
  */
-export const COUNTER_FIELDS = ["counter", "cnt", "seq", "sequence", "msgCounter", "messageCounter", "msgCnt", "counterId"] as const;
+/** Numele câmpului se compară fără majuscule și fără „_” / „-”: msg_counter = msgCounter = MSG-COUNTER. */
+export const COUNTER_FIELDS = ["msg_counter", "counter", "cnt", "seq", "sequence", "message_counter", "msg_cnt", "counter_id"] as const;
+const FIELD_KEYS = new Set(COUNTER_FIELDS.map((f) => f.toLowerCase().replace(/[_-]/g, "")));
 const STREAM_FIELDS = ["stream", "source", "sender"] as const;
 export const MAX_RANGES = 1000;
 
@@ -28,17 +30,21 @@ const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object
 /** Numărul și fluxul unui mesaj, sau null dacă mesajul nu are număr. */
 export function counterOf(item: unknown): { stream: string; field: string; value: number } | null {
   if (!isObj(item)) return null;
-  for (const f of COUNTER_FIELDS) {
-    const v = item[f];
-    const n = typeof v === "number" ? v : typeof v === "string" && /^\d{1,15}$/.test(v.trim()) ? Number(v) : NaN;
-    if (!Number.isSafeInteger(n) || n < 0) continue;
-    let stream = "implicit";
-    for (const sf of STREAM_FIELDS) {
-      const sv = item[sf];
-      if (typeof sv === "string" && sv.trim()) { stream = sv.trim().slice(0, 80); break; }
+  const places: Record<string, unknown>[] = [item];
+  for (const k of ["object", "data"]) if (isObj(item[k])) places.push(item[k] as Record<string, unknown>);
+  for (const p of places) {
+    for (const [k, v] of Object.entries(p)) {
+      if (!FIELD_KEYS.has(k.toLowerCase().replace(/[_-]/g, ""))) continue;
+      const n = typeof v === "number" ? v : typeof v === "string" && /^\d{1,15}$/.test(v.trim()) ? Number(v) : NaN;
+      if (!Number.isSafeInteger(n) || n < 0) continue;
+      let stream = "implicit";
+      for (const sf of STREAM_FIELDS) {
+        const sv = item[sf];
+        if (typeof sv === "string" && sv.trim()) { stream = sv.trim().slice(0, 80); break; }
+      }
+      if (stream.includes("$") || stream.includes(".")) stream = stream.replace(/[$.]/g, "_");
+      return { stream, field: k, value: n };
     }
-    if (stream.includes("$") || stream.includes(".")) stream = stream.replace(/[$.]/g, "_");
-    return { stream, field: f, value: n };
   }
   return null;
 }

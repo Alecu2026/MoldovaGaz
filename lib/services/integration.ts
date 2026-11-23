@@ -376,22 +376,30 @@ export type KeptRow = { key: string; deviceName: string; app: string; n: number;
 export type IntegrationDevices = { seenTotal: number; seen: SeenRow[]; keptDevices: number; keptMatched: number; keptMessages: number; kept: KeptRow[] };
 
 /** „De la care contoare ia date”: contoarele care au trimis prin integrare (cu număr de mesaje și ultimul moment) + ce s-a păstrat, grupat pe dispozitiv, cu contorul cu care se potrivește. */
-export async function integrationDevices(limit = 200): Promise<IntegrationDevices> {
+export async function integrationDevices(limit = 1000): Promise<IntegrationDevices> {
   const store = await getStore();
   const meterInfo = (id: string): { name: string; branch: string | null } | null => {
     const i = store.idx.get(id);
     return i === undefined ? null : { name: store.cols.nm[i], branch: store.cols.br[i] >= 0 ? store.dict.br[store.cols.br[i]] : null };
   };
   const seenColl = await col<Document>(SEEN);
-  const [seenTotal, seenDocs] = await Promise.all([seenColl.estimatedDocumentCount(), seenColl.find({}).sort({ last: -1 }).limit(limit).toArray()]);
-  const seen: SeenRow[] = seenDocs.map((d) => ({ id: String(d._id), name: meterInfo(String(d._id))?.name ?? d.name ?? "", branch: meterInfo(String(d._id))?.branch ?? null, n: d.n ?? 0, last: d.last ?? 0 }));
+  const seenTotal = await seenColl.estimatedDocumentCount();
+  const seen: SeenRow[] = []; // lista completă, pe pagini, vine din /api/integration/devices?skip=… (lib/services/seen.ts)
 
   const raw = await col<Document>(RAW);
-  const groups = await raw.aggregate([
-    { $match: { "raw.devEUI": { $exists: true } } },
-    { $group: { _id: { $toLower: "$raw.devEUI" }, n: { $sum: 1 }, deviceName: { $first: "$raw.deviceName" }, app: { $first: "$raw.applicationName" }, last: { $max: "$at" } } },
-    { $sort: { n: -1 } },
-  ]).toArray();
+  // agregarea parcurge tot ce e păstrat: se reține 10 s, ca interogările la 10 s ale mai multor utilizatori să nu o repete
+  const gc = (globalThis as unknown as { __keptGroups?: { at: number; v: Document[] } });
+  if (!gc.__keptGroups || Date.now() - gc.__keptGroups.at > 10_000) {
+    gc.__keptGroups = {
+      at: Date.now(),
+      v: await raw.aggregate([
+        { $match: { "raw.devEUI": { $exists: true } } },
+        { $group: { _id: { $toLower: "$raw.devEUI" }, n: { $sum: 1 }, deviceName: { $first: "$raw.deviceName" }, app: { $first: "$raw.applicationName" }, last: { $max: "$at" } } },
+        { $sort: { n: -1 } },
+      ]).toArray(),
+    };
+  }
+  const groups = gc.__keptGroups.v;
   const r = await resolver();
   let keptMatched = 0, keptMessages = 0;
   const kept: KeptRow[] = [];

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeptDetail, KeptPage, KeptReason, KeptRow } from "@/lib/services/kept";
+import ExpandButton, { useExpand } from "./Expand";
+import Widget from "./Widget";
 
 /**
  * „Toate datele păstrate” (pagina /integration): lista completă a mesajelor păstrate pentru procesare ulterioară, ca în restul aplicației:
@@ -46,6 +48,14 @@ function KeptList({ reason, q, onTotal, onOpen, openId }: { reason: string; q: s
   const [pageMap, setPageMap] = useState<Map<number, KeptRow[]>>(() => new Map());
   const [top, setTop] = useState(0);
   const box = useRef<HTMLDivElement>(null);
+  const [vh, setVh] = useState(VIEW_H);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setVh(el.clientHeight || VIEW_H));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     alive.current = true;
@@ -69,7 +79,7 @@ function KeptList({ reason, q, onTotal, onOpen, openId }: { reason: string; q: s
 
   const count = Math.min(MAX_ROWS, total ?? PAGE);
   const first = Math.max(0, Math.floor(top / ROW_H) - 3);
-  const last = Math.min(count, Math.ceil((top + VIEW_H) / ROW_H) + 3);
+  const last = Math.min(count, Math.ceil((top + vh) / ROW_H) + 3);
   const p0 = Math.floor(first / PAGE), p1 = Math.floor(Math.max(first, last - 1) / PAGE);
   useEffect(() => {
     for (let p = p0; p <= p1; p++) load(p);
@@ -100,7 +110,7 @@ function KeptList({ reason, q, onTotal, onOpen, openId }: { reason: string; q: s
       <div className="kept-head" role="row">
         <span>Ora</span><span>Motiv</span><span>Dispozitiv</span><span>devEUI</span><span>Aplicație</span>
       </div>
-      <div ref={box} className="kept-vp" style={{ height: VIEW_H }} onScroll={(e) => setTop((e.currentTarget as HTMLDivElement).scrollTop)}>
+      <div ref={box} className="kept-vp" onScroll={(e) => setTop((e.currentTarget as HTMLDivElement).scrollTop)}>
         <div style={{ height: count * ROW_H, position: "relative" }}>{out}</div>
         {total === 0 && <div className="cell-sub" style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>Nimic păstrat{reason || q ? " pentru acest filtru" : ""}.</div>}
       </div>
@@ -118,6 +128,7 @@ export default function KeptBrowser() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<KeptDetail | null>(null);
   const [panel, setPanel] = useState(false);
+  const [full, setFull] = useExpand();
   const [scope, setScope] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
@@ -162,7 +173,7 @@ export default function KeptBrowser() {
   const scopeCount = scope ? reasons.find((r) => r.reason === scope)?.n ?? 0 : reasons.reduce((a, r) => a + r.n, 0);
 
   return (
-    <section className="card" aria-label="Toate datele păstrate" style={{ marginBottom: 14 }}>
+    <Widget id="kept" defaultH={680} expanded={full} ariaLabel="Toate datele păstrate">
       <header className="card-h">
         <div>
           <h3>Toate datele păstrate</h3>
@@ -176,6 +187,7 @@ export default function KeptBrowser() {
           <input className="input" type="search" placeholder="caută: dispozitiv, devEUI, aplicație" aria-label="Caută" value={qInput} onChange={(e) => onQ(e.target.value)} style={{ height: 34, width: 240 }} />
           <button type="button" className="btn" onClick={() => setVersion((v) => v + 1)}>Reîmprospătează</button>
           <button type="button" className="btn" onClick={() => { setPanel((p) => !p); setDone(null); }} aria-expanded={panel}>Curăță…</button>
+          <ExpandButton open={full} onToggle={() => setFull(!full)} />
         </div>
       </header>
 
@@ -210,6 +222,6 @@ export default function KeptBrowser() {
           <pre className="json" style={{ maxHeight: 260, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{detail ? detail.text + (detail.truncated ? "\n… (tăiat)" : "") : ""}</pre>
         </div>
       )}
-    </section>
+    </Widget>
   );
 }
