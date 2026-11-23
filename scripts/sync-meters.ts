@@ -1,27 +1,23 @@
 /**
- * Sincronizează contoarele reale în colecția `meters` (lorawandb + getmgdb + valorile curente din ThingsBoard).
+ * Sincronizează contoarele de gaz în colecția `meters`: lista și valorile curente din SCADA (iiot.scada.md) + facturarea din getmgdb.
  *   npm run sync:meters                       → sincronizare completă (scrie doar documentele MODIFICATE; șterge contoarele dispărute din sursă)
  *   npm run sync:meters -- --dry              → doar citește și combină, afișează statistici (nu scrie nimic)
  *   npm run sync:meters -- --dry --out f.json → la fel + salvează documentele în fișier
  *   npm run sync:meters -- --limit 2000       → doar primele N dispozitive (pentru teste; fără ștergeri)
  *   npm run sync:meters -- --patch-geo        → completează coordonatele (s.la / s.lo) pe documentele existente, din atributele lor (fără rețea)
- *   npm run sync:meters -- --patch-dup        → marchează „Serie repetată” pe documentele existente, doar din lorawandb (fără ThingsBoard)
- *   npm run sync:meters -- --load f.json      → scrie documentele dintr-un fișier produs cu --out (fără rețea; fără ștergeri) — pentru încărcarea inițială
- *                                               când serverul nu ajunge la ThingsBoard
- * Rulează periodic din pm2 (`<nume>-sync`, vezi ecosystem.config.js). Mediu: TB_USER, TB_PASS, DATABASE_URL (+ opțional TB_URL, MG_DB_URL, LORAWAN_DB_URL, METERS_COLLECTION).
+ *   npm run sync:meters -- --load f.json      → scrie documentele dintr-un fișier produs cu --out (fără rețea; fără ștergeri)
+ * Rulează periodic din pm2 (`<nume>-sync`, vezi ecosystem.config.js).
+ * Mediu: TB_USER, TB_PASS, DATABASE_URL (+ opțional TB_URL, TB_PAUSE_MS = pauza dintre cereri în ms (implicit 150), MG_DB_URL, METERS_COLLECTION).
+ * Doar CITIRE din SCADA și din getmgdb (clientul refuză orice altceva); scrie numai în colecțiile noastre.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { connectMongo } from "../lib/mongo-core";
-import { buildDocs, dupLabels, duplicateGroups, fetchLatest, fetchSources, type MeterDoc } from "../lib/meter-sync";
-import { FLAG, validCoords } from "../lib/meter-shared";
+import { buildDocs, fetchBilling, fetchDevices, fetchLatest, type Dev, type MeterDoc } from "../lib/meter-sync";
+import { validCoords } from "../lib/meter-shared";
 import { writeSources } from "../lib/source-sync";
 
 const log = (m: string) => console.log(`[${new Date().toISOString()}] ${m}`);
 
-/**
- * --patch-dup: marchează „Serie repetată” (FLAG.DUP + tb.dupWith) pe documentele deja existente, DOAR din lorawandb (fără ThingsBoard).
- * Atinge doar contoarele cu serie repetată (și scoate marcajul de la cele care nu mai sunt); următoarea sincronizare completă rescrie oricum aceste documente.
- */
 /**
  * --patch-geo: pune `s.la` / `s.lo` (latitudine / longitudine) pe documentele existente, din `attrs.latitude` / `attrs.longitude`. Nu citește nimic din rețea.
  * Atinge doar documentele care n-au încă aceste câmpuri; următoarea sincronizare completă le rescrie oricum.
@@ -53,33 +49,6 @@ async function patchGeo() {
   }
 }
 
-async function patchDup() {
-  const { devices } = await fetchSources();
-  const groups = duplicateGroups(devices);
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL lipsește.");
-  const client = await connectMongo(url);
-  try {
-    const coll = client.db().collection<{ _id: string; s: { fl: number }; tb: { dupWith?: string[] } }>(process.env.METERS_COLLECTION || "meters");
-    const now = new Date();
-    let set = 0, cleared = 0;
-    for (const [id, group] of groups) {
-      const d = await coll.findOne({ _id: id }, { projection: { "s.fl": 1 } });
-      if (!d) continue;
-      await coll.updateOne({ _id: id }, { $set: { "s.fl": d.s.fl | FLAG.DUP, "tb.dupWith": dupLabels(id, group), updatedAt: now, h: "patch-dup" } });
-      set++;
-    }
-    for await (const d of coll.find({ "s.fl": { $bitsAllSet: FLAG.DUP } }, { projection: { "s.fl": 1 } })) {
-      if (groups.has(d._id)) continue;
-      await coll.updateOne({ _id: d._id }, { $set: { "s.fl": d.s.fl & ~FLAG.DUP, updatedAt: now, h: "patch-dup" }, $unset: { "tb.dupWith": "" } });
-      cleared++;
-    }
-    log(`serii repetate: ${groups.size} dispozitive marcate (${set} documente actualizate), ${cleared} marcaje scoase`);
-  } finally {
-    await client.close();
-  }
-}
-
 async function main() {
   try { process.loadEnvFile(".env.local"); } catch { /* fără fișier: variabilele vin din mediu */ }
   const args = process.argv.slice(2);
@@ -89,10 +58,6 @@ async function main() {
   const loadFile = args.includes("--load") ? args[args.indexOf("--load") + 1] : null;
   if (args.includes("--patch-geo")) {
     await patchGeo();
-    return;
-  }
-  if (args.includes("--patch-dup")) {
-    await patchDup();
     return;
   }
   const t0 = Date.now();
@@ -106,36 +71,44 @@ async function main() {
     devices = fresh.map((d) => ({ id: { id: d._id } }));
     log(`încarc ${fresh.length} documente din ${loadFile}`);
   } else {
-    log("citesc lorawandb + getmgdb…");
-    const src = await fetchSources();
-    if (src.devices.length === 0) throw new Error("lorawandb a întors 0 dispozitive: opresc (nu șterg nimic).");
-    devices = limit ? src.devices.slice(0, limit) : src.devices;
-    log(`  ${src.devices.length} dispozitive, ${src.billing.length} rânduri de facturare`);
+    log("citesc facturarea (getmgdb)…");
+    const billing = await fetchBilling();
+    log(`  ${billing.length} rânduri de facturare`);
 
-    // paginile pe sursă (Dispozitive LoRaWAN / Facturare): rândurile brute se salvează ÎNAINTE de ThingsBoard, ca să rămână la zi chiar dacă el nu răspunde
+    log("citesc lista contoarelor din SCADA (cei 10 clienți de gaz, fără Defectate_*)…");
+    const list = await fetchDevices(log);
+    const all: Dev[] = list.devices;
+    if (all.length === 0) throw new Error("SCADA a întors 0 dispozitive: opresc (nu șterg nimic).");
+    devices = limit ? all.slice(0, limit) : all;
+    log(`  ${all.length} contoare în total`);
+
+    // pagina „Facturare”: rândurile brute se salvează ÎNAINTE de valorile din SCADA, ca să rămână la zi chiar dacă SCADA nu răspunde
     if (!dry && !limit && process.env.DATABASE_URL) {
       const c = await connectMongo(process.env.DATABASE_URL);
       try {
-        const errors = await writeSources(c.db(), src.devices, src.billing, log);
-        if (errors.length) log(`ATENȚIE: sursele brute nu s-au scris complet — ${errors.join(" | ")}`);
+        const errors = await writeSources(c.db(), billing, log);
+        if (errors.length) log(`ATENȚIE: facturarea brută nu s-a scris complet — ${errors.join(" | ")}`);
       } catch (e) {
-        log(`ATENȚIE: sursele brute nu s-au scris — ${(e as Error).message}`);
+        log(`ATENȚIE: facturarea brută nu s-a scris — ${(e as Error).message}`);
       } finally {
         await c.close();
       }
     }
 
-    log("citesc valorile curente din ThingsBoard…");
-    const { byId, failed } = await fetchLatest(src.devices.slice(0, devices.length), 500, log);
+    log("citesc valorile curente din SCADA (volum, ts, coordonate, semnal…)…");
+    const { byId, failed } = await fetchLatest(all.slice(0, devices.length), 500, log);
     if (failed.size > devices.length * 0.2) throw new Error(`prea multe loturi eșuate (${failed.size} dispozitive): opresc.`);
 
-    const { docs, stats } = buildDocs(src.devices.slice(0, devices.length), src.billing, byId, new Date());
+    const { docs, stats } = buildDocs(all.slice(0, devices.length), billing, byId, new Date());
     const { custFil, ...s } = stats;
     log(`combinat: ${JSON.stringify(s)}`);
-    log(`filială pe client: ${JSON.stringify(custFil)}`);
+    log(`filială pe client (dedusă din facturare): ${JSON.stringify(custFil)}`);
+    const withVol = docs.filter((d) => d.s.v !== null).length, withTs = docs.filter((d) => d.tel.Volume_m3_Total_ts).length, withGeo = docs.filter((d) => d.s.la !== null).length;
+    log(`acoperire: ${withVol} cu Volume_m3_Total, ${withTs} cu Volume_m3_Total_ts, ${withGeo} cu coordonate (din ${docs.length})`);
     if (failed.size) log(`ATENȚIE: ${failed.size} dispozitive fără valori noi (lot eșuat) — rămân cum erau`);
     fresh = docs.filter((d) => !failed.has(d._id));
   }
+
 
   if (out) {
     writeFileSync(out, JSON.stringify(fresh));

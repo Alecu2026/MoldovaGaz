@@ -12,7 +12,7 @@ const dt = (ms: number) => {
 };
 
 /** Coloana care identifică „aceeași serie” în fiecare sursă (butonul „Arată rândurile cu aceeași serie”). */
-export const SERIES_KEY = { lorawan: "serial", billing: "NUM_RADIO" } as const;
+export const SERIES_KEY = { billing: "NUM_RADIO" } as const;
 
 type Props = { store: SourceStore; i: number; onClose: () => void; onSeries: (key: string, value: string) => void };
 
@@ -51,12 +51,12 @@ export default function SourceDetail({ store, i, onClose, onSeries }: Props) {
     const c = store.byKey.get(key);
     return c ? store.text(i, c) : "";
   };
-  const title = store.source === "lorawan" ? val("name") : val("NUM_RADIO") || val("CONTOR_SN") || val("ACCT_ID") || "Rând de facturare";
-  const sub = store.source === "lorawan" ? [val("type"), val("created") ? dt(Number(val("created"))) : ""].filter(Boolean).join(" · ") : [val("branch"), val("CITY")].filter(Boolean).join(" · ");
+  const title = val("NUM_RADIO") || val("CONTOR_SN") || val("ACCT_ID") || "Rând de facturare";
+  const sub = [val("branch"), val("CITY")].filter(Boolean).join(" · ");
   const seriesKey = SERIES_KEY[store.source];
   const series = val(seriesKey);
-  const repeated = store.source === "lorawan" ? val("dup") === "Da" : val("radioDup") === "Da";
-  const combined = store.source === "lorawan" ? `/?name=${encodeURIComponent(val("name"))}` : series ? `/?q=${encodeURIComponent(series)}` : null;
+  const repeated = val("radioDup") === "Da";
+  const combined = series ? `/?q=${encodeURIComponent(series)}` : null;
 
   const fields = store.cols.map((c) => {
     const raw = store.text(i, c);

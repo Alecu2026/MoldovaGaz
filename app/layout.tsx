@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: { default: "Moldovagaz", template: "%s · Moldovagaz" },
-  description: "Monitorizare mesaje LoRaWAN ale contoarelor de gaz.",
+  description: "Monitorizare contoare de gaz Moldovagaz (SCADA).",
   robots: { index: false, follow: false },
 };
 

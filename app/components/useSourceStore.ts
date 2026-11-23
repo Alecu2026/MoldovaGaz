@@ -5,7 +5,7 @@ import type { SourceId, SourceWire } from "@/lib/source-shared";
 import { SourceStore, type SourceSnapshot } from "@/lib/source-store";
 
 /**
- * Lista unei surse (lorawandb / getmgdb) în browser, pe aceleași trei straturi ca la pagina principală:
+ * Lista unei surse (Facturare, din getmgdb) în browser, pe aceleași trei straturi ca la pagina principală:
  *   1. memorie  — rămâne cât timp fila e deschisă: la întoarcerea pe pagină apare instant;
  *   2. IndexedDB — vectorii tipizați se salvează ca atare: după un refresh lista apare în zeci de ms;
  *   3. server    — o descărcare completă (gzip + ETag) doar când s-a schimbat ceva; altfel „304 Not Modified”, fără corp.

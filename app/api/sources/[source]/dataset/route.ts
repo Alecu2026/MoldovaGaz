@@ -4,7 +4,7 @@ import { getSource } from "@/lib/services/source-dataset";
 import { isSourceId } from "@/lib/source-shared";
 
 /**
- * Lista COMPLETĂ a unei surse (lorawan = lorawandb, billing = getmgdb), coloanar, pentru motorul local din browser.
+ * Lista COMPLETĂ a unei surse (billing = getmgdb), coloanar, pentru motorul local din browser.
  * Același transport ca /api/meters/dataset: gzip făcut o dată pe server (application/gzip + no-transform, decomprimat în browser cu DecompressionStream),
  * ETag = amprenta datelor din baza de date ⇒ 304 fără corp când nu s-a schimbat nimic; `?enc=json` = JSON simplu pentru browsere fără DecompressionStream.
  */

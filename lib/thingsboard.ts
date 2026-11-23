@@ -1,11 +1,16 @@
 /**
  * Client minimal ThingsBoard (fără importuri de Next: îl folosesc și scriptul de sincronizare, și rutele aplicației).
- * Credențialele vin DOAR din mediu: TB_USER / TB_PASS (și opțional TB_URL, implicit https://gw.scada.md). Jetonul JWT se ține în memorie
+ * Credențialele vin DOAR din mediu: TB_USER / TB_PASS și TB_URL (obligatoriu, fără valoare implicită). Jetonul JWT se ține în memorie
  * și se reînnoiește singur (înainte de expirare sau după un 401). Folosește un cont cu drepturi de CITIRE.
  */
 const g = globalThis as unknown as { __tbTok?: { token: string; exp: number; pending?: Promise<string> } };
 
-export const tbUrl = () => (process.env.TB_URL || "https://gw.scada.md").replace(/\/$/, "");
+/** Adresa SCADA vine DOAR din mediu (TB_URL), fără valoare implicită: fără ea nu pleacă nicio cerere, deci nicio extragere nu începe „din greșeală”. */
+export const tbUrl = (): string => {
+  const u = process.env.TB_URL?.trim();
+  if (!u) throw new Error("TB_URL lipsește din mediu (ex. TB_URL=http://192.168.77.24:8080): nu pornesc nicio cerere către SCADA.");
+  return u.replace(/\/$/, "");
+};
 
 function jwtExp(token: string): number {
   try {
@@ -53,6 +58,8 @@ const ALLOWED: { method: string; path: RegExp }[] = [
   { method: "POST", path: /^\/api\/auth\/login$/ },
   { method: "POST", path: /^\/api\/entitiesQuery\/find$/ },
   { method: "GET", path: /^\/api\/plugins\/telemetry\/DEVICE\/[0-9a-f-]{36}\/values\/timeseries\?[^#]*$/ },
+  // lista dispozitivelor unui client (doar citire; se păstrează doar câmpurile de identificare, vezi tbCustomerDevices)
+  { method: "GET", path: /^\/api\/customer\/[0-9a-f-]{36}\/devices\?pageSize=\d{1,4}&page=\d{1,4}$/ },
 ];
 export function assertReadOnly(method: string, path: string): void {
   if (!ALLOWED.some((a) => a.method === method.toUpperCase() && a.path.test(path))) {
@@ -88,6 +95,28 @@ export async function tb<T>(path: string, init?: { method?: string; body?: unkno
       await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
     }
   }
+}
+
+/** Dispozitivele unui client, pagină cu pagină (doar citire). Din fiecare dispozitiv se păstrează DOAR câmpurile de identificare: restul (deviceData, credențiale) se aruncă pe loc. */
+export type TbDevice = { id: { id: string }; name: string; type: string; label: string | null; createdTime: number; customerId: { id: string } | null };
+export async function tbCustomerDevices(customerId: string, opts?: { pageSize?: number; pauseMs?: number; onPage?: (page: number, pages: number, total: number) => void }): Promise<{ devices: TbDevice[]; total: number }> {
+  const size = opts?.pageSize ?? 1000;
+  const devices: TbDevice[] = [];
+  let total = 0;
+  for (let page = 0; ; page++) {
+    const r = await tb<{ data: { id?: { id?: string }; name?: string; type?: string; label?: string | null; createdTime?: number; customerId?: { id?: string } | null }[]; totalPages: number; totalElements: number; hasNext: boolean }>(
+      `/api/customer/${encodeURIComponent(customerId)}/devices?pageSize=${size}&page=${page}`, { timeoutMs: 120_000 });
+    total = r.totalElements;
+    for (const d of r.data) {
+      const id = d.id?.id;
+      if (!id) continue;
+      devices.push({ id: { id }, name: String(d.name ?? "").trim(), type: String(d.type ?? "").trim(), label: d.label && String(d.label).trim() ? String(d.label).trim() : null, createdTime: Number(d.createdTime ?? 0), customerId: d.customerId?.id ? { id: d.customerId.id } : { id: customerId } });
+    }
+    opts?.onPage?.(page + 1, r.totalPages, r.totalElements);
+    if (!r.hasNext) break;
+    if (opts?.pauseMs) await new Promise((res) => setTimeout(res, opts.pauseMs));
+  }
+  return { devices, total };
 }
 
 export type TbLatest = Record<string, Record<string, { ts: number; value: string }>>;

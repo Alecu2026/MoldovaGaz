@@ -1,7 +1,7 @@
 import type { ColDef, SourceId, SourceWire } from "./source-shared";
 
 /**
- * Lista unei surse (lorawandb sau getmgdb) în browser, coloanar: coduri Int32 pentru valorile cu puține variante (dict), Float64 pentru numere / momente
+ * Lista unei surse (getmgdb) în browser, coloanar: coduri Int32 pentru valorile cu puține variante (dict), Float64 pentru numere / momente
  * (NaN = lipsă), șiruri pentru restul. Se salvează ca atare în IndexedDB (clonare structurată, fără JSON.parse la deschidere).
  */
 export type SourceSnapshot = {

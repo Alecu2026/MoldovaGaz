@@ -1,14 +1,15 @@
 import { createHash } from "node:crypto";
 import { branchLabel, FLAG, METER_NAME, validCoords, type MeterSummary } from "./meter-shared";
-import { tbLatest, type TbEntity, type TbLatest } from "./thingsboard";
+import { CUSTOMER_FIL, EXCLUDED_PROFILE, GAS_CUSTOMERS } from "./meter-scope";
+import { tbCustomerDevices, tbLatest, type TbEntity, type TbLatest } from "./thingsboard";
 
 /**
- * Combină cele trei surse într-un document pe contor (colecția `meters`):
- *  1. lorawandb  — lista dispozitivelor ThingsBoard care sunt contoare (id, nume, profil, client);
+ * Combină sursele într-un document pe contor (colecția `meters`):
+ *  1. SCADA (iiot.scada.md) — LISTA contoarelor: toate dispozitivele celor 10 clienți de gaz (lib/meter-scope.ts), fără „Defectate_*”;
  *  2. getmgdb    — facturarea Moldovagaz (filiala FIL, cont, adresă, consumator, număr radio…);
- *  3. ThingsBoard — valorile CURENTE (Volume_m3_Total, semnal, baterie, consumuri…) și atributele, citite în loturi.
+ *  3. SCADA — valorile CURENTE (Volume_m3_Total, Volume_m3_Total_ts, coordonate, semnal, baterie, consumuri…) și atributele, citite în loturi.
  * Legătura facturare ↔ dispozitiv: NUM_RADIO (8 cifre) = seria din numele dispozitivului („S2154_00070948_2022” → 00070948).
- * Legătura filială ↔ client ThingsBoard se deduce din perechile potrivite (FIL majoritar pe client), ca și contoarele fără facturare să aibă filială.
+ * Filiala: din facturare (FIL); altfel din clientul dispozitivului (fiecare filială are clientul ei în SCADA, vezi lib/meter-scope.ts).
  * NU se copiază cheile LoRaWAN (APPKEY / NWKSKEY / APPSKEY) și nici imaginile din atributele dispozitivelor.
  */
 
@@ -56,6 +57,11 @@ export type SyncStats = {
 };
 
 const src = (name: string, dflt: string) => process.env[name] || dflt;
+/** Pauza (ms) dintre două cereri către SCADA în timpul sincronizării: ține încărcarea serverului SCADA blândă și vizibilă. Implicit 150 ms; 0 = fără pauză. */
+const pauseMs = () => {
+  const v = Number(process.env.TB_PAUSE_MS);
+  return Number.isFinite(v) && v >= 0 && process.env.TB_PAUSE_MS !== undefined && process.env.TB_PAUSE_MS !== "" ? v : 150;
+};
 async function getJson<T>(url: string): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
@@ -69,13 +75,36 @@ async function getJson<T>(url: string): Promise<T> {
   }
 }
 
-export async function fetchSources(): Promise<{ devices: Dev[]; billing: Bill[] }> {
-  const [devices, billing] = await Promise.all([
-    getJson<Dev[]>(src("LORAWAN_DB_URL", "http://192.168.77.11:3880/lorawandb")),
-    getJson<Bill[]>(src("MG_DB_URL", "http://192.168.77.11:3880/getmgdb")),
-  ]);
-  if (!Array.isArray(devices) || !Array.isArray(billing)) throw new Error("Surse invalide: așteptam liste JSON.");
-  return { devices, billing };
+/** Facturarea (getmgdb), doar GET. */
+export async function fetchBilling(): Promise<Bill[]> {
+  const billing = await getJson<Bill[]>(src("MG_DB_URL", "http://192.168.77.11:3880/getmgdb"));
+  if (!Array.isArray(billing)) throw new Error("getmgdb: așteptam o listă JSON.");
+  return billing;
+}
+
+/**
+ * Contoarele de gaz din SCADA: toate dispozitivele celor 10 clienți din lib/meter-scope.ts, fără profilurile excluse (Defectate_*).
+ * Doar citire, clientul pe rând, pagini de 1000, cu pauză între cereri. Un client care nu răspunde oprește tot (nu construim o listă incompletă).
+ */
+export async function fetchDevices(log: (m: string) => void = () => {}): Promise<{ devices: Dev[]; perCustomer: { name: string; total: number; kept: number }[] }> {
+  const devices: Dev[] = [];
+  const perCustomer: { name: string; total: number; kept: number }[] = [];
+  const seen = new Set<string>();
+  const t0 = Date.now();
+  for (const c of GAS_CUSTOMERS) {
+    const r = await tbCustomerDevices(c.id, { pauseMs: pauseMs() });
+    if (r.devices.length !== r.total) throw new Error(`${c.name}: am primit ${r.devices.length} dispozitive din ${r.total} — opresc.`);
+    let kept = 0;
+    for (const d of r.devices) {
+      if (EXCLUDED_PROFILE.test(d.type) || seen.has(d.id.id)) continue;
+      seen.add(d.id.id);
+      devices.push(d);
+      kept++;
+    }
+    perCustomer.push({ name: c.name, total: r.total, kept });
+    log(`  ${c.name}: ${r.total} dispozitive, ${kept} păstrate (${Math.round((Date.now() - t0) / 1000)} s)`);
+  }
+  return { devices, perCustomer };
 }
 
 const num = (v: unknown): number | null => {
@@ -111,11 +140,12 @@ export async function fetchLatest(devices: Dev[], batch = 500, log: (m: string) 
       for (const e of ents) byId.set(e.entityId.id, e.latest);
       streak = 0;
     } catch (e) {
-      if (++streak >= 3) throw new Error(`ThingsBoard nu răspunde (3 loturi la rând eșuate): ${(e as Error).message}`);
+      if (++streak >= 3) throw new Error(`SCADA nu răspunde (3 loturi la rând eșuate): ${(e as Error).message}`);
       for (const id of ids) failed.add(id);
       log(`  lot ${i}–${i + ids.length} eșuat: ${(e as Error).message}`);
     }
-    if ((i / batch) % 10 === 9 || i + batch >= devices.length) log(`  ThingsBoard: ${Math.min(i + batch, devices.length)} / ${devices.length} (${Math.round((Date.now() - t0) / 1000)} s)`);
+    if ((i / batch) % 10 === 9 || i + batch >= devices.length) log(`  SCADA: ${Math.min(i + batch, devices.length)} / ${devices.length} (${Math.round((Date.now() - t0) / 1000)} s)`);
+    if (i + batch < devices.length && pauseMs() > 0) await new Promise((r) => setTimeout(r, pauseMs()));
   }
   return { byId, failed };
 }
@@ -211,7 +241,7 @@ export function buildDocs(devices: Dev[], billing: Bill[], latest: Map<string, T
 
     // filiala: din facturare (FIL), altfel din clientul ThingsBoard
     const billFil = bill ? clean(bill.FIL) : "";
-    const custF = d.customerId?.id ? custFil[d.customerId.id] ?? "" : "";
+    const custF = d.customerId?.id ? CUSTOMER_FIL[d.customerId.id] ?? custFil[d.customerId.id] ?? "" : ""; // întâi filiala știută a clientului, apoi cea dedusă din facturare
     const fil = billFil || custF;
     if (billFil) stats.branchFromBilling++; else if (custF) stats.branchFromCustomer++; else stats.branchUnknown++;
     if (billFil && custF && billFil !== custF) stats.branchConflicts++;

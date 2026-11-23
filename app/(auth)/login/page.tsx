@@ -15,7 +15,7 @@ export default function LoginPage() {
           </div>
           <div>
             <div className="brand-name">Moldovagaz</div>
-            <div className="brand-sub">Monitorizare contoare LoRaWAN</div>
+            <div className="brand-sub">Monitorizare contoare de gaz</div>
           </div>
         </div>
         <LoginForm />

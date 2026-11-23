@@ -3,11 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-/** Cele trei pagini: datele combinate (principala), doar lorawandb (primul IP) și doar getmgdb (al doilea IP). */
+/** Cele două pagini: datele combinate (principala) și doar facturarea (getmgdb). */
 const ITEMS: { href: string; label: string; sub: string; title: string }[] = [
-  { href: "/", label: "Contoare", sub: "combinat", title: "Toate sursele puse împreună: dispozitive + facturare + valori din SCADA" },
-  { href: "/lorawan", label: "Dispozitive LoRaWAN", sub: "lorawandb", title: "Doar datele din lorawandb (primul IP)" },
-  { href: "/facturare", label: "Facturare", sub: "getmgdb", title: "Doar datele din getmgdb (al doilea IP)" },
+  { href: "/", label: "Contoare", sub: "combinat", title: "Contoarele din SCADA + facturarea, puse împreună (volum, coordonate, stare)" },
+  { href: "/facturare", label: "Facturare", sub: "getmgdb", title: "Doar datele din getmgdb (facturarea Moldovagaz)" },
 ];
 
 export default function AppNav() {
