@@ -22,6 +22,7 @@ import { writeSource } from "../lib/source-sync";
 import * as NA from "../lib/night-analysis";
 import { counterOf, lostOf, newStream, observe } from "../lib/integration-counter";
 import { distanceKm as kmDist } from "../lib/geo";
+import { DAY as GDAY, buildStats, dayRange, foldDays, type DayAgg, type GwSum } from "../lib/gateway-stats";
 import { eventToMsg, gatewaysOf, looksLikeEvent, looksLikeUplink, nameKey, uplinkToMsg } from "../lib/integration-uplink";
 import { MAX_BATCH, isStaleFcnt, isStaleUplink, ingestIsNewer, mergeDerive, mergeMsgs, normTs, parseMessage, type MeterDocIng } from "../lib/integration";
 import { MAX_READINGS, appendReadings, readingOf } from "../lib/meter-readings";
@@ -342,7 +343,7 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   const walk = (d: string): string[] => readdirSync(d).flatMap((n) => (n === "node_modules" || n === ".next" || n.startsWith(".") ? [] : statSync(join(d, n)).isDirectory() ? walk(join(d, n)) : /\.(ts|tsx)$/.test(n) ? [join(d, n)] : []));
   const files = ["app", "lib", "scripts"].flatMap(walk).filter((f) => !f.endsWith("check-engine.ts"));
   const fetches = files.flatMap((f) => (readFileSync(f, "utf8").match(/\bfetch\(/g) ?? []).map(() => f.replace(/\\/g, "/")));
-  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "app/components/GatewayLayer.tsx", "app/components/KeptBrowser.tsx", "app/components/SeenBrowser.tsx", "app/components/MeterAntennas.tsx", "scripts/bench-integration.ts"]);
+  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "app/components/GatewayLayer.tsx", "app/components/KeptBrowser.tsx", "app/components/GatewayCharts.tsx", "app/components/SeenBrowser.tsx", "app/components/MeterAntennas.tsx", "scripts/bench-integration.ts"]);
   check("read-only: fetch() doar în fișierele așteptate", fetches.every((f) => allowedFetch.has(f)), [...new Set(fetches)].join(", "));
   const mutating = files.filter((f) => /method:\s*"(PUT|DELETE|PATCH)"|\.(deleteOne|deleteMany|drop|updateMany|updateOne|insertOne|insertMany|replaceOne|bulkWrite)\(/.test(readFileSync(f, "utf8"))).map((f) => f.replace(/\\/g, "/"));
   // scrieri în baza NOASTRĂ: doar sesiuni / utilizator (login, seed) și colecția `meters` (sincronizare); niciodată în surse
@@ -550,6 +551,32 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   check("eveniment de stare: recunoscut, devEUI cu litere mici, margin / baterie ca telemetrie; fără impulsuri și fără „activ”", looksLikeEvent(evS) && em.ok && em.msg.eui === "001a798816010c5e" && em.msg.tel.margin.v === "7" && em.msg.tel.batteryLevel.v === "0" && em.msg.tel.externalPowerSource.v === "false" && em.msg.pulse === null && !("active" in em.msg.attrs) && em.msg.nameKey === "2154_00174121_2024");
   check("eveniment de eroare: type / error ⇒ evType / evError", ee.ok && ee.msg.tel.evType.v === "UPLINK_F_CNT_RETRANSMISSION" && ee.msg.tel.evError.v === "retransmisie");
   check("eveniment: doar câmpurile de identificare ⇒ nu e eveniment; uplink-ul și documentul de contor rămân neschimbate", !looksLikeEvent({ devEUI: "001a798816010c5e", deviceName: "x", applicationName: "y" }) && !looksLikeEvent(up()) && !looksLikeEvent({ devEUI: "001a798816010c5e", tel: {}, margin: 1 }) && !eventToMsg({ devEUI: "zz" }, NOW).ok);
+  // statistici pe antene, pe zile
+  { const d0 = Date.UTC(2026, 10, 20);
+    const hits = [
+      { g: "A", m: "m1", t: d0 + 1000, rssi: -100, snr: 5 }, { g: "A", m: "m1", t: d0 + 2000, rssi: -110, snr: 3 }, { g: "A", m: "m2", t: d0 + 3000, rssi: -90, snr: null },
+      { g: "B", m: "m1", t: d0 + GDAY + 5, rssi: -120, snr: -8 }, { g: "A", m: "m1", t: d0 + GDAY + 7, rssi: -105, snr: 4 },
+    ];
+    const f1 = foldDays(hits, new Map());
+    const a0 = f1.days.get("A|" + d0)!, a1 = f1.days.get("A|" + (d0 + GDAY))!;
+    check("antene pe zile: mesaje, sume RSSI / SNR și «contoare-zile» (un contor se numără o dată pe zi la o antenă)", a0.n === 3 && a0.nr === 3 && a0.rs === -300 && a0.ns === 2 && a0.ss === 8 && a0.dv === 2 && a1.n === 1 && a1.dv === 1 && f1.days.get("B|" + (d0 + GDAY))!.dv === 1);
+    const f2 = foldDays([{ g: "A", m: "m1", t: d0 + 500, rssi: -100, snr: 1 }, { g: "A", m: "m1", t: d0 + GDAY + 1, rssi: -100, snr: 1 }], new Map([["A|m1", d0]]));
+    check("antene pe zile: ziua deja numărată (din baza de date) nu se numără din nou; ziua următoare da; ultima zi se actualizează", f2.days.get("A|" + d0)!.dv === 0 && f2.days.get("A|" + (d0 + GDAY))!.dv === 1 && f2.pairLd.get("A|m1") === d0 + GDAY);
+    const sum: GwSum[] = [
+      { id: "A", name: "ANT-Comrat", la: 46.3, lo: 28.6, state: "on", last: 1, devices: 10, primary: 6, exclusive: 2, rssi: -100, snr: 3 },
+      { id: "B", name: "ANT-Orhei", la: 47.4, lo: 28.8, state: "off", last: 2, devices: 3, primary: 1, exclusive: 0, rssi: -118, snr: -5 },
+      { id: "C", name: "ANT-Cahul", la: null, lo: null, state: "slow", last: 3, devices: 1, primary: 0, exclusive: 1, rssi: null, snr: null },
+    ];
+    const docs: DayAgg[] = [...f1.days.values()];
+    const inMap = new Map([["A", 4], ["B", 1]]);
+    const st = buildStats(sum, docs, inMap, { from: d0, to: d0 + GDAY, state: "", q: "", minDevices: 0, sort: "devices", gw: "" });
+    check("antene (statistici): eficiența pe perioadă = sume din zilele perioadei; ordonare după contoare auzite", st.rows.map((r) => r.id).join() === "A,B,C" && st.rows[0].messages === 4 && st.rows[0].devicesIn === 4 && st.rows[0].perDevice === 1 && st.rows[0].rssiIn === -101.2 && st.rows[0].activeDays === 2 && st.rows[1].messages === 1 && st.rows[2].messages === 0 && st.rows[2].perDevice === null);
+    check("antene (statistici): seria pe zile (mesaje, contoare-zile, antene active) fără goluri în perioadă", st.days.length === 2 && st.days[0].n === 3 && st.days[0].gws === 1 && st.days[1].n === 2 && st.days[1].gws === 2 && st.days[1].dv === 2 && st.totals.messages === 5 && st.totals.gateways === 3);
+    const f3 = buildStats(sum, docs, inMap, { from: d0, to: d0 + GDAY, state: "off", q: "", minDevices: 0, sort: "name", gw: "A" });
+    check("antene (statistici): filtru după stare; seria antenei alese rămâne a ei, chiar dacă nu trece de filtru", f3.rows.length === 1 && f3.rows[0].id === "B" && f3.gw?.id === "A" && f3.gw.days[0].n === 3 && f3.days.every((d) => d.gws <= 1));
+    check("antene (statistici): căutare după nume și «minim contoare»; o perioadă fără zile cu date dă zero, nu eroare", buildStats(sum, docs, inMap, { from: d0, to: d0, state: "", q: "orhei", minDevices: 0, sort: "devices", gw: "" }).rows.length === 1 && buildStats(sum, docs, inMap, { from: d0, to: d0, state: "", q: "", minDevices: 2, sort: "devices", gw: "" }).rows.map((r) => r.id).join() === "A" && buildStats(sum, [], new Map(), { from: d0, to: d0 + 2 * GDAY, state: "", q: "", minDevices: 0, sort: "devices", gw: "" }).days.length === 3);
+    check("antene (statistici): perioada se taie la 120 de zile, de la sfârșit, în ordine crescătoare", dayRange(d0 - 400 * GDAY, d0).length === 120 && dayRange(d0 - 400 * GDAY, d0)[119] === d0 && dayRange(d0, d0)[0] === d0 && dayRange(d0 + GDAY, d0).length === 2);
+  }
   const pm = parseMessage(up(), NOW);
   check("uplink: parseMessage îl recunoaște singur; devEUI greșit ⇒ respins cu motiv", pm.ok && pm.msg.eui === "001a798816011d62" && !uplinkToMsg({ devEUI: "xyz", object: {} } as never, NOW).ok);
 

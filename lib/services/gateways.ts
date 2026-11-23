@@ -2,6 +2,7 @@ import "server-only";
 import type { Document } from "mongodb";
 import type { IntegrationMsg } from "../integration";
 import { distanceKm } from "../geo";
+import { buildStats, dayOf, foldDays, type DayAgg, type Hit, type Stats, type StatQuery } from "../gateway-stats";
 import { col } from "../mongo";
 import { getStore } from "./meter-dataset";
 
@@ -15,6 +16,8 @@ import { getStore } from "./meter-dataset";
  */
 export const GATEWAYS = process.env.INTEGRATION_GATEWAYS_COLLECTION || "integration_gateways";
 export const GW_DEV = process.env.INTEGRATION_GW_DEV_COLLECTION || "integration_gw_dev";
+/** agregate pe (antenă, zi UTC): mesaje, sume RSSI / SNR, contoare-zile; ținute 400 de zile */
+export const GW_DAY = process.env.INTEGRATION_GW_DAY_COLLECTION || "integration_gw_day";
 const RECENT = 20;
 const ONLINE_MS = 3_600_000; // activă: a auzit ceva în ultima oră
 const SLOW_MS = 24 * 3_600_000; // lentă: în ultimele 24 h; mai mult = offline
@@ -26,7 +29,8 @@ let indexed = false;
 async function ensureIndexes(): Promise<void> {
   if (indexed) return;
   const dev = await col<Document>(GW_DEV);
-  await Promise.all([dev.createIndex({ g: 1 }), dev.createIndex({ m: 1 })]);
+  const day = await col<Document>(GW_DAY);
+  await Promise.all([dev.createIndex({ g: 1 }), dev.createIndex({ m: 1 }), dev.createIndex({ last: 1 }), day.createIndex({ d: 1 }), day.createIndex({ createdAt: 1 }, { expireAfterSeconds: 400 * 86_400 })]);
   indexed = true;
 }
 
@@ -35,6 +39,7 @@ export async function recordGateways(docs: InDoc[], now: number): Promise<void> 
   type G = { name: string; la: number | null; lo: number | null; n: number; last: number; first: number; recent: Recent[] };
   type P = { g: string; m: string; n: number; nr: number; rs: number; ss: number; ns: number; last: number; rl: number | null; sl: number | null };
   const gws = new Map<string, G>(), pairs = new Map<string, P>();
+  const hitsAll: Hit[] = [];
   for (const d of docs) {
     const hits = d.m.gws;
     if (!hits?.length) continue;
@@ -48,6 +53,7 @@ export async function recordGateways(docs: InDoc[], now: number): Promise<void> 
       g.first = Math.min(g.first, t);
       if (h.la !== null) { g.la = h.la; g.lo = h.lo; }
       g.recent.push({ m: d.id, t, rssi: h.rssi, snr: h.snr, p: d.m.pulse?.v ?? null, ie });
+      hitsAll.push({ g: h.id, m: d.id, t, rssi: h.rssi, snr: h.snr });
       const k = `${h.id}|${d.id}`;
       let p = pairs.get(k);
       if (!p) pairs.set(k, (p = { g: h.id, m: d.id, n: 0, nr: 0, rs: 0, ss: 0, ns: 0, last: 0, rl: null, sl: null }));
@@ -59,6 +65,18 @@ export async function recordGateways(docs: InDoc[], now: number): Promise<void> 
   }
   if (!gws.size) return;
   await ensureIndexes();
+  // zilele deja numărate pentru fiecare pereche (ca un contor să se numere o singură dată pe zi la o antenă)
+  const pairKeys = [...pairs.keys()];
+  const ldMap = new Map<string, number>();
+  const devColl = await col<Document>(GW_DEV);
+  for (let i = 0; i < pairKeys.length; i += 1000) {
+    for (const x of await devColl.find({ _id: { $in: pairKeys.slice(i, i + 1000) } as never }, { projection: { ld: 1 } }).toArray()) if (typeof x.ld === "number") ldMap.set(String(x._id), x.ld);
+  }
+  const { days, pairLd } = foldDays(hitsAll, ldMap);
+  await (await col<Document>(GW_DAY)).bulkWrite(
+    [...days].map(([k, a]) => ({ updateOne: { filter: { _id: k as never }, update: { $inc: { n: a.n, nr: a.nr, rs: a.rs, ns: a.ns, ss: a.ss, dv: a.dv }, $set: { g: a.g, d: a.d }, $setOnInsert: { createdAt: new Date(now) } }, upsert: true } })) as never,
+    { ordered: false },
+  );
   await (await col<Document>(GATEWAYS)).bulkWrite(
     [...gws].map(([id, g]) => {
       g.recent.sort((a, b) => a.t - b.t);
@@ -72,7 +90,7 @@ export async function recordGateways(docs: InDoc[], now: number): Promise<void> 
     [...pairs].map(([k, p]) => ({
       updateOne: {
         filter: { _id: k as never },
-        update: { $inc: { n: p.n, nr: p.nr, rs: p.rs, ss: p.ss, ns: p.ns }, $max: { last: p.last }, $set: { g: p.g, m: p.m, ...(p.rl !== null ? { rl: p.rl } : {}), ...(p.sl !== null ? { sl: p.sl } : {}) } },
+        update: { $inc: { n: p.n, nr: p.nr, rs: p.rs, ss: p.ss, ns: p.ns }, $max: { last: p.last, ...(pairLd.has(k) ? { ld: pairLd.get(k) } : {}) }, $set: { g: p.g, m: p.m, ...(p.rl !== null ? { rl: p.rl } : {}), ...(p.sl !== null ? { sl: p.sl } : {}) } },
         upsert: true,
       },
     })) as never,
@@ -141,6 +159,24 @@ export async function gatewaySummary(): Promise<GwSummary> {
   rows.sort((a, b) => b.devices - a.devices);
   const v: GwSummary = { total: rows.length, located: rows.filter((r) => r.la !== null).length, on: rows.filter((r) => r.state === "on").length, slow: rows.filter((r) => r.state === "slow").length, off: rows.filter((r) => r.state === "off").length, rows, at: now };
   g0.__gwSum = { at: now, v };
+  return v;
+}
+
+const statCache = new Map<string, { at: number; v: Stats }>();
+/** Eficiența antenelor pe o perioadă (pe zile): vezi lib/gateway-stats.ts. Contoarele auzite = perechile antenă × contor cu ultimul moment în perioadă. Reținut 15 s. */
+export async function gatewayStats(q: StatQuery): Promise<Stats> {
+  const key = JSON.stringify(q);
+  const hit = statCache.get(key);
+  if (hit && Date.now() - hit.at < 15_000) return hit.v;
+  const sum = await gatewaySummary();
+  const [dayDocs, inRows] = await Promise.all([
+    (await col<Document>(GW_DAY)).find({ d: { $gte: dayOf(Math.min(q.from, q.to)), $lte: dayOf(Math.max(q.from, q.to)) } }).toArray(),
+    (await col<Document>(GW_DEV)).aggregate([{ $match: { last: { $gte: q.from } } }, { $group: { _id: "$g", n: { $sum: 1 } } }]).toArray(),
+  ]);
+  const devicesIn = new Map<string, number>(inRows.map((x) => [String(x._id), Number(x.n) || 0]));
+  const v = buildStats(sum.rows, dayDocs as unknown as DayAgg[], devicesIn, q);
+  statCache.set(key, { at: Date.now(), v });
+  if (statCache.size > 40) statCache.delete(statCache.keys().next().value as string);
   return v;
 }
 

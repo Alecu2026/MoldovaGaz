@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useMemo } from "react";
 import {
   BAT_BINS, FRESH_EDGES, FRESH_LABELS, HEAT_RSSI_MIN, HEAT_RSSI_STEP, HEAT_SNR_MIN, HEAT_SNR_STEP, HEAT_X, HEAT_Y,
@@ -8,6 +9,9 @@ import {
 import { toList, toggleIn, type Filters } from "@/lib/meter-filter";
 import type { MeterStore } from "@/lib/meter-store";
 import { BarList, ChartCard, ColumnChart, Heat, nf, nf1, type Bar, type BarItem } from "./charts/primitives";
+
+/** Graficele pe antene (filtre proprii) se încarcă doar în fila „Grafice”. */
+const GatewayCharts = dynamic(() => import("./GatewayCharts"), { ssr: false, loading: () => <div className="skeleton" style={{ height: 240, marginTop: 12 }} /> });
 
 const p2 = (n: number) => String(n).padStart(2, "0");
 /** ms → valoarea unui <input type="datetime-local"> (ora locală, la minut) */
@@ -290,6 +294,8 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
           <BarList unit="L" items={topDc} selected={filters.dev ? [filters.dev] : []} onToggle={(k) => patch({ dev: filters.dev === k ? "" : k })} ariaLabel="Top consum zilnic" />
         </ChartCard>
       </div>
+
+      <GatewayCharts />
     </div>
   );
 }

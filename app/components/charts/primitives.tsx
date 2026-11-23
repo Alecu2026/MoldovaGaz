@@ -237,7 +237,7 @@ export function ColumnChart({
 }
 
 /* ───────── listă de bare orizontale (categorii nominale: o singură culoare) ───────── */
-export type BarItem = { key: string; label: string; value: number; ghost: number; sub?: string; tone?: "critical" | "serious" | "warning" | "good" | "neutral"; glyph?: string };
+export type BarItem = { key: string; label: string; value: number; ghost: number; sub?: string; /** text afișat în loc de valoare (când lungimea barei e o transformare a valorii reale, ex. RSSI) */ show?: string; tone?: "critical" | "serious" | "warning" | "good" | "neutral"; glyph?: string };
 
 export function BarList({ items, selected = [], onToggle, top = 10, ariaLabel, unit }: { items: BarItem[]; selected?: string[]; onToggle?: (key: string) => void; top?: number; ariaLabel: string; /** unitatea valorii din hover */ unit?: string }) {
   const [all, setAll] = useState(false);
@@ -250,7 +250,7 @@ export function BarList({ items, selected = [], onToggle, top = 10, ariaLabel, u
     const wrap = ref.current?.getBoundingClientRect();
     const r = el.getBoundingClientRect();
     if (!wrap) return;
-    setTip({ x: (clientX ?? r.left + r.width / 2) - wrap.left, y: r.top - wrap.top - 2, title: it.label, value: `${nf.format(it.value)}${unit ? ` ${unit}` : ""}`, sub: it.ghost > it.value ? `din ${nf.format(it.ghost)}${unit ? ` ${unit}` : ""} în total` : it.sub });
+    setTip({ x: (clientX ?? r.left + r.width / 2) - wrap.left, y: r.top - wrap.top - 2, title: it.label, value: it.show ?? `${nf.format(it.value)}${unit ? ` ${unit}` : ""}`, sub: it.ghost > it.value ? `din ${nf.format(it.ghost)}${unit ? ` ${unit}` : ""} în total` : it.sub });
   };
   return (
     <div className="chart-wrap" ref={ref} role="list" aria-label={ariaLabel}>
@@ -276,7 +276,7 @@ export function BarList({ items, selected = [], onToggle, top = 10, ariaLabel, u
               {it.ghost > it.value && <span className="bl-bar ghost" style={{ width: `${(it.ghost / max) * 100}%` }} />}
               <span className={`bl-bar ${it.tone ?? ""}`} style={{ width: `${(it.value / max) * 100}%` }} />
             </span>
-            <span className="bl-val mono">{nf.format(it.value)}</span>
+            <span className="bl-val mono">{it.show ?? nf.format(it.value)}</span>
           </Tag>
         );
       })}
