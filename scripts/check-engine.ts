@@ -20,6 +20,7 @@ import { NO_SFILTERS, activeCount, binsToDays, describeFilters, dictCounts, filt
 import { sourceToCsv } from "../lib/source-csv";
 import { writeSource } from "../lib/source-sync";
 import * as NA from "../lib/night-analysis";
+import { MAX_BATCH, ingestIsNewer, mergeDerive, mergeMsgs, normTs, parseMessage, type MeterDocIng } from "../lib/integration";
 import { MAX_READINGS, appendReadings, readingOf } from "../lib/meter-readings";
 import { EXCLUDED_PROFILE, GAS_CUSTOMERS } from "../lib/meter-scope";
 import type { Db } from "mongodb";
@@ -304,11 +305,11 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   const walk = (d: string): string[] => readdirSync(d).flatMap((n) => (n === "node_modules" || n === ".next" || n.startsWith(".") ? [] : statSync(join(d, n)).isDirectory() ? walk(join(d, n)) : /\.(ts|tsx)$/.test(n) ? [join(d, n)] : []));
   const files = ["app", "lib", "scripts"].flatMap(walk).filter((f) => !f.endsWith("check-engine.ts"));
   const fetches = files.flatMap((f) => (readFileSync(f, "utf8").match(/\bfetch\(/g) ?? []).map(() => f.replace(/\\/g, "/")));
-  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx"]);
+  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "scripts/bench-integration.ts"]);
   check("read-only: fetch() doar în fișierele așteptate", fetches.every((f) => allowedFetch.has(f)), [...new Set(fetches)].join(", "));
   const mutating = files.filter((f) => /method:\s*"(PUT|DELETE|PATCH)"|\.(deleteOne|deleteMany|drop|updateMany|updateOne|insertOne|insertMany|replaceOne|bulkWrite)\(/.test(readFileSync(f, "utf8"))).map((f) => f.replace(/\\/g, "/"));
   // scrieri în baza NOASTRĂ: doar sesiuni / utilizator (login, seed) și colecția `meters` (sincronizare); niciodată în surse
-  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts"]);
+  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts"]);
   check("read-only: scrieri în baza de date doar în sesiuni, seed:user, sync-meters, load-history și lib/source-sync", mutating.every((f) => allowedWrites.has(f)), mutating.join(", "));
   const syncSrc = readFileSync("scripts/sync-meters.ts", "utf8");
   const syncCollections = syncSrc.match(/client\.db\(\)\.collection[^\n]*/g) ?? [];
@@ -371,6 +372,55 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   check("istoric: împachetare / despachetare exactă (momente la secundă, valori Float64)", back.length === 4 && back.every((p, i) => p[0] === pts[i][0] && p[1] === pts[i][1]));
   check("istoric: citit din Buffer / Binary (ca din Mongo) și gol", unpack({ n: packed.n, t: Buffer.from(packed.t, "base64"), v: { buffer: Buffer.from(packed.v, "base64") } }).length === 4 && unpack(pack([])).length === 0);
   check("istoric: 12 octeți / punct", Buffer.from(packed.t, "base64").length + Buffer.from(packed.v, "base64").length === 4 * 12);
+}
+
+/* ───────── 9) integrare: mesaje direct de la LoRaWAN / antene ───────── */
+{
+  const NOW = Date.UTC(2026, 10, 23, 20, 0), T = NOW - 60_000;
+  const tl = (v: string, t = T) => ({ t, v });
+  const raw = () => ({
+    id: "a9255170-615e-11ef-936d-33a22b7e43aa",
+    tb: { name: "S2154_00186354_2024", type: "Cahul_Gas_Meter_DP", customerId: "f20657f0-5898-11ef-936d-33a22b7e43aa", createdTime: 1724424466439, label: null },
+    bill: { CONTOR_ID: "3819018105", CONTOR_SN: "12882571", NUM_RADIO: "00186354", CITY: "Oras Test", STREET: "Strada Test", HOUSE: "59", ACCT_ID: "0406333333", ENTITY_NAME: "NUME TEST", FIL: "11", OTDELEN: "11-15", UPDATED_DATE: "2026-11-19T06:05:00.000Z" },
+    attrs: { FIL: 11, active: true, lastActivityTime: T, latitude: 45.4783093, longitude: 28.1922861, devEUI: "001a79881802d7f2", ContPersonal: "0406333333", c_fCnt: "12", c_applicationName: "App_Cahul_Gaz_ABP_jooby", APPKEY: "SECRET-KEY" },
+    tel: {
+      Volume_m3_Total: tl("4118.935"), Volume_m3_Total_ts: tl("4118.935", T - 2_719_000), rssi: tl("-111"), loRaSNR: tl("-5.5"), Frequency: tl("868.1"), Concentrator: tl("M-194750_Comrat_Dostoievski"),
+      battery: tl("{\"highLoadVoltage\":3062,\"internalRes\":28020,\"lowLoadVoltage\":3634,\"remCapacity\":99.61}"), dailyConsumption: tl("1320"), monthlyConsumption: tl("13320"),
+      fPort: tl("1"), fCnt: tl("108"), temp: tl("9"), offline: tl("true"), magnet: tl("false"), buttonPressed: tl("false"), batteryTooLowVoltage: tl("false"), ieType: tl("LastEventSeq"), applicationName: tl("App_Cahul_Gaz_ABP_jooby"),
+    },
+  });
+  const P = (x: unknown) => { const r = parseMessage(x, NOW); if (!r.ok) throw new Error(r.error); return r.msg; };
+  check("integrare: momente — milisecunde, secunde și text ISO; altceva e invalid", normTs(1795464061182) === 1795464061182 && normTs(1795464061) === 1795464061000 && normTs("2026-11-23T20:01:01.182Z") === Date.parse("2026-11-23T20:01:01.182Z") && normTs("nu") === null && normTs(5) === null && normTs(null) === null);
+  const bad = (x: unknown) => { const r = parseMessage(x, NOW); return r.ok ? "" : r.error; };
+  check("integrare: mesaj invalid respins cu motiv (nu obiect, id greșit, fără identificare, fără date, moment în viitor / invalid, valoare invalidă)", bad(5) !== "" && bad({ id: "x", tel: {} }) !== "" && bad({ tel: { a: tl("1") } }) !== "" && bad({ tb: { name: "S1" } }) !== "" && bad({ tb: { name: "S1" }, tel: { a: { t: NOW + 5 * 86_400_000, v: "1" } } }) !== "" && bad({ tb: { name: "S1" }, tel: { a: { t: "ieri", v: "1" } } }) !== "" && bad({ tb: { name: "S1" }, tel: { a: { t: T, v: null } } }) !== "");
+  const okMsg = P(raw());
+  check("integrare: mesajul valid se normalizează (id, nume, devEUI, telemetrie ca text)", okMsg.id === "a9255170-615e-11ef-936d-33a22b7e43aa" && okMsg.name === "S2154_00186354_2024" && okMsg.eui === "001a79881802d7f2" && okMsg.tel.Volume_m3_Total.v === "4118.935" && typeof okMsg.tel.fCnt.v === "string");
+  check("integrare: cheile de rețea / secrete nu se păstrează (APPKEY în atribute, nwkSKey în telemetrie)", !("APPKEY" in okMsg.attrs) && !("nwkSKey" in P({ ...raw(), tel: { ...raw().tel, nwkSKey: tl("x") } }).tel));
+  check("integrare: valori simple (fără {t, v}) primesc momentul mesajului; obiectele devin text JSON", (() => { const m = P({ tb: { name: "S1" }, ts: T, tel: { rssi: -100, battery: { remCapacity: 80 } } }); return m.tel.rssi.t === T && m.tel.rssi.v === "-100" && m.tel.battery.v === "{\"remCapacity\":80}"; })());
+  check("integrare: limite — maximum " + MAX_BATCH + " mesaje; prea multe chei respinse", MAX_BATCH === 1000 && bad({ tb: { name: "S1" }, tel: Object.fromEntries(Array.from({ length: 101 }, (_, i) => ["k" + i, tl("1")])) }) !== "");
+  const a = mergeMsgs(P({ tb: { name: "S1" }, tel: { rssi: tl("-100", T + 2000), temp: tl("20", T + 1000) } }), P({ tb: { name: "S1" }, tel: { rssi: tl("-120", T + 1500), temp: tl("22", T + 3000) } }));
+  check("integrare: două mesaje ale aceluiași contor — pentru fiecare cheie rămâne valoarea cu momentul cel mai nou, indiferent de ordinea sosirii", a.tel.rssi.v === "-100" && a.tel.temp.v === "22");
+
+  const first = mergeDerive(null, okMsg.id!, okMsg, new Date(NOW));
+  const d1 = first.doc;
+  check("integrare: contor nou — status «created», documentul are facturarea, telemetria și rezumatul", first.status === "created" && d1._id === okMsg.id && d1.bill?.NUM_RADIO === "00186354" && d1.tel.Volume_m3_Total.v === "4118.935");
+  check("integrare: rezumatul derivat = cel de la sincronizarea din SCADA (volum, moment, baterie, consum, coordonate, semnal, filială, tip mesaj, stare 176)", d1.s.v === 4118.935 && d1.s.t === T && d1.s.b === 99.61 && d1.s.dc === 1320 && d1.s.mc === 13320 && d1.s.la === 45.4783093 && d1.s.lo === 28.1922861 && d1.s.r === -111 && d1.s.sn === -5.5 && d1.s.f === 868100 && d1.s.fc === 108 && d1.s.pt === 1 && d1.s.ty === "LastEventSeq" && d1.s.br === "11 · Cahul" && d1.s.fl === 176 && d1.s.g === "M-194750_Comrat_Dostoievski" && d1.s.a === "App_Cahul_Gaz_ABP_jooby" && d1.s.e === "001a79881802d7f2", JSON.stringify({ fl: d1.s.fl, br: d1.s.br }));
+  check("integrare: căutarea include facturarea, iar documentul nu conține secrete", d1.s.q.includes("00186354") && d1.s.q.includes("0406333333") && !JSON.stringify(d1).match(/SECRET|APPKEY/));
+  const again = mergeDerive(d1, okMsg.id!, okMsg, new Date(NOW + 5000));
+  check("integrare: același mesaj de două ori ⇒ «unchanged» (idempotent: o reaplicare după o cădere nu are efecte)", again.status === "unchanged" && again.doc.h === d1.h);
+  const old = mergeDerive(d1, okMsg.id!, P({ id: okMsg.id, tb: { name: "S2154_00186354_2024" }, tel: { Volume_m3_Total: tl("1.000", T - 86_400_000), rssi: tl("-50", T - 86_400_000) } }), new Date(NOW));
+  check("integrare: mesaj MAI VECHI sosit târziu nu suprascrie citirea mai nouă (volum, semnal)", old.status === "unchanged" && old.doc.s.v === 4118.935 && old.doc.s.r === -111);
+  const newer = mergeDerive(d1, okMsg.id!, P({ id: okMsg.id, tb: { name: "S2154_00186354_2024" }, tel: { Volume_m3_Total: tl("4119.500", T + 3_600_000), rssi: tl("-95", T + 3_600_000) } }), new Date(NOW + 3_600_000));
+  check("integrare: mesaj parțial mai nou actualizează doar ce aduce; facturarea, coordonatele și restul rămân", newer.status === "updated" && newer.doc.s.v === 4119.5 && newer.doc.s.r === -95 && newer.doc.s.la === 45.4783093 && newer.doc.bill?.ENTITY_NAME === "NUME TEST" && newer.doc.s.b === 99.61 && newer.doc.s.br === "11 · Cahul" && newer.doc.tel.temp.v === "9");
+  const dupDoc: MeterDocIng = { ...d1, s: { ...d1.s, fl: d1.s.fl | 1 }, tb: { ...d1.tb, dupWith: ["X (T)"] } };
+  const keepDup = mergeDerive(dupDoc, okMsg.id!, P({ id: okMsg.id, tb: { name: "S2154_00186354_2024" }, tel: { rssi: tl("-90", T + 10_000) } }), new Date(NOW));
+  check("integrare: «Serie repetată» (stabilită la sincronizare) se păstrează după un mesaj", (keepDup.doc.s.fl & 1) === 1 && keepDup.doc.tb.dupWith?.[0] === "X (T)");
+  const inactive = mergeDerive(d1, okMsg.id!, P({ id: okMsg.id, tb: { name: "S2154_00186354_2024" }, attrs: { active: false } }), new Date(NOW));
+  check("integrare: atributul active=false ⇒ «Inactiv» (bit 64), ca la sincronizare", (inactive.doc.s.fl & 64) === 64 && inactive.status === "updated");
+  const byName = P({ tb: { name: "S2154_00000001_2024", type: "Comrat_Gas_Meter_DP", customerId: "2e2874d0-7c4e-11ed-bc64-85872813a734" }, tel: { Volume_m3_Total: tl("10.5") } });
+  const fresh = mergeDerive(null, "11111111-2222-3333-4444-555555555555", byName, new Date(NOW));
+  check("integrare: contor nou fără facturare — filiala vine din clientul lui (Comrat 05), volumul și momentul din mesaj", fresh.doc.s.br === "05 · Comrat" && fresh.doc.s.v === 10.5 && fresh.doc.bill === null && fresh.doc.s.t === T);
+  check("integrare: sincronizarea din SCADA nu suprascrie date venite direct, la fel de noi sau mai noi", ingestIsNewer({ ing: 5, s: { t: 2000 } }, 1000) && ingestIsNewer({ ing: 5, s: { t: 2000 } }, 2000) && !ingestIsNewer({ ing: 5, s: { t: 1000 } }, 2000) && !ingestIsNewer({ s: { t: 9000 } }, 1000) && !ingestIsNewer(undefined, 1));
 }
 
 /* ───────── 7) lista din SCADA (cei 10 clienți) și paginile pe sursă: lorawandb și getmgdb separat ───────── */

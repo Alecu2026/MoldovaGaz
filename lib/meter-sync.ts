@@ -188,7 +188,11 @@ export function duplicateGroups(devices: Dev[]): Map<string, Dev[]> {
 }
 export const dupLabels = (id: string, group: Dev[]): string[] => group.filter((x) => x.id.id !== id).map((x) => `${x.name} (${x.type})`);
 
-export function buildDocs(devices: Dev[], billing: Bill[], latest: Map<string, TbLatest>, now: Date): { docs: MeterDoc[]; stats: SyncStats } {
+/** Amprenta conținutului unui document (fără `_id`, `updatedAt`, `h`): același calcul la sincronizare și la integrare, ca „neschimbat” să însemne același lucru. */
+export const hashBody = (body: unknown): string => createHash("sha1").update(JSON.stringify(body)).digest("hex").slice(0, 20);
+
+/** `opts.billById`: rândul de facturare al unor dispozitive, dat direct (după id), în loc de legătura prin numărul radio — folosit de integrare, unde mesajul vine cu facturarea lui. */
+export function buildDocs(devices: Dev[], billing: Bill[], latest: Map<string, TbLatest>, now: Date, opts?: { billById?: Map<string, Bill> }): { docs: MeterDoc[]; stats: SyncStats } {
   const { byRadio, dups } = indexBilling(billing);
   const dupGroup = duplicateGroups(devices);
 
@@ -242,7 +246,7 @@ export function buildDocs(devices: Dev[], billing: Bill[], latest: Map<string, T
     const id = d.id.id;
     const l = latest.get(id) ?? {};
     const serial = serialOf(d.name);
-    const bill = serial && owner.get(serial) === id ? byRadio.get(serial) ?? null : null;
+    const bill = opts?.billById?.has(id) ? opts.billById.get(id) ?? null : serial && owner.get(serial) === id ? byRadio.get(serial) ?? null : null;
     if (bill) stats.matched++;
     else stats.devicesWithoutBilling++;
 
@@ -337,7 +341,7 @@ export function buildDocs(devices: Dev[], billing: Bill[], latest: Map<string, T
       attrs,
       tel,
     };
-    docs.push({ _id: id, updatedAt: now, h: createHash("sha1").update(JSON.stringify(body)).digest("hex").slice(0, 20), ...body });
+    docs.push({ _id: id, updatedAt: now, h: hashBody(body), ...body });
   }
   return { docs, stats };
 }

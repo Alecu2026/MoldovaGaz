@@ -29,6 +29,26 @@ export function readingOf(d: Pick<MeterDoc, "tel">): { t: number; v: number; tp:
   return { t: vol.t, v, tp };
 }
 
+/** La fel ca `appendReadings`, dar doar pentru contoarele date (o interogare pe ele, nu pe toată colecția): pentru integrarea care scrie câteva zeci de contoare pe secundă. */
+export async function appendReadingsFor(db: Db, docs: Pick<MeterDoc, "_id" | "tel">[]): Promise<AppendStats> {
+  const coll = db.collection<ReadingDoc>(READINGS_COLLECTION);
+  const st: AppendStats = { candidates: 0, created: 0, appended: 0, unchanged: 0 };
+  const items = docs.map((d) => ({ d, r: readingOf(d) })).filter((x): x is { d: Pick<MeterDoc, "_id" | "tel">; r: NonNullable<ReturnType<typeof readingOf>> } => x.r !== null);
+  if (items.length === 0) return st;
+  const last = new Map<string, number>();
+  for await (const x of coll.find({ _id: { $in: items.map((i) => i.d._id) } }, { projection: { lt: 1 } })) last.set(String(x._id), x.lt);
+  const ops: Record<string, unknown>[] = [];
+  for (const { d, r } of items) {
+    st.candidates++;
+    const lt = last.get(d._id);
+    if (lt === undefined) { ops.push({ insertOne: { document: { _id: d._id, lt: r.t, t: [r.t], v: [r.v], tp: [r.tp] } } }); st.created++; }
+    else if (r.t > lt) { ops.push({ updateOne: { filter: { _id: d._id, lt: { $lt: r.t } }, update: { $push: { t: { $each: [r.t], $slice: -MAX_READINGS }, v: { $each: [r.v], $slice: -MAX_READINGS }, tp: { $each: [r.tp], $slice: -MAX_READINGS } }, $set: { lt: r.t } } } }); st.appended++; }
+    else st.unchanged++;
+  }
+  if (ops.length) await coll.bulkWrite(ops as never, { ordered: false });
+  return st;
+}
+
 export async function appendReadings(db: Db, docs: Pick<MeterDoc, "_id" | "tel">[], log: (m: string) => void = () => {}): Promise<AppendStats> {
   const coll = db.collection<ReadingDoc>(READINGS_COLLECTION);
   const last = new Map<string, number>();

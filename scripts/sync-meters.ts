@@ -16,6 +16,7 @@ import { buildDocs, fetchBilling, fetchDevices, fetchLatest, fetchLorawan, type 
 import { validCoords } from "../lib/meter-shared";
 import { writeSources } from "../lib/source-sync";
 import { appendReadings } from "../lib/meter-readings";
+import { ingestIsNewer } from "../lib/integration";
 import { maybeAnalyze } from "../lib/night-job";
 
 const log = (m: string) => console.log(`[${new Date().toISOString()}] ${m}`);
@@ -125,12 +126,15 @@ async function main() {
   if (!url) throw new Error("DATABASE_URL lipsește.");
   const client = await connectMongo(url);
   try {
-    const coll = client.db().collection<{ _id: string; h: string }>(process.env.METERS_COLLECTION || "meters");
+    const coll = client.db().collection<{ _id: string; h: string; ing?: number; s?: { t?: number } }>(process.env.METERS_COLLECTION || "meters");
     await Promise.all([coll.createIndex({ updatedAt: -1 }), coll.createIndex({ "s.t": -1 })]);
-    const existing = new Map<string, string>();
-    for await (const d of coll.find({}, { projection: { h: 1 } })) existing.set(d._id, d.h);
+    const existing = new Map<string, { h: string; ing?: number; s?: { t?: number } }>();
+    for await (const d of coll.find({}, { projection: { h: 1, ing: 1, "s.t": 1 } })) existing.set(d._id, d);
 
-    const changed = fresh.filter((d) => existing.get(d._id) !== d.h);
+    // contoarele ale căror date au venit DIRECT prin integrare și sunt la fel de noi sau mai noi decât cele din SCADA nu se suprascriu
+    const keptIngest = fresh.filter((d) => existing.get(d._id)?.h !== d.h && ingestIsNewer(existing.get(d._id), d.s.t)).length;
+    if (keptIngest) log(`integrare: ${keptIngest} contoare păstrate (datele primite direct sunt mai noi decât cele din SCADA)`);
+    const changed = fresh.filter((d) => existing.get(d._id)?.h !== d.h && !ingestIsNewer(existing.get(d._id), d.s.t));
     for (let i = 0; i < changed.length; i += 1000) {
       await coll.bulkWrite(changed.slice(i, i + 1000).map((d) => ({ replaceOne: { filter: { _id: d._id }, replacement: d as never, upsert: true } })), { ordered: false });
     }

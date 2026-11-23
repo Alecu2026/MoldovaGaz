@@ -12,6 +12,7 @@
     "sync:meters": "tsx scripts/sync-meters.ts",
     "sync:sources": "tsx scripts/sync-sources.ts",
     "analyze:nights": "tsx scripts/analyze-nights.ts",
+    "bench:integration": "tsx scripts/bench-integration.ts",
     "history:fetch": "tsx scripts/fetch-history.ts",
     "history:load": "tsx scripts/load-history.ts"
   },
