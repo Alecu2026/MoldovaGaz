@@ -78,7 +78,7 @@ async function main() {
     const billing = await fetchBilling();
     log(`  ${billing.length} rânduri de facturare`);
 
-    log("citesc lista contoarelor din SCADA (cei 10 clienți de gaz, fără Defectate_*)…");
+    log("citesc lista contoarelor din SCADA (cei 10 clienți de gaz, inclusiv Defectate_*)…");
     const list = await fetchDevices(log);
     const all: Dev[] = list.devices;
     if (all.length === 0) throw new Error("SCADA a întors 0 dispozitive: opresc (nu șterg nimic).");

@@ -1,3 +1,4 @@
+import { DEFECT_PROFILE } from "./meter-scope";
 import { ALERT_FLAGS, FLAG, activityOf, isStatusOk } from "./meter-shared";
 import type { MeterStore } from "./meter-store";
 
@@ -34,6 +35,8 @@ export type Filters = {
   billed: string;
   /** coordonate GPS: "" | 1 (are) | 0 (nu are) */
   geo: string;
+  /** contoare marcate „Defectate_*” în SCADA (după profil): "" | 1 (doar ele) | 0 (fără ele) */
+  defect: string;
   rssiMin: string; rssiMax: string;
   snrMin: string; snrMax: string;
   /** Volume (m3) */
@@ -51,7 +54,7 @@ export type Filters = {
 };
 
 export const NO_FILTERS: Filters = {
-  q: "", name: "", app: "", gw: "", type: "", dev: "", flag: "", branch: "", city: "", profile: "", fr: "", port: "", model: "", year: "", billed: "", geo: "",
+  q: "", name: "", app: "", gw: "", type: "", dev: "", flag: "", branch: "", city: "", profile: "", fr: "", port: "", model: "", year: "", billed: "", geo: "", defect: "",
   rssiMin: "", rssiMax: "", snrMin: "", snrMax: "", valMin: "", valMax: "", batMin: "", batMax: "", dcMin: "", dcMax: "", fcMin: "", fcMax: "",
   range: "", from: "", to: "",
 };
@@ -88,7 +91,7 @@ export type FilterResult = {
   volume: number;
 };
 
-const LIST_KEYS = ["app", "gw", "type", "dev", "flag", "branch", "city", "profile", "fr", "port", "model", "year", "billed", "geo"] as const;
+const LIST_KEYS = ["app", "gw", "type", "dev", "flag", "branch", "city", "profile", "fr", "port", "model", "year", "billed", "geo", "defect"] as const;
 /** Câte grupuri de filtre sunt active (intervalul de timp și fiecare interval numeric contează câte unul). */
 export function activeFilters(f: Filters): number {
   let n = 0;
@@ -165,6 +168,8 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
   }
   const billedNeed = f.billed === "1" ? 1 : f.billed === "0" ? 2 : 0;
   const geoNeed = f.geo === "1" ? 1 : f.geo === "0" ? 2 : 0;
+  const defectNeed = f.defect === "1" ? 1 : f.defect === "0" ? 2 : 0;
+  const defectPf = defectNeed !== 0 ? Uint8Array.from({ length: st.dict.pf.length + 1 }, (_, k) => (k > 0 && DEFECT_PROFILE.test(st.dict.pf[k - 1]) ? 1 : 0)) : null;
   const rMin = num(f.rssiMin, -Infinity), rMax = num(f.rssiMax, Infinity), rOn = rMin > -Infinity || rMax < Infinity;
   const sMin = num(f.snrMin, -Infinity), sMax = num(f.snrMax, Infinity), sOn = sMin > -Infinity || sMax < Infinity;
   const vMin = num(f.valMin, -Infinity), vMax = num(f.valMax, Infinity), vOn = vMin > -Infinity || vMax < Infinity;
@@ -224,6 +229,7 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
     if (flagOn && !((flagMask !== 0 && (flags & flagMask) !== 0) || (wantOk && isStatusOk(flags)) || (wantNoStatus && (flags & FLAG.STATUS) === 0) || (actWant !== 0 && (actWant & (1 << activityOf(t, now))) !== 0))) continue;
     if (billedNeed !== 0 && (billedNeed === 1) !== ((flags & FLAG.BILLED) !== 0)) continue;
     if (geoNeed !== 0 && (geoNeed === 1) !== (st.la[i] === st.la[i] && st.lo[i] === st.lo[i])) continue;
+    if (defectPf !== null && (defectPf[st.pf[i] + 1] === 1) !== (defectNeed === 1)) continue;
     if (frOk !== null && frOk[((fr[i] / 100) + 0.5) | 0] === 0) continue;
     if (ptOk !== null && ptOk[pt[i] + 1] === 0) continue;
     if (nameWords.length > 0) {
@@ -305,6 +311,7 @@ export function filtersFromParams(get: (k: string) => string | undefined): Filte
     fr: digits("fr", 80), port: digits("port", 80), model: digits("model", 80), year: digits("year", 80),
     billed: s("billed", 1) === "1" ? "1" : s("billed", 1) === "0" ? "0" : "",
     geo: s("geo", 1) === "1" ? "1" : s("geo", 1) === "0" ? "0" : "",
+    defect: s("defect", 1) === "1" ? "1" : s("defect", 1) === "0" ? "0" : "",
     rssiMin: numeric("rssiMin"), rssiMax: numeric("rssiMax"), snrMin: numeric("snrMin"), snrMax: numeric("snrMax"),
     valMin: numeric("valMin"), valMax: numeric("valMax"), batMin: numeric("batMin"), batMax: numeric("batMax"),
     dcMin: numeric("dcMin"), dcMax: numeric("dcMax"), fcMin: numeric("fcMin"), fcMax: numeric("fcMax"),
@@ -347,6 +354,7 @@ export function describeFilters(f: Filters, nameOf: (id: string) => string = (x)
   if (f.dev) add("dev", `Contor: ${nameOf(f.dev)}`, { dev: "" });
   if (f.flag) add("flag", `Stare: ${join(toList(f.flag).map((x) => FLAG_LABELS[x] ?? x))}`, { flag: "" });
   if (f.billed) add("billed", f.billed === "1" ? "Cu facturare" : "Fără facturare", { billed: "" });
+  if (f.defect) add("defect", f.defect === "1" ? "Doar „Defectate” în SCADA" : "Fără „Defectate” în SCADA", { defect: "" });
   if (f.geo) add("geo", f.geo === "1" ? "Cu coordonate GPS" : "Fără coordonate GPS", { geo: "" });
   if (f.fr) add("fr", `Frecvență: ${join(toList(f.fr).map((x) => (Number(x) === 0 ? "necunoscută" : `${(Number(x) / 1000).toFixed(1)} MHz`)))}`, { fr: "" });
   if (f.port) add("port", `Port: ${join(toList(f.port))}`, { port: "" });

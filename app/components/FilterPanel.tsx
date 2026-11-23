@@ -157,6 +157,14 @@ export function AdvancedFilters({ store, all, filters, patch }: PanelProps) {
           <option value="0">Fără coordonate</option>
         </select>
       </label>
+      <label className="field">
+        <span>Grup „Defectate” în SCADA</span>
+        <select className="select" value={filters.defect} onChange={(e) => patch({ defect: e.target.value })}>
+          <option value="">Toate</option>
+          <option value="1">Doar cele din grupul Defectate</option>
+          <option value="0">Fără grupul Defectate</option>
+        </select>
+      </label>
       <Range label="Volume" unit="m³" min={filters.valMin} max={filters.valMax} onMin={(v) => patch({ valMin: v })} onMax={(v) => patch({ valMax: v })} />
       <Range label="Consum zilnic" unit="L" min={filters.dcMin} max={filters.dcMax} onMin={(v) => patch({ dcMin: v })} onMax={(v) => patch({ dcMax: v })} />
       <Range label="Baterie" unit="%" min={filters.batMin} max={filters.batMax} onMin={(v) => patch({ batMin: v })} onMax={(v) => patch({ batMax: v })} />

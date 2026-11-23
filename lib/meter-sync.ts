@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { branchLabel, FLAG, METER_NAME, validCoords, type MeterSummary } from "./meter-shared";
-import { CUSTOMER_FIL, EXCLUDED_PROFILE, GAS_CUSTOMERS } from "./meter-scope";
+import { CUSTOMER_FIL, GAS_CUSTOMERS } from "./meter-scope";
 import { tbCustomerDevices, tbLatest, type TbEntity, type TbLatest } from "./thingsboard";
 
 /**
  * Combină sursele într-un document pe contor (colecția `meters`):
- *  1. SCADA (iiot.scada.md) — LISTA contoarelor: toate dispozitivele celor 10 clienți de gaz (lib/meter-scope.ts), fără „Defectate_*”;
+ *  1. SCADA (iiot.scada.md) — LISTA contoarelor: toate dispozitivele celor 10 clienți de gaz (lib/meter-scope.ts), inclusiv „Defectate_*”;
  *  2. getmgdb    — facturarea Moldovagaz (filiala FIL, cont, adresă, consumator, număr radio…);
  *  3. SCADA — valorile CURENTE (Volume_m3_Total, Volume_m3_Total_ts, coordonate, semnal, baterie, consumuri…) și atributele, citite în loturi.
  * Legătura facturare ↔ dispozitiv: NUM_RADIO (8 cifre) = seria din numele dispozitivului („S2154_00070948_2022” → 00070948).
@@ -90,7 +90,7 @@ export async function fetchLorawan(): Promise<unknown[]> {
 }
 
 /**
- * Contoarele de gaz din SCADA: toate dispozitivele celor 10 clienți din lib/meter-scope.ts, fără profilurile excluse (Defectate_*).
+ * Contoarele de gaz din SCADA: toate dispozitivele celor 10 clienți din lib/meter-scope.ts (inclusiv profilurile „Defectate_*”: și ele trimit mesaje), fără dubluri.
  * Doar citire, clientul pe rând, pagini de 1000, cu pauză între cereri. Un client care nu răspunde oprește tot (nu construim o listă incompletă).
  */
 export async function fetchDevices(log: (m: string) => void = () => {}): Promise<{ devices: Dev[]; perCustomer: { name: string; total: number; kept: number }[] }> {
@@ -103,7 +103,7 @@ export async function fetchDevices(log: (m: string) => void = () => {}): Promise
     if (r.devices.length !== r.total) throw new Error(`${c.name}: am primit ${r.devices.length} dispozitive din ${r.total} — opresc.`);
     let kept = 0;
     for (const d of r.devices) {
-      if (EXCLUDED_PROFILE.test(d.type) || seen.has(d.id.id)) continue;
+      if (seen.has(d.id.id)) continue;
       seen.add(d.id.id);
       devices.push(d);
       kept++;

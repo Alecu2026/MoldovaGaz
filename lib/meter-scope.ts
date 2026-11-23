@@ -1,10 +1,10 @@
 /**
  * CE contoare intră în aplicație: contoarele de gaz Moldovagaz ale celor 10 filiale, așa cum sunt în SCADA (iiot.scada.md).
  * Fiecare filială are un „client” în ThingsBoard (ex. ComratGaz_DashGroup); toate dispozitivele clientului sunt contoarele filialei.
- * Cifrele verificate pe iiot.scada.md: 68.930 de contoare + 5.567 „Defectate_*” (excluse) = 74.497 dispozitive la cei 10 clienți.
- * Dashboard-ul „MoldovaGaz” din SCADA arată 68.941 / 68.917, deci același set.
+ * Cifrele verificate pe iiot.scada.md: 68.930 de contoare + 5.567 „Defectate_*” = 74.497 dispozitive la cei 10 clienți; INTRĂ TOATE (și cele „Defectate_*”: au grup separat în SCADA, dar mai multe
+ * trimit mesaje, deci trebuie să apară și să li se aplice mesajele; profilul rămâne vizibil și filtrabil). Dashboard-ul „MoldovaGaz” din SCADA arată 68.941 / 68.917 (fără defecte).
  *
- * Nu intră: profilurile „Defectate_*” (contoare defecte, au grup separat în SCADA), `Edge_Gas_Meter_DP` și `default` (fără client / filială),
+ * Nu intră: `Edge_Gas_Meter_DP` și `default` (fără client / filială),
  * apa, energia, gateway-urile și dispozitivele de test. Se schimbă DOAR aici.
  */
 export type GasCustomer = { id: string; name: string; fil: string };
@@ -25,5 +25,5 @@ export const GAS_CUSTOMERS: GasCustomer[] = [
 /** client ThingsBoard → codul filialei (FIL) */
 export const CUSTOMER_FIL: Record<string, string> = Object.fromEntries(GAS_CUSTOMERS.map((c) => [c.id, c.fil]));
 
-/** profiluri de dispozitiv excluse chiar dacă aparțin unui client de gaz */
-export const EXCLUDED_PROFILE = /^Defectate_/i;
+/** profilul contoarelor marcate defecte în SCADA (NU se exclud: intră în aplicație, cu profilul vizibil) */
+export const DEFECT_PROFILE = /^Defectate_/i;

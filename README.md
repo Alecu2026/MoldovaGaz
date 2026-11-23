@@ -6,7 +6,7 @@ Next.js 16 (App Router, Cache Components) + MongoDB. Arată contoarele de gaz Mo
 
 | Sursă | Ce aduce |
 |---|---|
-| **SCADA** (ThingsBoard, `iiot.scada.md` / `192.168.77.24:8080`) | **lista contoarelor** (dispozitivele celor 10 clienți de gaz, fără `Defectate_*`: vezi [lib/meter-scope.ts](lib/meter-scope.ts)), valorile curente (`Volume_m3_Total`, `Volume_m3_Total_ts`, **coordonate** `latitude` / `longitude`, RSSI/SNR, baterie, consumuri…), atributele și **istoricul** |
+| **SCADA** (ThingsBoard, `iiot.scada.md` / `192.168.77.24:8080`) | **lista contoarelor** (dispozitivele celor 10 clienți de gaz, inclusiv `Defectate_*`: vezi [lib/meter-scope.ts](lib/meter-scope.ts)), valorile curente (`Volume_m3_Total`, `Volume_m3_Total_ts`, **coordonate** `latitude` / `longitude`, RSSI/SNR, baterie, consumuri…), atributele și **istoricul** |
 | `getmgdb` (`http://192.168.77.11:3880/getmgdb`) | facturarea: **filiala (FIL)**, cont (ACCT_ID), **număr radio**, adresă, consumator, secție, controlor… |
 
 **Legătura facturare ↔ dispozitiv:** `NUM_RADIO` (8 cifre) = seria din numele dispozitivului (`S2154_00070948_2022` → `00070948`). **Filiala:** codul `FIL` din facturare (01 Chișinău, 05 Comrat, 10 Edineț, 11 Cahul, 20 Orhei, 27 Taraclia, 31 Florești, 33 Cimișlia, 35 Ștefan Vodă, 36 Ialoveni); contoarele fără facturare primesc filiala clientului lor din SCADA (fiecare filială are un client: `ComratGaz_DashGroup`, `OrheiGaz_DashGroup`…). Cheile LoRaWAN (APPKEY / NWKSKEY / APPSKEY) **nu** se copiază niciodată în aplicație.

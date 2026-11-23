@@ -25,7 +25,7 @@ import { distanceKm as kmDist } from "../lib/geo";
 import { eventToMsg, gatewaysOf, looksLikeEvent, looksLikeUplink, nameKey, uplinkToMsg } from "../lib/integration-uplink";
 import { MAX_BATCH, isStaleFcnt, isStaleUplink, ingestIsNewer, mergeDerive, mergeMsgs, normTs, parseMessage, type MeterDocIng } from "../lib/integration";
 import { MAX_READINGS, appendReadings, readingOf } from "../lib/meter-readings";
-import { EXCLUDED_PROFILE, GAS_CUSTOMERS } from "../lib/meter-scope";
+import { DEFECT_PROFILE, GAS_CUSTOMERS } from "../lib/meter-scope";
 import type { Db } from "mongodb";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -116,6 +116,8 @@ const naive = (f: Filters): number[] => {
     }
     if (f.billed === "1" && !(v.fl & FLAG.BILLED)) continue;
     if (f.billed === "0" && v.fl & FLAG.BILLED) continue;
+    if (f.defect === "1" && !/^Defectate_/i.test(v.profile ?? "")) continue;
+    if (f.defect === "0" && /^Defectate_/i.test(v.profile ?? "")) continue;
     if (f.geo === "1" && v.lat === null) continue;
     if (f.geo === "0" && v.lat !== null) continue;
     if (f.fr && !L(f.fr).includes(String(v.freqKhz))) continue;
@@ -137,7 +139,7 @@ const naive = (f: Filters): number[] => {
 const cases: [string, Filters][] = [
   ["filială", F({ branch: "05 · Comrat" })], ["filiale multi", F({ branch: "05 · Comrat|20 · Orhei" })], ["oraș", F({ city: "Rezina" })], ["oraș multi", F({ city: "Cahul|Orhei" })],
   ["profil", F({ profile: "Defectate_Jooby_Gaz" })], ["aplicație", F({ app: "app1|app3" })], ["concentrator", F({ gw: "gwA|gwD" })], ["tip multi", F({ type: "DeviceStatus|CurrentData" })],
-  ["cu coordonate", F({ geo: "1" })], ["fără coordonate", F({ geo: "0" })], ["coordonate + filială", F({ geo: "1", branch: "05 · Comrat" })],
+  ["doar defectate", F({ defect: "1" })], ["fără defectate", F({ defect: "0" })], ["defectate + filială", F({ defect: "1", branch: "05 · Comrat" })], ["cu coordonate", F({ geo: "1" })], ["fără coordonate", F({ geo: "0" })], ["coordonate + filială", F({ geo: "1", branch: "05 · Comrat" })],
   ["stare OK", F({ flag: "ok" })], ["fără raport de stare", F({ flag: "nostatus" })], ["OK + offline", F({ flag: "ok|offline" })], ["OK + serie repetată", F({ flag: "ok|dup|nostatus" })],
   ["serie repetată", F({ flag: "dup" })], ["serie repetată + offline", F({ flag: "dup|offline" })],
   ["stare multi", F({ flag: "batt|button" })], ["stare alert", F({ flag: "alert" })], ["inactiv", F({ flag: "inactive" })], ["cu facturare", F({ billed: "1" })], ["fără facturare", F({ billed: "0" })],
@@ -567,9 +569,9 @@ const section7 = (async () => {
     check("scada: din fiecare dispozitiv rămân doar câmpurile de identificare (fără deviceData / chei / token)", !JSON.stringify(one.devices).match(/SECRET|APPKEY|NWKSKEY|deviceData|transportConfiguration|secretToken/) && Object.keys(one.devices[0]).sort().join() === "createdTime,customerId,id,label,name,type" && one.devices[0].label === "eticheta");
     calls.length = 0;
     const lst = await fetchDevices();
-    const expectKept = [...world.values()].reduce((a, l) => a + l.filter((d) => !/^Defectate_/.test(d.type)).length, 0) - 1; // −1: duplicatul
-    check("scada: lista finală = cei 10 clienți, fără Defectate_* și fără dubluri", lst.devices.length === expectKept && lst.devices.every((d) => !EXCLUDED_PROFILE.test(d.type)) && new Set(lst.devices.map((d) => d.id.id)).size === lst.devices.length && lst.perCustomer.length === 10, `${lst.devices.length} contoare`);
-    check("scada: pe fiecare client se raportează total și păstrate", lst.perCustomer.every((p) => p.total >= p.kept && p.total - p.kept >= 2) && lst.perCustomer[0].total === 5 + 2 + 1);
+    const expectKept = [...world.values()].reduce((a, l) => a + l.length, 0) - 1; // −1: duplicatul
+    check("scada: lista finală = cei 10 clienți, CU Defectate_* și fără dubluri", lst.devices.length === expectKept && lst.devices.some((d) => DEFECT_PROFILE.test(d.type)) && new Set(lst.devices.map((d) => d.id.id)).size === lst.devices.length && lst.perCustomer.length === 10, `${lst.devices.length} contoare`);
+    check("scada: pe fiecare client se raportează total și păstrate", lst.perCustomer.every((p) => p.total >= p.kept && p.total - p.kept <= 1) && lst.perCustomer[0].total === 5 + 2 + 1);
     check("scada: se cheamă doar adrese permise (login + lista clienților); nicio scriere", calls.every((c) => c === "POST /api/auth/login" || /^GET \/api\/customer\/[0-9a-f-]{36}\/devices\?pageSize=1000&page=\d+$/.test(c)) && calls.filter((c) => c.startsWith("GET")).length === 10, `${calls.length} cereri`);
     breakTotal = true;
     let stopped = false;
@@ -579,7 +581,7 @@ const section7 = (async () => {
     const okGet = (p: string) => { try { assertReadOnly("GET", p); return true; } catch { return false; } };
     const cid = GAS_CUSTOMERS[0].id;
     check("read-only: citirea listei unui client e permisă, dar nu și alte apeluri pe client", okGet(`/api/customer/${cid}/devices?pageSize=1000&page=0`) && !okGet(`/api/customer/${cid}`) && !okGet(`/api/customer/${cid}/devices?pageSize=1000&page=0&x=1`) && !okGet("/api/customers?pageSize=10&page=0") && !(() => { try { assertReadOnly("POST", `/api/customer/${cid}/devices?pageSize=1000&page=0`); return true; } catch { return false; } })() && !(() => { try { assertReadOnly("DELETE", `/api/customer/${cid}/devices?pageSize=1000&page=0`); return true; } catch { return false; } })());
-    check("scope: cei 10 clienți au filiale distincte, toate cunoscute (01…36)", GAS_CUSTOMERS.length === 10 && new Set(GAS_CUSTOMERS.map((c) => c.fil)).size === 10 && GAS_CUSTOMERS.every((c) => /^(01|05|10|11|20|27|31|33|35|36)$/.test(c.fil)) && !EXCLUDED_PROFILE.test("Comrat_Gas_Meter_DP") && EXCLUDED_PROFILE.test("Defectate_Jooby_Gaz"));
+    check("scope: cei 10 clienți au filiale distincte, toate cunoscute (01…36)", GAS_CUSTOMERS.length === 10 && new Set(GAS_CUSTOMERS.map((c) => c.fil)).size === 10 && GAS_CUSTOMERS.every((c) => /^(01|05|10|11|20|27|31|33|35|36)$/.test(c.fil)) && !DEFECT_PROFILE.test("Comrat_Gas_Meter_DP") && DEFECT_PROFILE.test("Defectate_Jooby_Gaz"));
     // filiala vine din clientul dispozitivului (și fără facturare)
     const dv = (id: string, cust: string): Dev => ({ id: { id }, name: "S2154_00000777_2024", type: "Comrat_Gas_Meter_DP", createdTime: 1, customerId: { id: cust } });
     const built = buildDocs([dv("z1", GAS_CUSTOMERS[0].id), dv("z2", GAS_CUSTOMERS[1].id), dv("z3", "client-necunoscut")], [], new Map(), new Date());
