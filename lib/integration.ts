@@ -234,5 +234,8 @@ export function mergeDerive(existing: MeterDocIng | null, id: string, msg: Integ
 
 /** Când sincronizarea din SCADA NU are voie să suprascrie un contor: datele lui venite prin integrare sunt la fel de noi sau mai noi decât cele din SCADA. */
 export function ingestIsNewer(existing: { ing?: number; s?: { t?: number } } | undefined, scadaReadingTs: number): boolean {
-  return !!existing && typeof existing.ing === "number" && (existing.s?.t ?? 0) >= scadaReadingTs;
+  if (!existing || typeof existing.ing !== "number") return false;
+  const t = existing.s?.t ?? 0;
+  if (t > Date.now() + 3_600_000) return false; // dată imposibilă în viitor (ceas greșit): nu are voie să blocheze actualizarea din SCADA
+  return t >= scadaReadingTs;
 }

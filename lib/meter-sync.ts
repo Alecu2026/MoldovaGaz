@@ -263,7 +263,10 @@ export function buildDocs(devices: Dev[], billing: Bill[], latest: Map<string, T
     const v = vol ? num(vol.v) : null;
     const lastAct = num(av(l, "SERVER_ATTRIBUTE", "lastActivityTime"));
     // activitatea = momentul CITIRII de volum (Volume_m3_Total_ts: ora la care contorul a citit, cu secunde); dacă lipsește, momentul în care a ajuns Volume_m3_Total
-    let ts = volTs && volTs.t > 0 ? volTs.t : vol?.t ?? 0;
+    // ceasul contorului poate fi greșit (la ~1.500 de contoare Volume_m3_Total_ts are ani în viitor: 2029, 2118…): citirea nu poate fi mai nouă decât
+    // momentul sosirii (sau „acum”) cu mai mult de o oră; altfel se folosește momentul sosirii
+    const readingLimit = Math.max(vol?.t ?? 0, now.getTime()) + 3_600_000;
+    let ts = volTs && volTs.t > 0 && volTs.t <= readingLimit ? volTs.t : vol?.t ?? 0;
     if (!ts) for (const k of ["rssi", "loRaSNR", "decodeTime", "fCnt"]) ts = Math.max(ts, l.TIME_SERIES?.[k]?.ts ?? 0);
     if (!ts && lastAct) ts = lastAct;
 

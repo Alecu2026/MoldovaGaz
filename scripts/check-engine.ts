@@ -309,6 +309,9 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
       const b3 = buildDocs(devices, billing, new Map([["c2", t2]]), new Date(0)).docs.find((d) => d._id === "c2")!.s;
       check("sync: coloanele din SCADA (aragaz / cazan / încălzire ca biți, litri la instalare, contor SN, cont personal, data calibrării, stradă din facturare)", !!(b3.fl & FLAG.ARAGAZ) && !(b3.fl & FLAG.CAZAN) && !!(b3.fl & FLAG.INCALZ) && b3.il === 14098843 && b3.sn2 === "4624641" && b3.cp === "0580200708" && b3.cl === 1700000000000 && b3.sr === "Str. Mare");
       check("sync: fără acele atribute ⇒ câmpuri goale / null, fără biți", !(s.fl & FLAG.ARAGAZ) && !(s.fl & FLAG.INCALZ) && s.il === null && s.cl === null && s.sn2 === ""); }
+    { const mk = (extra: number) => { const x = tel({ Volume_m3_Total: "10.000" }); x.TIME_SERIES.Volume_m3_Total = { ts: 1_700_000_900_000, value: "10.000" }; x.TIME_SERIES.Volume_m3_Total_ts = { ts: 1_700_000_900_000 + extra, value: "10.000" }; return buildDocs(devices, billing, new Map([["c1", x]]), new Date(0)).docs.find((d) => d._id === "c1")!.s.t; };
+      check("sync: ora citirii în VIITOR (ceasul contorului e greșit: +3 ani, +90 de ani) ⇒ se folosește momentul sosirii, nu data imposibilă", mk(3 * 365 * 86_400_000) === 1_700_000_900_000 && mk(90 * 365 * 86_400_000) === 1_700_000_900_000);
+      check("sync: ora citirii la cel mult o oră după sosire (diferență de ceas mică) se păstrează; peste o oră ⇒ momentul sosirii", mk(1_800_000) === 1_700_000_900_000 + 1_800_000 && mk(3_700_000) === 1_700_000_900_000 && mk(-5_000_000) === 1_700_000_900_000 - 5_000_000); }
     check("sync: fără Volume_m3_Total_ts ⇒ momentul lui Volume_m3_Total; fără atributele de timp ⇒ null", s.t === 1_700_000_000_000 && s.ac === null && s.ia === null); }
   check("sync: contor fără telemetrie → fără citire (nu zero)", by.get("c5")!.s.v === null && by.get("c5")!.s.t === 0 && by.get("c5")!.s.r === null);
   check("sync: ContPersonal rămâne text (zerouri păstrate), devEUI cu litere mici", by.get("c0")!.attrs.ContPersonal === "0123" && by.get("c0")!.s.e === "001a798816000001");
@@ -487,6 +490,7 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   const byName = P({ tb: { name: "S2154_00000001_2024", type: "Comrat_Gas_Meter_DP", customerId: "2e2874d0-7c4e-11ed-bc64-85872813a734" }, tel: { Volume_m3_Total: tl("10.5") } });
   const fresh = mergeDerive(null, "11111111-2222-3333-4444-555555555555", byName, new Date(NOW));
   check("integrare: contor nou fără facturare — filiala vine din clientul lui (Comrat 05), volumul și momentul din mesaj", fresh.doc.s.br === "05 · Comrat" && fresh.doc.s.v === 10.5 && fresh.doc.bill === null && fresh.doc.s.t === T);
+  check("integrare: un contor cu data în VIITOR (ceas greșit, ex. 2053) NU mai blochează actualizarea din SCADA", !ingestIsNewer({ ing: 5, s: { t: Date.now() + 27 * 365 * 86_400_000 } }, Date.now()) && ingestIsNewer({ ing: 5, s: { t: Date.now() + 600_000 } }, Date.now() - 1000));
   check("integrare: sincronizarea din SCADA nu suprascrie date venite direct, la fel de noi sau mai noi", ingestIsNewer({ ing: 5, s: { t: 2000 } }, 1000) && ingestIsNewer({ ing: 5, s: { t: 2000 } }, 2000) && !ingestIsNewer({ ing: 5, s: { t: 1000 } }, 2000) && !ingestIsNewer({ s: { t: 9000 } }, 1000) && !ingestIsNewer(undefined, 1));
 }
 
