@@ -22,7 +22,7 @@ import { writeSource } from "../lib/source-sync";
 import * as NA from "../lib/night-analysis";
 import { counterOf, lostOf, newStream, observe } from "../lib/integration-counter";
 import { distanceKm as kmDist } from "../lib/geo";
-import { gatewaysOf, looksLikeUplink, nameKey, uplinkToMsg } from "../lib/integration-uplink";
+import { eventToMsg, gatewaysOf, looksLikeEvent, looksLikeUplink, nameKey, uplinkToMsg } from "../lib/integration-uplink";
 import { MAX_BATCH, isStaleFcnt, isStaleUplink, ingestIsNewer, mergeDerive, mergeMsgs, normTs, parseMessage, type MeterDocIng } from "../lib/integration";
 import { MAX_READINGS, appendReadings, readingOf } from "../lib/meter-readings";
 import { EXCLUDED_PROFILE, GAS_CUSTOMERS } from "../lib/meter-scope";
@@ -504,6 +504,13 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   check("counter: câmpuri recunoscute (counter, cnt, seq, text cu cifre), flux din stream; fără număr / negativ / zecimal ⇒ null", counterOf({ counter: 7 })?.value === 7 && counterOf({ cnt: "42", stream: "A" })?.stream === "A" && counterOf({ seq: 3 })?.field === "seq" && counterOf({ a: 1 }) === null && counterOf({ counter: -1 }) === null && counterOf({ counter: 1.5 }) === null && counterOf("text") === null && counterOf([1]) === null);
   const big = newStream("b", "counter", 0, 1); for (let i = 1; i <= 3000; i++) observe(big, i * 2, 2);
   check("counter: cu multe goluri lista rămâne limitată, dar numărul pierdut rămâne exact", big.missing.length <= 1000 && lostOf(big) === 3000 && big.received === 3001 && big.received + lostOf(big) === big.max - big.first + 1);
+  // evenimente de stare / eroare ale serverului LoRaWAN (fără object / rxInfo)
+  const evS = { applicationID: "9", applicationName: "App_Comrat", deviceName: "2154_00174121_2024", devEUI: "001A798816010C5E", margin: 7, externalPowerSource: false, batteryLevel: 0, batteryLevelUnavailable: true };
+  const evE = { applicationID: "9", applicationName: "App_Comrat", deviceName: "S2154_00174121_2024", devEUI: "001a798816010c5e", type: "UPLINK_F_CNT_RETRANSMISSION", error: "retransmisie" };
+  const em = parseMessage(evS, NOW), ee = parseMessage(evE, NOW);
+  check("eveniment de stare: recunoscut, devEUI cu litere mici, margin / baterie ca telemetrie; fără impulsuri și fără „activ”", looksLikeEvent(evS) && em.ok && em.msg.eui === "001a798816010c5e" && em.msg.tel.margin.v === "7" && em.msg.tel.batteryLevel.v === "0" && em.msg.tel.externalPowerSource.v === "false" && em.msg.pulse === null && !("active" in em.msg.attrs) && em.msg.nameKey === "2154_00174121_2024");
+  check("eveniment de eroare: type / error ⇒ evType / evError", ee.ok && ee.msg.tel.evType.v === "UPLINK_F_CNT_RETRANSMISSION" && ee.msg.tel.evError.v === "retransmisie");
+  check("eveniment: doar câmpurile de identificare ⇒ nu e eveniment; uplink-ul și documentul de contor rămân neschimbate", !looksLikeEvent({ devEUI: "001a798816010c5e", deviceName: "x", applicationName: "y" }) && !looksLikeEvent(up()) && !looksLikeEvent({ devEUI: "001a798816010c5e", tel: {}, margin: 1 }) && !eventToMsg({ devEUI: "zz" }, NOW).ok);
   const pm = parseMessage(up(), NOW);
   check("uplink: parseMessage îl recunoaște singur; devEUI greșit ⇒ respins cu motiv", pm.ok && pm.msg.eui === "001a798816011d62" && !uplinkToMsg({ devEUI: "xyz", object: {} } as never, NOW).ok);
 

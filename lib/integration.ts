@@ -1,7 +1,7 @@
 import { FLAG } from "./meter-shared";
 import { CLIENT_KEYS, SERVER_KEYS, buildDocs, hashBody, type Bill, type Dev, type MeterDoc } from "./meter-sync";
 import type { TbLatest } from "./thingsboard";
-import { looksLikeUplink, normTs, uplinkToMsg } from "./integration-uplink";
+import { eventToMsg, looksLikeEvent, looksLikeUplink, normTs, uplinkToMsg } from "./integration-uplink";
 
 export { normTs };
 
@@ -57,6 +57,7 @@ function scalar(v: unknown): string | null {
 
 export function parseMessage(x: unknown, now: number = Date.now()): Parsed {
   if (looksLikeUplink(x)) return uplinkToMsg(x, now); // uplink brut de la serverul LoRaWAN (ChirpStack / Jooby)
+  if (looksLikeEvent(x)) return eventToMsg(x, now); // eveniment de stare / eroare al serverului LoRaWAN (fără uplink)
   if (!isObj(x)) return { ok: false, error: "mesajul trebuie să fie un obiect JSON" };
   const tbIn = isObj(x.tb) ? x.tb : {};
   const idRaw = typeof x.id === "string" ? x.id.trim() : typeof tbIn.id === "string" ? tbIn.id.trim() : "";

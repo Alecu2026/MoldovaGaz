@@ -31,6 +31,34 @@ const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object
 export const looksLikeUplink = (x: unknown): x is Record<string, unknown> =>
   isObj(x) && typeof x.devEUI === "string" && (isObj(x.object) || Array.isArray(x.rxInfo)) && x.tel === undefined && x.tb === undefined;
 
+const EVENT_META = new Set(["applicationID", "applicationName", "deviceName", "devEUI", "devAddr", "deviceProfileName", "tags", "time", "publishedAt", "timestamp"]);
+
+/**
+ * Evenimentele serverului LoRaWAN care NU sunt uplink-uri (stare de dispozitiv: { devEUI, margin, batteryLevel, externalPowerSource, … }, erori / jurnal: { devEUI, type, error }):
+ * au devEUI și câmpuri simple, dar nu au nici `object`, nici `rxInfo`, nici forma documentului de contor.
+ */
+export const looksLikeEvent = (x: unknown): x is Record<string, unknown> =>
+  isObj(x) && typeof x.devEUI === "string" && /^[0-9a-f]{16}$/i.test(x.devEUI.trim()) && x.object === undefined && x.rxInfo === undefined && x.tel === undefined && x.tb === undefined && x.attrs === undefined &&
+  Object.keys(x).some((k) => !EVENT_META.has(k));
+
+/** Eveniment → telemetrie simplă (margin, batteryLevel, …; type / error ⇒ evType / evError). Nu atinge volumul și nu schimbă starea „activ” (nu e un mesaj al contorului). */
+export function eventToMsg(x: Record<string, unknown>, now: number = Date.now()): Parsed {
+  const eui = String(x.devEUI ?? "").trim().toLowerCase();
+  if (!/^[0-9a-f]{16}$/.test(eui)) return { ok: false, error: "eveniment: devEUI invalid (se așteaptă 16 cifre hexazecimale)" };
+  const t = Math.min(now, normTs(x.time ?? x.publishedAt ?? x.timestamp) ?? now);
+  const tel: IntegrationMsg["tel"] = {};
+  for (const [k, v] of Object.entries(x)) {
+    if (EVENT_META.has(k)) continue;
+    const key = k === "type" ? "evType" : k === "error" ? "evError" : k;
+    if (!/^[A-Za-z0-9_]{1,64}$/.test(key)) continue;
+    if (typeof v === "number" && Number.isFinite(v)) tel[key] = { t, v: String(v) };
+    else if (typeof v === "boolean") tel[key] = { t, v: String(v) };
+    else if (typeof v === "string" && v.length <= 512) tel[key] = { t, v };
+  }
+  const dev = typeof x.deviceName === "string" ? x.deviceName.trim() : "";
+  return { ok: true, msg: { id: null, name: null, eui, nameKey: nameKey(dev), tb: {}, bill: null, attrs: { devEUI: eui }, tel, pulse: null, fcnt: null } };
+}
+
 /** „2154_00073058_2022”, „S2154_00073058_2022” și „SN2154_00073058_2022” → „2154_00073058_2022”; alt nume ⇒ null. */
 export function nameKey(name: string | null | undefined): string | null {
   const m = name ? METER_NAME.exec(name.trim()) : null;
