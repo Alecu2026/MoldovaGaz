@@ -20,7 +20,13 @@ flock -n 9 || { echo "Alt deploy rulează deja."; exit 0; }
 # pornește / reîncarcă DOAR aplicația (nu și watcher-ul care a pornit acest script)
 start_or_reload() {
   mkdir -p logs
-  pm2 startOrReload ecosystem.config.js --only "$NAME,$NAME-sync" --update-env
+  pm2 startOrReload ecosystem.config.js --only "$NAME" --update-env
+  # Sincronizarea se pornește SEPARAT și doar dacă nu există. Cu `--only "$NAME,$NAME-sync"` pm2 i-a dat orarul altei aplicații (rula în fiecare minut
+  # și se întrerupea singură), iar o repornire la fiecare deploy ar întrerupe o sincronizare în curs. Codul ei se reîncarcă oricum la fiecare rulare.
+  # Ca să schimbi orarul din ecosystem.config.js:  pm2 delete "$NAME-sync"  și apoi un deploy.
+  if ! pm2 describe "$NAME-sync" >/dev/null 2>&1; then
+    pm2 start ecosystem.config.js --only "$NAME-sync" --update-env
+  fi
   pm2 save >/dev/null
 }
 
