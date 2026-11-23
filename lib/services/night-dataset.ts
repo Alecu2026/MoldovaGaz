@@ -113,6 +113,8 @@ export function clampParams(q: Partial<Record<keyof SuspectParams, string | null
   };
   const tempRaw = q.minTemp;
   const minTemp = tempRaw === "" || tempRaw === "none" ? null : tempRaw === null || tempRaw === undefined ? DEFAULT_PARAMS.minTemp : num(tempRaw, DEFAULT_PARAMS.minTemp ?? 22, -50, 100);
+  const maxRaw = q.maxTemp;
+  const maxTemp = maxRaw === null || maxRaw === undefined || maxRaw === "" || maxRaw === "none" ? null : num(maxRaw, 100, -50, 100);
   const dropRaw = q.maxTempDrop;
   const maxTempDrop = dropRaw === null || dropRaw === undefined || dropRaw === "" || dropRaw === "none" ? null : num(dropRaw, 0, -50, 100);
   const nights = Math.round(num(q.nights, DEFAULT_PARAMS.nights, 1, NIGHTS));
@@ -125,6 +127,7 @@ export function clampParams(q: Partial<Record<keyof SuspectParams, string | null
     minDay: num(q.minDay, DEFAULT_PARAMS.minDay, 0, 10_000),
     minTemp,
     tempMode: q.tempMode === "day" ? "day" : "night",
+    maxTemp, hasTemp: q.hasTemp === "1",
     maxTempDrop,
     minNights: Math.round(num(q.minNights, DEFAULT_PARAMS.minNights, 1, nights)),
   };

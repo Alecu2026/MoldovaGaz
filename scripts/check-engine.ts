@@ -395,7 +395,7 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
     const temp = rn() < 0.7 ? new Int8Array(ND * 24).map(() => (rn() < 0.1 ? NA.MARK_T : Math.round((10 + rn() * 30) * 2))) : null;
     for (let q = 0; q < 8; q++) {
       const nights = 1 + Math.floor(rn() * ND);
-      const p: NA.SuspectParams = { startHour: Math.floor(rn() * 24), endHour: 1 + Math.floor(rn() * 24), nights, maxNight: [0, 0.5, 1, 3][Math.floor(rn() * 4)], minDay: [0, 2, 5][Math.floor(rn() * 3)], minTemp: [null, 15, 22][Math.floor(rn() * 3)], tempMode: rn() < 0.5 ? "night" : "day", maxTempDrop: [null, 0, 2, 5][Math.floor(rn() * 4)], minNights: 1 };
+      const p: NA.SuspectParams = { startHour: Math.floor(rn() * 24), endHour: 1 + Math.floor(rn() * 24), nights, maxNight: [0, 0.5, 1, 3][Math.floor(rn() * 4)], minDay: [0, 2, 5][Math.floor(rn() * 3)], minTemp: [null, 15, 22][Math.floor(rn() * 3)], maxTemp: [null, null, 18, 30][Math.floor(rn() * 4)], hasTemp: rn() < 0.3, tempMode: rn() < 0.5 ? "night" : "day", maxTempDrop: [null, 0, 2, 5][Math.floor(rn() * 4)], minNights: 1 };
       const row = NA.nightRowFromProfile(cons, temp, ND, p.startHour, p.endHour, p.nights);
       const a = NA.countMatches(row, { ...p, nights: row.nc.length });
       const b = NA.countFromProfile(cons, temp, ND, p);
@@ -409,7 +409,7 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   const consD = new Uint16Array(ND3 * 24).map((_, i) => (i % 24 < 6 ? 0 : 500));
   const same = new Int8Array(ND3 * 24).fill(42); // 21 °C tot timpul
   const cooler = new Int8Array(ND3 * 24).map((_, i) => (i % 24 < 6 ? 30 : 42)); // 15 °C noaptea, 21 °C ziua
-  const base = { ...NA.DEFAULT_PARAMS, nights: 3, minNights: 1, minTemp: null, maxTempDrop: 2 };
+  const base = { ...NA.DEFAULT_PARAMS, nights: 3, minNights: 1, minTemp: null, maxTemp: null, hasTemp: false, maxTempDrop: 2 };
   check("scădere de temperatură: noaptea la fel de caldă ca ziua (scădere 0) se potrivește; noaptea mai rece cu 6 °C nu (prag 2 °C)", NA.countFromProfile(consD, same, ND3, base).matched === 3 && NA.countFromProfile(consD, cooler, ND3, base).matched === 0 && NA.countFromProfile(consD, cooler, ND3, { ...base, maxTempDrop: 6 }).matched === 3 && NA.countFromProfile(consD, same, ND3, { ...base, maxTempDrop: null }).matched === 3);
   const rowSame = NA.nightRowFromProfile(consD, same, ND3, 0, 6, 3), rowCool = NA.nightRowFromProfile(consD, cooler, ND3, 0, 6, 3);
   check("scădere de temperatură: valoarea afișată = media de zi − media de noapte (0 și 6 °C); fără temperatură ⇒ necunoscută și nu se potrivește", rowSame.td?.[0] === 0 && rowCool.td?.[0] === 6 && NA.countFromProfile(consD, null, ND3, base).matched === 0);

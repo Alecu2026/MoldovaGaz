@@ -109,6 +109,8 @@ API-ul `POST /api/integration` (pagina `/integration`) primește mesaje de conto
 
 Instrument de încărcare și verificare: `npm run bench:integration -- load | burst | verify | auth` (doar pe o bază de TEST). Rezultate măsurate local (un singur proces Node, MongoDB local): ritm de 20 cereri/s → latență p50 20 ms / p99 22 ms; vârf de 250 cereri simultane → ~1.200 cereri/s, p99 430 ms; 80.000 de mesaje în pachete de 200 primite într-o secundă și aplicate în 3 s; oprire brutală a serverului în mijlocul unui vârf de 12.000 de cereri ⇒ după repornire toate mesajele confirmate sunt aplicate (0 pierdute).
 
+**Filtre de temperatură în „Consum nemăsurat”** (`/control`): temperatura minimă (se poate lăsa goală = fără minim), temperatura **maximă** (goală = fără limită), „Doar contoare cu temperatură” (arată doar contoarele / nopțile cu temperatură măsurată, indiferent de valoare; cartea „Cu temperatură” arată câte sunt) și „Temperatura rămâne ca ziua”. Se compară minima din noapte sau media pe zi, la alegere. Condițiile sunt în adresa paginii, deci o căutare se poate trimite mai departe.
+
 **Consum pe perioadă** (cartea „Consum” de sus): suma consumului raportat de contoare în **perioada curentă**, la alegere „Azi” (ziua calendaristică, `dailyConsumption`) sau „Luna aceasta” (`monthlyConsumption`), doar pentru contoarele filtrate; se adună doar contoarele al căror consum e înscris în SCADA pentru ziua / luna de acum (restul au valori vechi și ar falsifica totalul), iar cartea arată și câte contoare au raportat din câte sunt filtrate. Înlocuiește vechea „sumă a ultimelor citiri de volum”, care aduna volume cumulate citite în zile diferite și nu însemna nimic. Alegerea se reține în browser.
 
 ## Limite și date personale

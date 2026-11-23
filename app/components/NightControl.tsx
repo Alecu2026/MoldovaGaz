@@ -12,8 +12,8 @@ const p2 = (n: number) => String(n).padStart(2, "0");
 const dm = (ms: number) => `${p2(new Date(ms).getDate())}.${p2(new Date(ms).getMonth() + 1)}.${new Date(ms).getFullYear()}`;
 const dmt = (ms: number) => `${dm(ms)} ${p2(new Date(ms).getHours())}:${p2(new Date(ms).getMinutes())}`;
 
-type Form = { drop: string; noDrop: boolean; from: string; to: string; nights: string; maxNight: string; minDay: string; minTemp: string; noTemp: boolean; tempMode: "night" | "day"; minNights: string };
-const INIT: Form = { drop: "2", noDrop: true, from: String(DEFAULT_PARAMS.startHour), to: String(DEFAULT_PARAMS.endHour), nights: String(DEFAULT_PARAMS.nights), maxNight: String(DEFAULT_PARAMS.maxNight), minDay: String(DEFAULT_PARAMS.minDay), minTemp: String(DEFAULT_PARAMS.minTemp), noTemp: false, tempMode: DEFAULT_PARAMS.tempMode, minNights: String(DEFAULT_PARAMS.minNights) };
+type Form = { drop: string; noDrop: boolean; from: string; to: string; nights: string; maxNight: string; minDay: string; minTemp: string; maxTemp: string; hasTemp: boolean; noTemp: boolean; tempMode: "night" | "day"; minNights: string };
+const INIT: Form = { drop: "2", noDrop: true, from: String(DEFAULT_PARAMS.startHour), to: String(DEFAULT_PARAMS.endHour), nights: String(DEFAULT_PARAMS.nights), maxNight: String(DEFAULT_PARAMS.maxNight), minDay: String(DEFAULT_PARAMS.minDay), minTemp: String(DEFAULT_PARAMS.minTemp), maxTemp: "", hasTemp: false, noTemp: false, tempMode: DEFAULT_PARAMS.tempMode, minNights: String(DEFAULT_PARAMS.minNights) };
 
 function fromUrl(): Form {
   if (typeof window === "undefined") return INIT;
@@ -21,12 +21,16 @@ function fromUrl(): Form {
   return {
     drop: q.get("drop") && q.get("drop") !== "none" ? (q.get("drop") as string) : INIT.drop, noDrop: !q.get("drop") || q.get("drop") === "none",
     from: q.get("from") ?? INIT.from, to: q.get("to") ?? INIT.to, nights: q.get("nights") ?? INIT.nights, maxNight: q.get("maxNight") ?? INIT.maxNight, minDay: q.get("minDay") ?? INIT.minDay,
-    minTemp: q.get("minTemp") && q.get("minTemp") !== "none" ? (q.get("minTemp") as string) : INIT.minTemp, noTemp: q.get("minTemp") === "none",
+    minTemp: q.has("minTemp") ? (q.get("minTemp") === "none" ? "" : (q.get("minTemp") as string)) : INIT.minTemp, noTemp: q.get("noTemp") === "1",
+    maxTemp: q.get("maxTemp") && q.get("maxTemp") !== "none" ? (q.get("maxTemp") as string) : "", hasTemp: q.get("hasTemp") === "1",
     tempMode: q.get("tempMode") === "day" ? "day" : "night", minNights: q.get("minNights") ?? INIT.minNights,
   };
 }
 const toQuery = (f: Form): string => {
-  const p = new URLSearchParams({ drop: f.noDrop ? "none" : f.drop, from: f.from, to: f.to, nights: f.nights, maxNight: f.maxNight, minDay: f.minDay, minTemp: f.noTemp ? "none" : f.minTemp, tempMode: f.tempMode, minNights: f.minNights });
+  const p = new URLSearchParams({ drop: f.noDrop ? "none" : f.drop, from: f.from, to: f.to, nights: f.nights, maxNight: f.maxNight, minDay: f.minDay, minTemp: f.noTemp || f.minTemp.trim() === "" ? "none" : f.minTemp, tempMode: f.tempMode, minNights: f.minNights });
+  if (f.maxTemp.trim() !== "" && !f.noTemp) p.set("maxTemp", f.maxTemp);
+  if (f.noTemp) p.set("noTemp", "1");
+  if (f.hasTemp) p.set("hasTemp", "1");
   return p.toString();
 };
 
@@ -115,7 +119,11 @@ export default function NightControl() {
         </label>
         <label className="field">
           <span>Temperatură minimă (°C)</span>
-          <input className="input" type="number" step="0.5" value={form.minTemp} disabled={form.noTemp} onChange={(e) => set({ minTemp: e.target.value })} />
+          <input className="input" type="number" step="0.5" placeholder="fără minim" value={form.minTemp} disabled={form.noTemp} onChange={(e) => set({ minTemp: e.target.value })} />
+        </label>
+        <label className="field">
+          <span>Temperatură maximă (°C)</span>
+          <input className="input" type="number" step="0.5" placeholder="fără limită" value={form.maxTemp} disabled={form.noTemp} onChange={(e) => set({ maxTemp: e.target.value })} />
         </label>
         <label className="field">
           <span>Temperatura de comparat</span>
@@ -137,6 +145,13 @@ export default function NightControl() {
           <span style={{ display: "flex", gap: 8, alignItems: "center", height: 36 }} id="drop-hint">
             <input type="checkbox" checked={!form.noDrop} onChange={(e) => set({ noDrop: !e.target.checked })} />
             Temperatura rămâne ca ziua
+          </span>
+        </label>
+        <label className="field" style={{ justifyContent: "flex-end" }}>
+          <span>&nbsp;</span>
+          <span style={{ display: "flex", gap: 8, alignItems: "center", height: 36 }}>
+            <input type="checkbox" checked={form.hasTemp} onChange={(e) => set({ hasTemp: e.target.checked })} />
+            Doar contoare cu temperatură
           </span>
         </label>
         <label className="field" style={{ justifyContent: "flex-end" }}>
@@ -207,7 +222,7 @@ export default function NightControl() {
       <p className="cell-sub" style={{ margin: 0, whiteSpace: "normal" }}>
         Un contor apare dacă, în cel puțin {form.minNights} din ultimele {form.nights} nopți, a consumat cel mult {form.maxNight} m³ între {p2(Number(form.from))}:00 și {p2(Number(form.to) % 24)}:00{Number(form.to) <= Number(form.from) ? " (ziua următoare)" : ""}
         {Number(form.minDay) > 0 ? `, a consumat cel puțin ${form.minDay} m³ ziua` : ""}
-        {form.noTemp ? "" : ` și temperatura ${form.tempMode === "night" ? "minimă din noapte" : "medie pe zi"} a fost cel puțin ${form.minTemp} °C`}{form.noDrop ? "" : `, iar temperatura de noapte a scăzut cu cel mult ${form.drop} °C față de cea de zi (media de zi − media de noapte)`}. Consumul la începutul și la sfârșitul nopții se estimează
+        {form.noTemp || form.minTemp.trim() === "" ? "" : ` și temperatura ${form.tempMode === "night" ? "minimă din noapte" : "medie pe zi"} a fost cel puțin ${form.minTemp} °C`}{form.noTemp || form.maxTemp.trim() === "" ? "" : ` ${form.minTemp.trim() === "" ? `și temperatura ${form.tempMode === "night" ? "minimă din noapte" : "medie pe zi"} a fost` : "și"} cel mult ${form.maxTemp} °C`}{form.hasTemp ? ", doar pentru contoarele care au temperatură măsurată" : ""}{form.noDrop ? "" : `, iar temperatura de noapte a scăzut cu cel mult ${form.drop} °C față de cea de zi (media de zi − media de noapte)`}. Consumul la începutul și la sfârșitul nopții se estimează
         prin interpolare între citirile vecine (contorul trimite la 4–6 ore); nopțile fără citiri apropiate sunt ignorate. Este un indiciu, nu o dovadă.
       </p>
       {openId && <MeterDetail id={openId} onClose={() => setOpenId(null)} />}
