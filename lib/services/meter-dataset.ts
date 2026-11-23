@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import { gzip } from "node:zlib";
 import type { Document } from "mongodb";
 import { COLLECTIONS, col } from "../mongo";
-import { OTHER_TYPE, TYPE_SLOTS, emptyDict, type ColsWire, type DatasetWire, type DeltaFull, type DeltaWire, type Dict, type MeterSummary, type RowView } from "../meter-shared";
+import { OTHER_TYPE, TYPE_SLOTS, emptyDict, safeTs, type ColsWire, type DatasetWire, type DeltaFull, type DeltaWire, type Dict, type MeterSummary, type RowView } from "../meter-shared";
 
 /**
  * STRATUL 1 de cache: lista contoarelor în memoria serverului, coloanar (vezi lib/meter-shared.ts), construită INCREMENTAL.
@@ -92,7 +92,9 @@ function typeBit(st: Store, name: string | null): number {
   return 1 << i;
 }
 
-type Row = { _id: unknown; updatedAt?: Date; h?: string; s?: MeterSummary; tel?: { dailyConsumption?: { t?: number }; monthlyConsumption?: { t?: number } } };
+type Row = { _id: unknown; updatedAt?: Date; h?: string; s?: MeterSummary; tel?: { dailyConsumption?: { t?: number }; monthlyConsumption?: { t?: number }; Volume_m3_Total?: { t?: number } } };
+
+const FUTURE_MS = 3_600_000;
 
 /** Adaugă sau suprascrie un rând. Întoarce true dacă s-a schimbat ceva (hash diferit sau rând nou). */
 function upsertDoc(st: Store, d: Row): boolean {
@@ -107,7 +109,7 @@ function upsertDoc(st: Store, d: Row): boolean {
   const i = known ?? c.id.length;
   if (known === undefined) st.idx.set(id, i);
   const mi = st.dict;
-  c.id[i] = id; c.ts[i] = s.t; c.nm[i] = s.n; c.eu[i] = s.e; c.q[i] = s.q;
+  c.id[i] = id; c.ts[i] = safeTs(s.t, d.tel?.Volume_m3_Total?.t); c.nm[i] = s.n; c.eu[i] = s.e; c.q[i] = s.q;
   c.ap[i] = intern(st.maps.ap, mi.ap, s.a); c.gw[i] = intern(st.maps.gw, mi.gw, s.g); c.br[i] = intern(st.maps.br, mi.br, s.br);
   c.ct[i] = intern(st.maps.ct, mi.ct, s.ct); c.pf[i] = intern(st.maps.pf, mi.pf, s.pf);
   c.rssi[i] = s.r; c.snr[i] = s.sn; c.fr[i] = s.f; c.fl[i] = s.fl; c.fc[i] = s.fc; c.pt[i] = s.pt; c.tm[i] = typeBit(st, s.ty);
@@ -119,7 +121,7 @@ function upsertDoc(st: Store, d: Row): boolean {
   return true;
 }
 
-const PROJECTION = { updatedAt: 1, h: 1, s: 1, "tel.dailyConsumption.t": 1, "tel.monthlyConsumption.t": 1 } as const;
+const PROJECTION = { updatedAt: 1, h: 1, s: 1, "tel.dailyConsumption.t": 1, "tel.monthlyConsumption.t": 1, "tel.Volume_m3_Total.t": 1 } as const;
 
 async function getStamp(): Promise<Stamp> {
   const epoch = g.__mtEpoch ?? 0;
@@ -228,16 +230,16 @@ export function encodedDataset(st: Store): { etag: string; gz: Promise<Buffer> }
   return { etag: versionOf({ gen: st.gen, head: st.seq }), gz: st.gz.p };
 }
 
-const rowOf = (id: string, s: MeterSummary): RowView => ({
-  id, ts: s.t, name: s.n, eui: s.e, app: s.a, gw: s.g, rssi: s.r, snr: s.sn, freqKhz: s.f, fl: s.fl, fc: s.fc, pt: s.pt, types: s.ty ? [s.ty] : [],
+const rowOf = (id: string, s: MeterSummary, volT?: unknown): RowView => ({
+  id, ts: safeTs(s.t, volT), name: s.n, eui: s.e, app: s.a, gw: s.g, rssi: s.r, snr: s.sn, freqKhz: s.f, fl: s.fl, fc: s.fc, pt: s.pt, types: s.ty ? [s.ty] : [],
   val: s.v, bat: s.b, dc: s.dc, mc: s.mc, ac: s.ac ?? null, ia: s.ia ?? null, xsp: s.sp ?? "", xcp: s.cp ?? "", xsn: s.sn2 ?? "", xsr: s.sr ?? "", xhs: s.hs ?? "", xap: s.apt ?? "", il: s.il ?? null, cal: s.cl ?? null, lat: s.la ?? null, lon: s.lo ?? null, branch: s.br, city: s.ct, profile: s.pf,
 });
 
 /** Cele mai recente `n` contoare + totalul, direct din baza de date (indexat): prima pictare a paginii nu așteaptă lista completă. */
 export async function getHeadRows(n: number): Promise<{ rows: RowView[]; total: number }> {
   const coll = await col<Row>(COLLECTIONS.meters);
-  const [docs, stamp] = await Promise.all([coll.find({}, { projection: { s: 1 } }).sort({ "s.t": -1 }).limit(n).toArray(), getStamp()]);
-  return { rows: docs.filter((d) => d.s).map((d) => rowOf(String(d._id), d.s as MeterSummary)), total: stamp.total };
+  const [docs, stamp] = await Promise.all([coll.find({ "s.t": { $lte: Date.now() + FUTURE_MS } }, { projection: { s: 1, "tel.Volume_m3_Total.t": 1 } }).sort({ "s.t": -1 }).limit(n).toArray(), getStamp()]);
+  return { rows: docs.filter((d) => d.s).map((d) => rowOf(String(d._id), d.s as MeterSummary, d.tel?.Volume_m3_Total?.t)), total: stamp.total };
 }
 
 /** Documentul întreg al unui contor (facturare, atribute, ultima telemetrie) — pentru panoul de detalii. */

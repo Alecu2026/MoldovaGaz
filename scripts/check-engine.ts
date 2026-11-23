@@ -8,7 +8,7 @@
 import { aggregate, makeCtx, FRESH_EDGES } from "../lib/meter-aggregate";
 import { NO_FILTERS, filtersFromParams, periodStarts, runFilter, type Filters, type Sort } from "../lib/meter-filter";
 import { MeterStore } from "../lib/meter-store";
-import { ALERT_FLAGS, FLAG, PROBLEM_FLAGS, XSTR, activityOf, isStatusOk, validCoords, type ColsWire, type DatasetWire, type DeltaWire } from "../lib/meter-shared";
+import { ALERT_FLAGS, FLAG, PROBLEM_FLAGS, XSTR, activityOf, safeTs, isStatusOk, validCoords, type ColsWire, type DatasetWire, type DeltaWire } from "../lib/meter-shared";
 import { buildDocs, fetchDevices, type Bill, type Dev } from "../lib/meter-sync";
 import { assertReadOnly, tbCustomerDevices } from "../lib/thingsboard";
 import { pack, unpack, type Pts } from "../lib/meter-history";
@@ -175,9 +175,10 @@ for (const [name, f] of cases) {
 {
   const f = F({ branch: "05 · Comrat" });
   const r = runFilter(st, f, SORT, now), want = naive(f);
-  { const ps = periodStarts(Date.now()); let cd = 0, cdn = 0, cm = 0, cmn = 0;
-    for (const i of want) { if (st.dt[i] === ps.dayStart && st.dc[i] >= 0) { cd += st.dc[i]; cdn++; } if (st.mt[i] === ps.monthStart && st.mc[i] >= 0) { cm += st.mc[i]; cmn++; } }
-    check("consum pe perioadă: suma zilei / lunii CURENTE (doar contoarele care au raportat în perioada curentă) = calculul independent", r.consDay === cd && r.consDayN === cdn && r.consMonth === cm && r.consMonthN === cmn && cdn > 0 && cmn > 0 && cdn < want.length); }
+  { const ps = periodStarts(Date.now()); let cd = 0, cdn = 0, cy = 0, cyn = 0, cm = 0, cmn = 0;
+    for (const i of want) { if (st.dc[i] >= 0) { if (st.dt[i] === ps.dayStart) { cd += st.dc[i]; cdn++; } else if (st.dt[i] === ps.dayStart - 86_400_000) { cy += st.dc[i]; cyn++; } } if (st.mt[i] === ps.monthStart && st.mc[i] >= 0) { cm += st.mc[i]; cmn++; } }
+    check("consum pe perioadă: suma zilei / zilei anterioare / lunii CURENTE (doar contoarele care au raportat în acea perioadă) = calculul independent", r.consDay === cd && r.consDayN === cdn && r.consYest === cy && r.consYestN === cyn && r.consMonth === cm && r.consMonthN === cmn && cdn > 0 && cyn > 0 && cmn > 0 && cdn < want.length); }
+  check("perioade: ziua / luna SCADA după UTC, nu după data locală (23:19 UTC pe 23.11 = încă ziua 23.11, chiar dacă la Chișinău e deja 24.11; 00:30 UTC pe 1.12 = luna decembrie)", periodStarts(Date.UTC(2026, 10, 23, 23, 19)).dayStart === Date.UTC(2026, 10, 23) && periodStarts(Date.UTC(2026, 10, 30, 23, 59)).monthStart === Date.UTC(2026, 10, 1) && periodStarts(Date.UTC(2026, 11, 1, 0, 30)).monthStart === Date.UTC(2026, 11, 1) && periodStarts(Date.UTC(2026, 11, 1, 0, 30)).dayStart === Date.UTC(2026, 11, 1));
   check("total volum și alerte din filtru", r.alerts === want.filter((i) => st.fl[i] & ALERT_FLAGS).length && Math.abs(r.volume - want.reduce((s, i) => s + (st.val[i] >= 0 ? st.val[i] : 0), 0)) < 1e-6);
 }
 // sortări
@@ -203,6 +204,7 @@ for (const key of ["dev", "br", "gw", "rssi", "snr", "val", "bat", "dc", "fc"] a
   check("stări: «activ în SCADA» nu e alertă și nici problemă; inactiv = alertă", (FLAG.ACTIVE & ALERT_FLAGS) === 0 && (FLAG.ACTIVE & PROBLEM_FLAGS) === 0 && (FLAG.INACTIVE & ALERT_FLAGS) !== 0 && (FLAG.BATT & ALERT_FLAGS) !== 0);
   check("stări: OK = raport de stare fără baterie / buton / magnet și fără inactiv; marcat activ nu strică OK", isStatusOk(FLAG.STATUS) && isStatusOk(fl(FLAG.STATUS, FLAG.ACTIVE)) && !isStatusOk(fl(FLAG.STATUS, FLAG.INACTIVE)) && !isStatusOk(fl(FLAG.STATUS, FLAG.BATT)) && !isStatusOk(0));
   const H = 3_600_000, D = 24 * H, t = 1_800_000_000_000;
+  check("ora citirii din viitor (ceas greșit, ex. 2053) nu ajunge în listă: se folosește momentul sosirii volumului, altfel «fără citire»; o dată normală sau cu o diferență sub o oră rămâne", safeTs(Date.UTC(2053, 7, 3), 1_700_000_000_000, 1_700_000_100_000) === 1_700_000_000_000 && safeTs(Date.UTC(2053, 7, 3), undefined, 1_700_000_100_000) === 0 && safeTs(Date.UTC(2053, 7, 3), Date.UTC(2060, 0, 1), 1_700_000_100_000) === 0 && safeTs(1_700_000_050_000, 1, 1_700_000_100_000) === 1_700_000_050_000 && safeTs(1_700_000_100_000 + 1_800_000, 1, 1_700_000_100_000) === 1_700_000_100_000 + 1_800_000 && safeTs(0, 1) === 0);
   check("activitate: pragurile 24 h / 7 zile și «fără citire»", activityOf(t - 23 * H, t) === 0 && activityOf(t - 24 * H, t) === 1 && activityOf(t - 6 * D, t) === 1 && activityOf(t - 7 * D, t) === 2 && activityOf(t - 90 * D, t) === 2 && activityOf(0, t) === 3);
   for (const toks of ["act", "warn", "crit", "noact", "warn|crit", "act|inactive", "crit|ok"]) {
     const r = runFilter(st, F({ flag: toks }), SORT, now);

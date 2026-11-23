@@ -104,7 +104,7 @@ export type FilterResult = {
   /** suma Volume (m3) a rândurilor din rezultat (doar valorile ≥ 0) */
   volume: number;
   /** consumul din perioada CURENTĂ (litri), cum îl raportează contoarele în SCADA: ziua calendaristică / luna calendaristică, și câte contoare au raportat */
-  consDay: number; consDayN: number; consMonth: number; consMonthN: number;
+  consDay: number; consDayN: number; consYest: number; consYestN: number; consMonth: number; consMonthN: number;
 };
 
 const LIST_KEYS = ["app", "gw", "type", "dev", "flag", "branch", "city", "profile", "fr", "port", "model", "year", "billed", "geo", "defect", "iaHas", "band", "actv", "xsp", "xcp", "xsn", "xsr", "xhs", "xap", "xar", "xcz", "xin"] as const;
@@ -137,16 +137,19 @@ function dictSet(selected: string, dict: string[]): { ok: Uint8Array | null; any
   return { ok, any };
 }
 
-/** Începutul zilei / lunii curente, ca în SCADA (momentul la care e înscris consumul): miezul nopții (UTC) al datei locale, respectiv prima zi a lunii. */
+/**
+ * Începutul zilei / lunii curente, ca în SCADA: consumul zilnic și lunar sunt înscrise cu miezul nopții UTC al zilei / lunii (la Chișinău ziua SCADA începe la 02:00 iarna,
+ * 03:00 vara). Deci „azi” se calculează după data UTC, nu după cea locală: între 00:00 și 02:00 ora locală, ziua SCADA curentă e încă cea de ieri.
+ */
 export function periodStarts(now: number): { dayStart: number; monthStart: number } {
   const d = new Date(now);
-  return { dayStart: Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()), monthStart: Date.UTC(d.getFullYear(), d.getMonth(), 1) };
+  return { dayStart: Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()), monthStart: Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) };
 }
 
 export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = Date.now()): FilterResult {
   st.prepare();
   const n = st.n;
-  const empty: FilterResult = { idx: new Int32Array(0), matched: 0, alerts: 0, volume: 0, consDay: 0, consDayN: 0, consMonth: 0, consMonthN: 0 };
+  const empty: FilterResult = { idx: new Int32Array(0), matched: 0, alerts: 0, volume: 0, consDay: 0, consDayN: 0, consYest: 0, consYestN: 0, consMonth: 0, consMonthN: 0 };
 
   const app = dictSet(f.app, st.dict.ap), gwS = dictSet(f.gw, st.dict.gw), br = dictSet(f.branch, st.dict.br), ct = dictSet(f.city, st.dict.ct), pf = dictSet(f.profile, st.dict.pf);
   if (!app.any || !gwS.any || !br.any || !ct.any || !pf.any) return empty;
@@ -245,8 +248,9 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
   const nameWords = f.name.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 4);
   const { order, ts, gw, tm, fl, fc, pt, val, rssi, snr, fr, bat, dc, id, eu, nm, lq, ln } = st;
   const out = new Int32Array(n);
-  let c = 0, alerts = 0, volume = 0, consDay = 0, consDayN = 0, consMonth = 0, consMonthN = 0;
+  let c = 0, alerts = 0, volume = 0, consDay = 0, consDayN = 0, consYest = 0, consYestN = 0, consMonth = 0, consMonthN = 0;
   const { dayStart, monthStart } = periodStarts(now);
+  const yestStart = dayStart - 86_400_000;
   const { dt, mt, dc: dcv, mc: mcv } = st;
   for (let k = 0; k < n; k++) {
     const i = order[k];
@@ -319,7 +323,10 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
     if ((flags & ALERT_FLAGS) !== 0) alerts++;
     const v = val[i];
     if (v >= 0) volume += v;
-    if (dt[i] === dayStart && dcv[i] >= 0) { consDay += dcv[i]; consDayN++; }
+    if (dcv[i] >= 0) {
+      if (dt[i] === dayStart) { consDay += dcv[i]; consDayN++; }
+      else if (dt[i] === yestStart) { consYest += dcv[i]; consYestN++; }
+    }
     if (mt[i] === monthStart && mcv[i] >= 0) { consMonth += mcv[i]; consMonthN++; }
   }
 
@@ -329,7 +336,7 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
   } else {
     idx = sortIdx(st, idx.slice(), sort);
   }
-  return { idx, matched: c, alerts, volume, consDay, consDayN, consMonth, consMonthN };
+  return { idx, matched: c, alerts, volume, consDay, consDayN, consYest, consYestN, consMonth, consMonthN };
 }
 
 /** Sortare după o coloană; valorile lipsă (NaN) rămân mereu la sfârșit, indiferent de sens. Egalitățile păstrează ordinea de timp (sortare stabilă). */

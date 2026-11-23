@@ -5,7 +5,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { FLAG, METER_NAME, PROBLEM_FLAGS, activityOf, isStatusOk, type RowView } from "@/lib/meter-shared";
 import { metersToCsv } from "@/lib/meter-csv";
 import { aggregate, makeCtx, type Agg } from "@/lib/meter-aggregate";
-import { NO_FILTERS, activeFilters, runFilter, toQuery, type Filters, type Sort, type SortKey } from "@/lib/meter-filter";
+import { NO_FILTERS, activeFilters, periodStarts, runFilter, toQuery, type Filters, type Sort, type SortKey } from "@/lib/meter-filter";
 import type { MeterStore } from "@/lib/meter-store";
 import { ActiveChips, AdvancedFilters, MainSelects } from "./FilterPanel";
 import ColumnFilter from "./ColumnFilters";
@@ -70,12 +70,14 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
   const [filters, setFilters] = useState<Filters>(initialFilters);
   const [sort, setSort] = useState<Sort>(initialSort);
   const [view, setView] = useState<"table" | "charts" | "map">(initialView);
-  const [consPeriod, setConsPeriod] = useState<"month" | "day">("month");
+  // ora locală la care începe ziua SCADA (miezul nopții UTC): 02:00 iarna, 03:00 vara
+  const [dayFrom] = useState(() => new Date(periodStarts(Date.now()).dayStart).toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" }));
+  const [consPeriod, setConsPeriod] = useState<"month" | "day" | "yest">("month");
   useEffect(() => {
-    const t = setTimeout(() => { try { if (localStorage.getItem("mg:consPeriod") === "day") setConsPeriod("day"); } catch { /* fără alegere reținută */ } }, 0);
+    const t = setTimeout(() => { try { const v = localStorage.getItem("mg:consPeriod"); if (v === "day" || v === "yest") setConsPeriod(v); } catch { /* fără alegere reținută */ } }, 0);
     return () => clearTimeout(t);
   }, []);
-  const pickPeriod = (p: "month" | "day") => { setConsPeriod(p); try { localStorage.setItem("mg:consPeriod", p); } catch { /* alegerea nu se reține */ } };
+  const pickPeriod = (p: "month" | "day" | "yest") => { setConsPeriod(p); try { localStorage.setItem("mg:consPeriod", p); } catch { /* alegerea nu se reține */ } };
   const [colKeys, setColKeys] = useState<ColKey[]>(DEFAULT_COLS);
   useEffect(() => {
     const t = setTimeout(() => setColKeys(readCols()), 0);
@@ -144,6 +146,10 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
   };
 
   const total = store ? store.n : head.total;
+  // consumul perioadei alese: ziua / luna SCADA începe la miezul nopții UTC (la Chișinău 02:00 iarna, 03:00 vara), deci „azi” nu e ziua calendaristică locală
+  const consLitres = result ? (consPeriod === "day" ? result.consDay : consPeriod === "yest" ? result.consYest : result.consMonth) : 0;
+  const consCount = result ? (consPeriod === "day" ? result.consDayN : consPeriod === "yest" ? result.consYestN : result.consMonthN) : 0;
+  const consWhat = consPeriod === "day" ? `ziua SCADA curentă (începe la ${dayFrom})` : consPeriod === "yest" ? "ziua SCADA anterioară, completă" : "luna curentă";
   const newestTs = store && store.n > 0 ? store.ts[store.order[0]] : head.rows[0]?.ts ?? null;
   const ready = !!store && !!result;
 
@@ -158,7 +164,7 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
         </button>
         {!statsOpen && (
           <span className="topsum" aria-live="polite">
-            <b>{nf.format(total)}</b> contoare · filtrate <b>{result ? nf.format(result.matched) : "—"}</b> · consum <b>{result ? nf.format(Math.round((consPeriod === "day" ? result.consDay : result.consMonth) / 1000)) : "—"} m³</b> ({consPeriod === "day" ? "azi" : "luna aceasta"}) · alerte <b>{result ? nf.format(result.alerts) : "—"}</b> · ultima citire <b>{newestTs ? fmtTime(newestTs).slice(11) : "—"}</b>
+            <b>{nf.format(total)}</b> contoare · filtrate <b>{result ? nf.format(result.matched) : "—"}</b> · consum <b>{result ? nf.format(Math.round(consLitres / 1000)) : "—"} m³</b> ({consPeriod === "day" ? "azi" : consPeriod === "yest" ? "ieri" : "luna aceasta"}) · alerte <b>{result ? nf.format(result.alerts) : "—"}</b> · ultima citire <b>{newestTs ? fmtTime(newestTs).slice(11) : "—"}</b>
           </span>
         )}
         <ColumnPicker value={colKeys} onChange={pickCols} />
@@ -234,9 +240,9 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
         <Stat k="Total contoare" v={nf.format(total)} s={store && store.total !== store.n ? `în baza de date: ${nf.format(store.total)}` : ready ? "toate încărcate" : "se încarcă…"} />
         <Stat k="Filtrate" v={result ? nf.format(result.matched) : "—"} s={result && store && store.n > 0 ? `${((result.matched / store.n) * 100).toFixed(result.matched === store.n ? 0 : 1)}% din total` : " "} busy={pending} />
         <Stat
-          k={<span className="stat-k-row">Consum <span className="seg" role="group" aria-label="Perioada consumului"><button type="button" aria-pressed={consPeriod === "day"} onClick={() => pickPeriod("day")}>Azi</button><button type="button" aria-pressed={consPeriod === "month"} onClick={() => pickPeriod("month")}>Luna aceasta</button></span></span>}
-          v={result ? `${nf.format(Math.round((consPeriod === "day" ? result.consDay : result.consMonth) / 1000))} m³` : "—"}
-          s={result ? `${consPeriod === "day" ? "ziua de azi" : "luna curentă"} · au raportat ${nf.format(consPeriod === "day" ? result.consDayN : result.consMonthN)} din ${nf.format(result.matched)} contoare` : " "}
+          k={<span className="stat-k-row">Consum <span className="seg" role="group" aria-label="Perioada consumului"><button type="button" aria-pressed={consPeriod === "yest"} onClick={() => pickPeriod("yest")}>Ieri</button><button type="button" aria-pressed={consPeriod === "day"} onClick={() => pickPeriod("day")}>Azi</button><button type="button" aria-pressed={consPeriod === "month"} onClick={() => pickPeriod("month")}>Luna aceasta</button></span></span>}
+          v={result ? `${nf.format(Math.round(consLitres / 1000))} m³` : "—"}
+          s={result ? `${consWhat} · au raportat ${nf.format(consCount)} din ${nf.format(result.matched)} contoare` : " "}
           busy={pending}
         />
         <Stat k="Alerte" v={result ? nf.format(result.alerts) : "—"} s="baterie slabă / inactiv în SCADA" alert={!!result && result.alerts > 0} busy={pending} />

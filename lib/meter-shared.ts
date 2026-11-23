@@ -25,6 +25,15 @@ export const isStatusOk = (fl: number): boolean => (fl & FLAG.STATUS) !== 0 && (
 /** Treptele de activitate, ca în raportul din SCADA, după ultima citire: activ 24 h · avertizare 1–7 zile · critic peste 7 zile · fără nicio citire. */
 export const ACT = { ACTIVE: 0, WARN: 1, CRIT: 2, NONE: 3 } as const;
 export const DAY_MS = 86_400_000;
+/**
+ * Ora citirii nu poate fi în viitor: unele contoare au ceasul greșit (ani în viitor), iar o dată ca 2053 ar da „ultima citire” falsă și ar așeza contorul primul.
+ * Dacă `t` e mai nouă decât „acum” + 1 h, se folosește momentul sosirii volumului (`volT`) dacă e valid, altfel 0 (= fără citire). Nu scrie nimic în baza de date: se corectează la servire.
+ */
+export function safeTs(t: number, volT: unknown, now: number = Date.now()): number {
+  const lim = now + 3_600_000;
+  if (!(t > lim)) return t;
+  return typeof volT === "number" && volT > 0 && volT <= lim ? volT : 0;
+}
 export const activityOf = (ts: number, now: number): 0 | 1 | 2 | 3 => (ts <= 0 ? 3 : now - ts < DAY_MS ? 0 : now - ts < 7 * DAY_MS ? 1 : 2);
 
 /** Tipurile de mesaj (ieType) se țin într-o mască pe 32 de biți: primele 31 au bitul lor, restul se strâng în ultimul (index 31). */
