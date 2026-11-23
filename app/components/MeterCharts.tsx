@@ -45,7 +45,7 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
   const flagItems: BarItem[] = [
     { key: "offline", label: "Offline", value: flt.flags.offline, ghost: all.flags.offline, tone: "critical", glyph: "✕" },
     { key: "batt", label: "Baterie slabă", value: flt.flags.batt, ghost: all.flags.batt, tone: "serious", glyph: "▲" },
-    { key: "inactive", label: "Inactiv în ThingsBoard", value: flt.flags.inactive, ghost: all.flags.inactive, tone: "warning", glyph: "◆" },
+    { key: "inactive", label: "Inactiv în SCADA", value: flt.flags.inactive, ghost: all.flags.inactive, tone: "warning", glyph: "◆" },
     { key: "dup", label: "Serie repetată (același număr radio)", value: flt.flags.dup, ghost: all.flags.dup, tone: "warning", glyph: "◆" },
     { key: "button", label: "Buton apăsat", value: flt.flags.button, ghost: all.flags.button, tone: "warning", glyph: "◆" },
     { key: "magnet", label: "Magnet detectat", value: flt.flags.magnet, ghost: all.flags.magnet, tone: "warning", glyph: "◆" },
@@ -162,7 +162,7 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
           <BarList unit="contoare" items={flagItems} selected={flagSelected} onToggle={toggleFlag} top={9} ariaLabel="Stări ale contoarelor" />
         </ChartCard>
 
-        <ChartCard title="Contoare pe filială" hint="filiala din facturare (FIL), altfel din clientul ThingsBoard" table={tableOf(branches)}>
+        <ChartCard title="Contoare pe filială" hint="filiala din facturare (FIL), altfel din clientul SCADA" table={tableOf(branches)}>
           <BarList unit="contoare" items={branches} selected={toList(filters.branch)} onToggle={(k) => patch({ branch: toggleIn(filters.branch, k) })} top={12} ariaLabel="Contoare pe filială" />
         </ChartCard>
 
@@ -174,7 +174,7 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
           <BarList unit="contoare" items={cities} selected={toList(filters.city)} onToggle={(k) => patch({ city: toggleIn(filters.city, k) })} ariaLabel="Contoare pe oraș" />
         </ChartCard>
 
-        <ChartCard title="Profil contor" hint="profilul de dispozitiv din ThingsBoard" table={tableOf(profiles)}>
+        <ChartCard title="Profil contor" hint="profilul de dispozitiv din SCADA" table={tableOf(profiles)}>
           <BarList unit="contoare" items={profiles} selected={toList(filters.profile)} onToggle={(k) => patch({ profile: toggleIn(filters.profile, k) })} top={12} ariaLabel="Contoare pe profil" />
         </ChartCard>
 
@@ -201,7 +201,7 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
           <p className="cell-sub" style={{ margin: "4px 0 0" }}>{nf.format(flt.valNone)} contoare fără citire sau cu valoare negativă nu apar în grafic.</p>
         </ChartCard>
 
-        <ChartCard title="Consum zilnic (L)" hint="dailyConsumption din ThingsBoard — glisează pentru interval" table={barsTable(dcBars)}>
+        <ChartCard title="Consum zilnic (L)" hint="dailyConsumption din SCADA — glisează pentru interval" table={barsTable(dcBars)}>
           <ColumnChart
             unit="contoare"
             bars={dcBars} ariaLabel="Distribuția consumului zilnic" labelWidth={46}

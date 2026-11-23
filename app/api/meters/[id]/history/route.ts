@@ -60,7 +60,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     console.error("[meters/history] arhiva:", (e as Error).message);
   }
 
-  if ((liveError as { status?: number } | null)?.status === 404) return Response.json({ error: "Contorul nu există în ThingsBoard (nu are istoric)." }, { status: 404 });
+  if ((liveError as { status?: number } | null)?.status === 404) return Response.json({ error: "Contorul nu există în SCADA (nu are istoric)." }, { status: 404 });
   console.error("[meters/history] eșuat:", (liveError as Error | null)?.message);
-  return Response.json({ error: "Nu am putut citi istoricul (ThingsBoard nu răspunde și contorul nu are istoric arhivat)." }, { status: 502 });
+  return Response.json({ error: "Nu am putut citi istoricul (SCADA nu răspunde și contorul nu are istoric arhivat)." }, { status: 502 });
 }

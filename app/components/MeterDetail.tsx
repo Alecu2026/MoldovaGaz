@@ -66,7 +66,7 @@ function consumption(points: [number, number][], by: "day" | "hour", sinceMs: nu
   return { bars, total, anomalies };
 }
 
-/** Panou lateral cu tot ce se știe despre un contor: facturare, atribute, ultima telemetrie și istoricul Volume (m3) din ThingsBoard. */
+/** Panou lateral cu tot ce se știe despre un contor: facturare, atribute, ultima telemetrie și istoricul Volume (m3) din SCADA. */
 export default function MeterDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const [data, setData] = useState<{ id: string; item: Detail | null; error: string | null } | null>(null);
   const [days, setDays] = useState(30);
@@ -98,7 +98,7 @@ export default function MeterDetail({ id, onClose }: { id: string; onClose: () =
     let alive = true;
     fetch(`/api/meters/${id}/history?days=${days}`)
       .then(async (r) => {
-        if (!r.ok) throw new Error("Istoricul nu e disponibil acum (ThingsBoard nu răspunde).");
+        if (!r.ok) throw new Error("Istoricul nu e disponibil acum (SCADA nu răspunde).");
         const j = (await r.json()) as History;
         if (alive) setHist({ key: histKey, h: j, error: null });
       })
@@ -184,7 +184,7 @@ export default function MeterDetail({ id, onClose }: { id: string; onClose: () =
               <div className="kpis" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", marginBottom: 12 }}>
                 <div className="stat"><div className="k">Ultima citire</div><div className="v" style={{ fontSize: 20 }}>{typeof s.v === "number" ? nf3.format(s.v) : "—"}</div><div className="s">{Number(s.t) > 0 ? dt(Number(s.t)) : "fără citiri"}</div></div>
                 <div className="stat"><div className="k">Consum în perioadă</div><div className="v" style={{ fontSize: 20 }}>{series.length > 1 ? `${nf3.format(cons.total)} m³` : "—"}</div><div className="s">{series.length} citiri / {days} zile</div></div>
-                <div className="stat"><div className="k">Consum zilnic (ThingsBoard)</div><div className="v" style={{ fontSize: 20 }}>{typeof s.dc === "number" ? `${nf.format(s.dc)} L` : "—"}</div><div className="s">lunar: {typeof s.mc === "number" ? `${nf.format(s.mc)} L` : "—"}</div></div>
+                <div className="stat"><div className="k">Consum zilnic (SCADA)</div><div className="v" style={{ fontSize: 20 }}>{typeof s.dc === "number" ? `${nf.format(s.dc)} L` : "—"}</div><div className="s">lunar: {typeof s.mc === "number" ? `${nf.format(s.mc)} L` : "—"}</div></div>
               </div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 8 }}>
                 <label className="field" style={{ width: 150 }}>
@@ -208,7 +208,7 @@ export default function MeterDetail({ id, onClose }: { id: string; onClose: () =
                   <>
                     {h.source === "stored" && (
                       <p className="cell-sub" role="note" style={{ margin: "0 0 6px", color: "var(--warn)", whiteSpace: "normal" }}>
-                        Istoric din arhivă (ThingsBoard nu poate fi interogat acum de pe server): ultima citire arhivată {dt(h.fetchedAt)}, arhivă încărcată {h.storedAt ? dt(h.storedAt) : "—"}; acoperă ultimele ~90 de zile.
+                        Istoric din arhivă (SCADA nu poate fi interogat acum de pe server): ultima citire arhivată {dt(h.fetchedAt)}, arhivă încărcată {h.storedAt ? dt(h.storedAt) : "—"}; acoperă ultimele ~90 de zile.
                       </p>
                     )}
                     <p className="cell-sub" style={{ margin: "0 0 2px", fontWeight: 600 }}>Consum în m³, pe {by === "day" ? "zi" : "oră"}</p>
@@ -268,7 +268,7 @@ export default function MeterDetail({ id, onClose }: { id: string; onClose: () =
             </section>
 
             <section>
-              <h3>ThingsBoard</h3>
+              <h3>SCADA</h3>
               <dl className="kv">
                 <dt>Nume</dt><dd className="mono">{text(item.tb.name)}</dd>
                 <dt>Profil</dt><dd>{text(item.tb.type)}</dd>

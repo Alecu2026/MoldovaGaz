@@ -105,7 +105,7 @@ export default function SourceDetail({ store, i, onClose, onSeries }: Props) {
             )}
           </div>
           <p className="cell-sub" style={{ marginBottom: 0 }}>
-            Această pagină arată doar ce vine din {meta.origin.split(" (")[0]}. Valorile din ThingsBoard (volum, semnal, baterie, coordonate) și legătura dintre cele două surse sunt în pagina principală.
+            Această pagină arată doar ce vine din {meta.origin.split(" (")[0]}. Valorile din SCADA (volum, semnal, baterie, coordonate) și legătura dintre cele două surse sunt în pagina principală.
           </p>
         </section>
       </div>

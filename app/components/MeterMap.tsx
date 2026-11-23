@@ -20,7 +20,7 @@ const COLOR_OPTIONS: [ColorBy, string][] = [["status", "Stare"], ["rssi", "Semna
 /** bun · atenție · critic · necunoscut (paleta de stare; semnificația fiecărei culori e scrisă în legendă și în popup) */
 const PALETTE = ["#0ca30c", "#fab219", "#d03b3b", "#898781"] as const;
 const LABELS: Record<ColorBy, [string, string, string, string]> = {
-  status: ["OK (raport de stare fără probleme)", "Inactiv în ThingsBoard", "Probleme: offline / baterie / buton / magnet", "Fără raport de stare"],
+  status: ["OK (raport de stare fără probleme)", "Inactiv în SCADA", "Probleme: offline / baterie / buton / magnet", "Fără raport de stare"],
   rssi: ["Semnal bun (≥ −105 dBm)", "Semnal mediu (−105 … −115 dBm)", "Semnal slab (< −115 dBm)", "Fără semnal raportat"],
   fresh: ["Citire în ultimele 24 h", "Citire acum 1–7 zile", "Citire mai veche de 7 zile", "Fără nicio citire"],
   battery: ["Baterie ≥ 50%", "Baterie 20–50%", "Baterie < 20%", "Fără valoare"],
@@ -317,7 +317,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
         {stats.withGeo === 0 && (
           <div className="map-empty">
             <strong>Niciun contor filtrat nu are coordonate</strong>
-            <span>Coordonatele vin din atributele latitude / longitude din ThingsBoard.</span>
+            <span>Coordonatele vin din atributele latitude / longitude din SCADA.</span>
           </div>
         )}
 

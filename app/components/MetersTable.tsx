@@ -444,7 +444,7 @@ function Grid(p: GridProps) {
           <div className="empty">
             <h2>Nu există contoare în baza de date</h2>
             <p style={{ margin: 0 }}>
-              Rulează sincronizarea: <code>npm run sync:meters</code> (citește lorawandb, getmgdb și ThingsBoard).
+              Rulează sincronizarea: <code>npm run sync:meters</code> (citește lorawandb, getmgdb și SCADA).
             </p>
           </div>
         )}

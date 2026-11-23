@@ -4,11 +4,11 @@ import type { ColDef, SourceId, SourceRow, SourceWire } from "./source-shared";
 
 /**
  * Cele două surse brute, fiecare cu propria pagină:
- *  - lorawandb (primul IP): lista dispozitivelor ThingsBoard — id, nume, profil, etichetă, client, data creării;
+ *  - lorawandb (primul IP): lista dispozitivelor SCADA — id, nume, profil, etichetă, client, data creării;
  *  - getmgdb (al doilea IP): facturarea Moldovagaz — filială, cont, număr radio, adresă, consumator, secție, controlor…
  * Aici sunt (1) extragerea rândului brut pentru baza de date, (2) rândul „plat” cu coloane derivate DOAR din aceeași sursă
  * (ex. seria din numele dispozitivului, adresa din oraș + stradă + casă) și (3) punerea lor pe coloane pentru browser.
- * Combinarea celor două surse (legătura prin NUM_RADIO, valorile din ThingsBoard) se face doar în pagina principală (lib/meter-sync.ts).
+ * Combinarea celor două surse (legătura prin NUM_RADIO, valorile din SCADA) se face doar în pagina principală (lib/meter-sync.ts).
  */
 
 const sha = (s: string) => createHash("sha1").update(s).digest("hex").slice(0, 20);
@@ -94,9 +94,9 @@ const LORAWAN_COLS: ColDef[] = [
   { key: "model", label: "Model", kind: "dict", show: true, w: 100, chart: true, main: true, hint: "Cele 4 cifre de la începutul numelui (S2154_… → 2154)." },
   { key: "year", label: "An", kind: "dict", show: true, w: 90, chart: true, main: true, hint: "Ultimele 4 cifre din nume (…_2022 → 2022)." },
   { key: "type", label: "Profil", kind: "dict", show: true, w: 230, chart: true, main: true, kpi: "Profiluri" },
-  { key: "customer", label: "Client ThingsBoard", kind: "dict", show: true, w: 150, short: 8, chart: true, main: true, kpi: "Clienți", hint: "Identificatorul clientului din ThingsBoard (lorawandb nu dă numele)." },
+  { key: "customer", label: "Client SCADA", kind: "dict", show: true, w: 150, short: 8, chart: true, main: true, kpi: "Clienți", hint: "Identificatorul clientului din SCADA (lorawandb nu dă numele)." },
   { key: "label", label: "Etichetă", kind: "text", show: true, w: 160, search: true },
-  { key: "created", label: "Creat în ThingsBoard", kind: "date", show: true, w: 170, time: true, chart: true },
+  { key: "created", label: "Creat în SCADA", kind: "date", show: true, w: 170, time: true, chart: true },
   { key: "dup", label: "Serie repetată", kind: "dict", show: true, w: 130, chart: true, yes: "Serii repetate", hint: "Același număr radio apare la mai multe dispozitive din lista lorawandb." },
   { key: "std", label: "Nume standard", kind: "dict", chart: true, hint: "Numele are forma S2154_00070948_2022 (model, serie, an)." },
   { key: "id", label: "ID dispozitiv", kind: "text", mono: true, search: true },

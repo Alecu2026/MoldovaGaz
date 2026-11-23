@@ -36,7 +36,7 @@ export default function MeterLocation({ lat, lon, name, address }: { lat: number
     const a = address ? addressLinks(address) : null;
     return (
       <div>
-        <p className="cell-sub" style={{ margin: "0 0 8px" }}>Acest contor nu are coordonate în ThingsBoard (atributele latitude / longitude lipsesc).</p>
+        <p className="cell-sub" style={{ margin: "0 0 8px" }}>Acest contor nu are coordonate în SCADA (atributele latitude / longitude lipsesc).</p>
         {a && (
           <>
             <p className="cell-sub" style={{ margin: "0 0 6px" }}>Poți căuta după adresă (adresa se trimite către aplicația aleasă doar când apeși butonul):</p>

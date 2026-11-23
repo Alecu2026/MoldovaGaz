@@ -59,7 +59,7 @@ export const NO_FILTERS: Filters = {
 export const RANGE_MS: Record<string, number> = { "1h": 3_600_000, "24h": 86_400_000, "7d": 7 * 86_400_000, "30d": 30 * 86_400_000 };
 const FLAG_MASK: Record<string, number> = { alert: ALERT_FLAGS, batt: FLAG.BATT, offline: FLAG.OFFLINE, button: FLAG.BTN, magnet: FLAG.MAG, inactive: FLAG.INACTIVE, dup: FLAG.DUP };
 export const FLAG_LABELS: Record<string, string> = {
-  alert: "Alerte (baterie / offline)", batt: "Baterie slabă", offline: "Offline", button: "Buton apăsat", magnet: "Magnet detectat", inactive: "Inactiv în ThingsBoard", dup: "Serie repetată", ok: "OK (raport de stare fără probleme)", nostatus: "Fără raport de stare",
+  alert: "Alerte (baterie / offline)", batt: "Baterie slabă", offline: "Offline", button: "Buton apăsat", magnet: "Magnet detectat", inactive: "Inactiv în SCADA", dup: "Serie repetată", ok: "OK (raport de stare fără probleme)", nostatus: "Fără raport de stare",
 };
 
 /** a|b|c ↔ ["a","b","c"] */
