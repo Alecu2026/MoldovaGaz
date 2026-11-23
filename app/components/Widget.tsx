@@ -89,7 +89,7 @@ export default function Widget({ id, defaultH, minH = 240, expanded = false, ari
       data-over={board?.overId === id && board.dragId !== id ? "1" : undefined}
       onDragOver={(e) => { if (board?.dragId && board.dragId !== id) { e.preventDefault(); if (board.overId !== id) board.setOver(id); } }}
       onDragLeave={() => { if (board?.overId === id) board.setOver(null); }}
-      onDrop={(e) => { if (board?.dragId) { e.preventDefault(); board.drop(id); } }}
+      onDrop={(e) => { if (board?.dragId) { e.preventDefault(); board.dropOn(id); } }}
     >
       {board && !expanded && (
         <div className="wchrome">

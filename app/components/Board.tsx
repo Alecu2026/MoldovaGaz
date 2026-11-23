@@ -13,7 +13,7 @@ export type BoardApi = {
   overId: string | null;
   setDrag: (id: string | null) => void;
   setOver: (id: string | null) => void;
-  drop: (targetId: string) => void;
+  dropOn: (targetId: string) => void;
   hide: (id: string) => void;
   moveBy: (id: string, delta: number) => void;
 };
@@ -63,7 +63,7 @@ export default function Board({ id, items }: { id: string; items: BoardItem[] })
     dragId, overId,
     setDrag: setDragId,
     setOver: setOverId,
-    drop: (target) => { if (dragId) place(dragId, target); setDragId(null); setOverId(null); },
+    dropOn: (target) => { if (dragId) place(dragId, target); setDragId(null); setOverId(null); },
     hide: (x) => { const h = [...hidden, x]; setHidden(h); save(full, h); },
     moveBy: (x, delta) => {
       const i = visible.indexOf(x), j = i + delta;
