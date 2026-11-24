@@ -36,7 +36,7 @@ export async function analyzeAll(db: Db, log: (m: string) => void = () => {}, no
   const out = db.collection<NightDoc>(NIGHTS_COLLECTION);
   const run = new Date(now);
 
-  const arch = db.collection<ArchiveRow>(HISTORY_COLLECTION).find({ to: { $gte: days[0] } }, { projection: { to: 1, h: 1, x: 1 } }).sort({ _id: 1 }).batchSize(300)[Symbol.asyncIterator]();
+  const arch = db.collection<ArchiveRow>(HISTORY_COLLECTION).find({ to: { $gte: days[0] } }, { projection: { to: 1, h: 1 } }).sort({ _id: 1 }).batchSize(300)[Symbol.asyncIterator]();
   const read = db.collection<ReadingsRow>(READINGS_COLLECTION).find({}, { projection: { t: 1, v: 1, tp: 1 } }).sort({ _id: 1 }).batchSize(1000)[Symbol.asyncIterator]();
   let na = await arch.next(), nr = await read.next();
 
@@ -52,8 +52,8 @@ export async function analyzeAll(db: Db, log: (m: string) => void = () => {}, no
     const pts: Pt[] = [];
     if (ida === id) {
       const a = na.value as ArchiveRow;
-      // volum pe oră (Volume_m3_Total_ts) dacă există destul, altfel volumul din fiecare mesaj
-      const hp = a.h && a.h.n >= 24 ? unpack(a.h as never) : a.x ? unpack(a.x as never) : [];
+      // doar volumul pe oră (Volume_m3_Total_ts = ora la care contorul a CITIT): volumul din mesaje (`x`) are ora SOSIRII în SCADA, deci ar muta consumul în altă oră a nopții
+      const hp = a.h && a.h.n > 0 ? unpack(a.h as never) : [];
       for (const [t, v] of hp) if (t >= cutoff && Number.isFinite(v)) pts.push({ t, v, tp: null });
       na = await arch.next();
     }
