@@ -2,20 +2,29 @@
 
 import jsQR from "jsqr";
 import { useEffect, useRef, useState } from "react";
+import { MSG } from "@/lib/installer";
+import { ICON, type IconName } from "./tbicons";
 
 /**
- * Scanner de cod QR cu camera (ca acțiunea „ScanQR” din SCADA / aplicația mobilă): camera din spate, citire continuă; folosește BarcodeDetector când există (Chrome / Android),
- * altfel jsQR. Dacă nu există cameră (sau pagina nu e pe HTTPS), apare un câmp pentru textul codului. Închiderea fără rezultat apelează `onCancel`.
+ * Dialogul „QR-Scan(Web)” din SCADA: cameră pe tot ecranul (din spate), cadru cu colțuri, textul „Îndreaptă camera spre QR / Наведите камеру на QR”, zoom și lanternă când
+ * telefonul le are. Citește cu BarcodeDetector când există (Chrome / Android), altfel cu jsQR. Închiderea fără rezultat apelează `onCancel`.
+ * Fără cameră (sau fără HTTPS) apare un câmp pentru textul codului.
  */
 type Detector = { detect: (src: CanvasImageSource) => Promise<{ rawValue: string }[]> };
+type Caps = MediaTrackCapabilities & { torch?: boolean; zoom?: { min: number; max: number; step?: number } };
+const I = ({ n, s = 24 }: { n: IconName; s?: number }) => <svg viewBox="0 0 24 24" width={s} height={s} fill="currentColor" aria-hidden="true"><path d={ICON[n]} /></svg>;
 
 export default function QrScanner({ onResult, onCancel }: { onResult: (text: string) => void; onCancel: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
+  const track = useRef<MediaStreamTrack | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [manual, setManual] = useState("");
+  const [torch, setTorch] = useState<{ has: boolean; on: boolean }>({ has: false, on: false });
+  const [zoom, setZoom] = useState<{ min: number; max: number; step: number; value: number } | null>(null);
   const done = useRef(false);
   const cb = useRef({ onResult, onCancel });
   useEffect(() => { cb.current = { onResult, onCancel }; }, [onResult, onCancel]);
+  const finish = (text: string) => { if (done.current) return; done.current = true; cb.current.onResult(text); };
 
   useEffect(() => {
     let stream: MediaStream | null = null, raf = 0, stopped = false, last = 0;
@@ -24,11 +33,10 @@ export default function QrScanner({ onResult, onCancel }: { onResult: (text: str
     const BD = (window as unknown as { BarcodeDetector?: new (o: { formats: string[] }) => Detector }).BarcodeDetector;
     let det: Detector | null = null;
     try { det = BD ? new BD({ formats: ["qr_code"] }) : null; } catch { det = null; }
-    const finish = (text: string) => { if (done.current) return; done.current = true; cb.current.onResult(text); };
     const tick = async (t: number) => {
       if (stopped || done.current) return;
       const v = video.current;
-      if (v && v.readyState >= 2 && v.videoWidth && t - last > 120) {
+      if (v && v.readyState >= 2 && v.videoWidth && t - last > 70) {
         last = t;
         try {
           if (det) { const r = await det.detect(v); if (r[0]?.rawValue) return finish(r[0].rawValue); }
@@ -43,15 +51,22 @@ export default function QrScanner({ onResult, onCancel }: { onResult: (text: str
       raf = requestAnimationFrame((x) => void tick(x));
     };
     (async () => {
-      if (!navigator.mediaDevices?.getUserMedia) { setErr("Camera nu e disponibilă (e nevoie de HTTPS și permisiune)."); return; }
+      if (!navigator.mediaDevices?.getUserMedia) { setErr(MSG.camUnsupported); return; }
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } }, audio: false });
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
         if (stopped) { stream.getTracks().forEach((x) => x.stop()); return; }
+        const tr = stream.getVideoTracks()[0]; track.current = tr ?? null;
+        try {
+          const caps = (tr?.getCapabilities?.() ?? {}) as Caps;
+          if (caps.torch) setTorch({ has: true, on: false });
+          if (caps.zoom && caps.zoom.max > caps.zoom.min) { const v0 = Math.min(caps.zoom.max, Math.max(caps.zoom.min, 1.5)); setZoom({ min: caps.zoom.min, max: caps.zoom.max, step: caps.zoom.step || 0.1, value: v0 }); void tr.applyConstraints({ advanced: [{ zoom: v0 } as MediaTrackConstraintSet] }).catch(() => undefined); }
+          void tr.applyConstraints({ advanced: [{ focusMode: "continuous" } as MediaTrackConstraintSet] }).catch(() => undefined);
+        } catch { /* fără zoom / lanternă */ }
         if (video.current) { video.current.srcObject = stream; await video.current.play().catch(() => undefined); }
         raf = requestAnimationFrame((x) => void tick(x));
-      } catch { setErr("Nu pot porni camera (permisiune refuzată sau nu există cameră)."); }
+      } catch { setErr(MSG.camUnavailable); }
     })();
-    return () => { stopped = true; cancelAnimationFrame(raf); stream?.getTracks().forEach((x) => x.stop()); };
+    return () => { stopped = true; cancelAnimationFrame(raf); stream?.getTracks().forEach((x) => x.stop()); track.current = null; };
   }, []);
 
   useEffect(() => {
@@ -60,28 +75,29 @@ export default function QrScanner({ onResult, onCancel }: { onResult: (text: str
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 
+  const toggleTorch = () => { const on = !torch.on; setTorch({ has: true, on }); void track.current?.applyConstraints({ advanced: [{ torch: on } as MediaTrackConstraintSet] }).catch(() => setTorch({ has: true, on: !on })); };
+  const setZ = (v: number) => { setZoom((z) => (z ? { ...z, value: v } : z)); void track.current?.applyConstraints({ advanced: [{ zoom: v } as MediaTrackConstraintSet] }).catch(() => undefined); };
+
   return (
-    <div className="tbx-back" role="dialog" aria-modal="true" aria-label="Scan QR code">
-      <div className="tbx-dialog" style={{ width: "min(520px, 100%)" }}>
-        <div className="tbx-toolbar"><h2>Scan QR code</h2><span style={{ flex: 1 }} /><button type="button" className="tbx-iconbtn tbx-white" aria-label="Close" onClick={onCancel}><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg></button></div>
-        <div className="tbx-dialog-body">
-          {err ? (
-            <div>
-              <p style={{ margin: "0 0 12px" }}>{err}</p>
-              <label className="tbx-field"><span>QR text</span>
-                <input value={manual} onChange={(e) => setManual(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && manual.trim()) finish0(manual.trim()); }} placeholder=":3010.60027989.2610:" aria-label="QR text" />
-              </label>
-            </div>
-          ) : (
-            <div className="tbx-video"><video ref={video} muted playsInline aria-label="Camera" /><i /></div>
-          )}
+    <div className="tbx-qr" role="dialog" aria-modal="true" aria-label="Scan QR">
+      <div className="tbx-qr-top"><span>Scan QR / Сканировать QR</span><button type="button" className="tbx-iconbtn tbx-white" onClick={onCancel} aria-label="Close"><I n="close" /></button></div>
+      {err ? (
+        <div className="tbx-qr-manual">
+          <p>{err}</p>
+          <label className="tbx-ff"><input value={manual} onChange={(e) => setManual(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && manual.trim()) finish(manual.trim()); }} placeholder=" " aria-label="QR text" /><span>QR text</span><i /></label>
+          <div style={{ textAlign: "right", marginTop: 12 }}><button type="button" className="tbx-btn tbx-raised tbx-primary" disabled={!manual.trim()} onClick={() => finish(manual.trim())}>Ok</button></div>
         </div>
-        <div className="tbx-dialog-actions">
-          {err && <button type="button" className="tbx-btn tbx-primary" disabled={!manual.trim()} onClick={() => finish0(manual.trim())}>Ok</button>}
-          <button type="button" className="tbx-btn" onClick={onCancel}>Cancel</button>
+      ) : (
+        <div className="tbx-qr-cam">
+          <video ref={video} muted playsInline aria-label="Camera" />
+          <div className="tbx-qr-frame"><b className="tl" /><b className="tr" /><b className="bl" /><b className="br" /></div>
         </div>
+      )}
+      <div className="tbx-qr-bottom">
+        <div className="tbx-qr-status">{MSG.qrAim}</div>
+        {zoom && <div className="tbx-qr-zoom"><I n="zoom_in" /><input type="range" min={zoom.min} max={zoom.max} step={zoom.step} value={zoom.value} onChange={(e) => setZ(Number(e.target.value))} aria-label="Zoom" /></div>}
+        {torch.has && <button type="button" className="tbx-iconbtn tbx-white tbx-qr-torch" onClick={toggleTorch} aria-label="Lanternă"><I n={torch.on ? "flash_off" : "flash_on"} /></button>}
       </div>
     </div>
   );
-  function finish0(text: string) { if (done.current) return; done.current = true; cb.current.onResult(text); }
 }

@@ -2,7 +2,7 @@ import "server-only";
 import fs from "node:fs";
 import path from "node:path";
 import { getDb, COLLECTIONS } from "../mongo";
-import { cleanPatch, type InstallerData, type InstallerList, type InstallerRecord, type InstallerRow } from "../installer";
+import { cleanPatch, type InstallerList, type InstallerRecord, type InstallerRow, type Patch } from "../installer";
 import { decodeImage, photoDir, photoPath, processImage, validId } from "../photos";
 
 /**
@@ -13,8 +13,8 @@ export const DATA_COLLECTION = "installer_data";
 export const PREFS_COLLECTION = "installer_prefs";
 const MAX_PHOTO_BYTES = 25_000_000;
 
-type MeterLite = { _id: string; tb?: { name?: string }; s?: { n?: string }; attrs?: Record<string, unknown>; tel?: Record<string, { t: number; v: string } | undefined> };
-type DataDoc = Partial<InstallerData> & { _id: string; updatedAt?: Date; by?: string; photoAt?: Date };
+type MeterLite = { _id: string; tb?: { name?: string }; s?: { n?: string; br?: string }; attrs?: Record<string, unknown>; tel?: Record<string, { t: number; v: string } | undefined> };
+type DataDoc = Patch & { _id: string; updatedAt?: Date; by?: string; photoAt?: Date };
 
 const n = (v: unknown): number | null => { if (v === null || v === undefined || v === "") return null; const x = Number(String(v).replace(",", ".")); return Number.isFinite(x) ? x : null; };
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -23,25 +23,39 @@ const nameOf = (m: MeterLite) => String(m.tb?.name ?? m.s?.n ?? m._id);
 
 function rowOf(m: MeterLite, d?: DataDoc): InstallerRow {
   const a = m.attrs ?? {}, tel = m.tel ?? {};
-  const act = a.active;
   return {
-    id: String(m._id), name: nameOf(m), active: act === true || act === "true" ? true : act === false || act === "false" ? false : null,
-    ContorNr: d?.ContorNr ?? (a.ContorNr === undefined || a.ContorNr === null ? "" : String(a.ContorNr)),
-    Instalation_Litres: d?.Instalation_Litres !== undefined ? d.Instalation_Litres : n(a.Instalation_Litres),
-    couterPulse: n(a.c_couterPulse), ModuleInitialValue: n(a.ModuleInitialValue),
-    Volume_m3_Total: n(tel.Volume_m3_Total?.v), Volume_Liters: n(tel.Volume_Liters?.v), inactivityTimeout: n(a.inactivityTimeout), lastActivityTime: n(a.lastActivityTime),
+    id: String(m._id), name: nameOf(m), lastActivityTime: n(a.lastActivityTime),
+    Volume_m3_Total: n(tel.Volume_m3_Total?.v), Instalation_Litres: d?.Instalation_Litres !== undefined ? d.Instalation_Litres : n(a.Instalation_Litres),
+    Volume_Liters: n(tel.Volume_Liters?.v), ModuleInitialValue: n(a.ModuleInitialValue),
   };
 }
 
 const PROJ = { _id: 1, "tb.name": 1, "s.n": 1, attrs: 1, "tel.Volume_m3_Total": 1, "tel.Volume_Liters": 1 } as const;
-const SORTS: Record<string, string> = { name: "tb.name", ContorNr: "attrs.ContorNr", Instalation_Litres: "attrs.Instalation_Litres", ModuleInitialValue: "attrs.ModuleInitialValue", lastActivityTime: "attrs.lastActivityTime", active: "attrs.active", inactivityTimeout: "attrs.inactivityTimeout", Volume_m3_Total: "tel.Volume_m3_Total.v" };
+const SORTS: Record<string, string> = { name: "tb.name", active: "attrs.lastActivityTime", ActiveTime: "attrs.lastActivityTime", lastActivityTime: "attrs.lastActivityTime", Instalation_Litres: "attrs.Instalation_Litres", ModuleInitialValue: "attrs.ModuleInitialValue", Volume_m3_Total: "tel.Volume_m3_Total.v", Volume_Liters: "tel.Volume_Liters.v" };
+
+/** Lista „Localitate” (locationModule) a unei filiale: la Orhei exact lista din SCADA, la celelalte valorile folosite la cel puțin 20 de contoare ale filialei (fără „na”). */
+const ORHEI = ["Orhei", "Soldanesti", "Rezina", "Telenesti"];
+const gOpt = globalThis as unknown as { __instOpt?: { at: number; by: Map<string, string[]> } };
+async function localityOptions(branch: string): Promise<string[]> {
+  if (/^20/.test(branch)) return ORHEI;
+  if (!gOpt.__instOpt || Date.now() - gOpt.__instOpt.at > 600_000) {
+    const g = await (await getDb()).collection(COLLECTIONS.meters).aggregate<{ _id: { br: string; v: string }; n: number }>([
+      { $match: { "attrs.locationModule": { $nin: [null, "", "na"] } } }, { $group: { _id: { br: "$s.br", v: "$attrs.locationModule" }, n: { $sum: 1 } } }, { $match: { n: { $gte: 20 } } }, { $sort: { n: -1 } },
+    ]).toArray();
+    const by = new Map<string, string[]>();
+    for (const x of g) { const l = by.get(String(x._id.br)) ?? []; l.push(String(x._id.v)); by.set(String(x._id.br), l); }
+    gOpt.__instOpt = { at: Date.now(), by };
+  }
+  return gOpt.__instOpt.by.get(branch) ?? [];
+}
 
 /** Lista paginată (căutare după nume, sortare, pagină) — ca „Device admin table”. */
 export async function listMeters(o: { q: string; page: number; size: number; sort: string; dir: 1 | -1 }): Promise<InstallerList> {
   const db = await getDb();
   const meters = db.collection<MeterLite>(COLLECTIONS.meters);
   const q = o.q.trim().slice(0, 80);
-  const filter = q ? { "tb.name": { $regex: esc(q), $options: "i" } } : {};
+  const rx = { $regex: esc(q), $options: "i" };
+  const filter = q ? { $or: [{ "tb.name": rx }, { "attrs.ContorNr": rx }] } : {};
   const key = SORTS[o.sort] ?? "tb.name";
   const [total, docs] = await Promise.all([
     q ? meters.countDocuments(filter) : meters.estimatedDocumentCount(),
@@ -50,6 +64,8 @@ export async function listMeters(o: { q: string; page: number; size: number; sor
   const data = new Map((await db.collection<DataDoc>(DATA_COLLECTION).find({ _id: { $in: docs.map((d) => String(d._id)) } }).toArray()).map((d) => [d._id, d]));
   return { total, rows: docs.map((m) => rowOf(m, data.get(String(m._id)))) };
 }
+
+export const countMeters = async (): Promise<number> => (await getDb()).collection(COLLECTIONS.meters).estimatedDocumentCount();
 
 /** Contorul după un nume exact (din codul QR): întoarce id-ul și numele, sau null. */
 export async function findByName(name: string): Promise<{ id: string; name: string } | null> {
@@ -61,19 +77,23 @@ export async function findByName(name: string): Promise<{ id: string; name: stri
 export async function getRecord(id: string): Promise<InstallerRecord | null> {
   if (!validId(id)) return null;
   const db = await getDb();
-  const m = await db.collection<MeterLite>(COLLECTIONS.meters).findOne({ _id: id } as never, { projection: { _id: 1, "tb.name": 1, "s.n": 1, attrs: 1 } });
+  const m = await db.collection<MeterLite>(COLLECTIONS.meters).findOne({ _id: id } as never, { projection: { _id: 1, "tb.name": 1, "s.n": 1, "s.br": 1, attrs: 1 } });
   if (!m) return null;
   const d = await db.collection<DataDoc>(DATA_COLLECTION).findOne({ _id: id });
   const a = m.attrs ?? {};
   const has = async (f: string) => fs.promises.stat(f).then(() => true, () => false);
   const own = await has(installerPhotoPath(id));
   const sc = !own && (await has(photoPath(id)));
+  const b = (k: "Aragaz" | "Cazan" | "Incalzire" | "ModuleWriteInitial") => (d?.[k] !== undefined ? d[k] === true : k !== "ModuleWriteInitial" && (a[k] === true || a[k] === "true"));
+  const loc = d?.locationModule !== undefined ? d.locationModule : a.locationModule === undefined || a.locationModule === null || a.locationModule === "na" ? "" : String(a.locationModule);
+  const options = await localityOptions(String(m.s?.br ?? ""));
   return {
     id, name: nameOf(m),
     ContorNr: d?.ContorNr ?? (a.ContorNr === undefined || a.ContorNr === null ? "" : String(a.ContorNr)),
     Instalation_Litres: d?.Instalation_Litres !== undefined ? d.Instalation_Litres : n(a.Instalation_Litres),
     latitude: d?.latitude !== undefined ? d.latitude : n(a.latitude), longitude: d?.longitude !== undefined ? d.longitude : n(a.longitude),
-    ModuleWriteInitial: d?.ModuleWriteInitial ?? false, Comments: d?.Comments ?? "",
+    Aragaz: b("Aragaz"), Cazan: b("Cazan"), Incalzire: b("Incalzire"), ModuleWriteInitial: b("ModuleWriteInitial"),
+    locationModule: loc, options: loc && !options.includes(loc) ? [...options, loc] : options, Comments: d?.Comments ?? "",
     lastActivityTime: n(a.lastActivityTime), hasPhoto: own || sc, photoSource: own ? "installer" : sc ? "scada" : null,
     updatedAt: d?.updatedAt ? d.updatedAt.getTime() : null, by: d?.by ?? null,
   };
