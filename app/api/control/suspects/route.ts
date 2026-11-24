@@ -6,7 +6,7 @@ import { clampParams, suspects } from "@/lib/services/night-dataset";
  * Lucrează doar din baza noastră (colecția meter_nights), fără SCADA; răspunsul e instant după prima încărcare în memorie.
  */
 export async function GET(req: Request) {
-  const guard = await apiGuard("admin");
+  const guard = await apiGuard("control");
   if ("res" in guard) return guard.res;
   const q = new URL(req.url).searchParams;
   try {

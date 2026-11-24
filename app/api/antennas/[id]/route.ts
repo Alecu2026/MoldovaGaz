@@ -16,7 +16,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const guard = await apiGuard("antennas");
+  const guard = await apiGuard("antennas", "edit");
   if ("res" in guard) return guard.res;
   const { id } = await ctx.params;
   const body = await req.json().catch(() => null);

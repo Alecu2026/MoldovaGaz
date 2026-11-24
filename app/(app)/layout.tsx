@@ -3,7 +3,7 @@ import AppNav from "@/app/components/AppNav";
 import AppShell from "@/app/components/AppShell";
 import LogoutButton from "@/app/components/LogoutButton";
 import NotifBell from "@/app/components/NotifBell";
-import { PAGES } from "@/lib/access";
+import { PAGES, can } from "@/lib/access";
 import { requireUser } from "@/lib/dal";
 
 /** Cadrul aplicației: meniu lateral (vezi AppShell); meniul și contul așteaptă sesiunea, fiecare într-un Suspense. */
@@ -18,11 +18,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Meniul: doar paginile pe care le poate vedea utilizatorul (administratorul le vede pe toate). */
+/** Meniul: doar paginile la care utilizatorul are dreptul «Vizualizare» (administratorul le vede pe toate). */
 async function Nav() {
   const user = await requireUser();
-  const all = ["/", "/control", "/integration", "/rapoarte", "/instalator", "/antene", "/module", "/lorawan", "/facturare", "/utilizatori"];
-  return <AppNav hrefs={user.admin ? all : PAGES.filter((p) => user.access.pages.includes(p.key)).map((p) => p.path)} />;
+  return <AppNav hrefs={PAGES.filter((p) => can(user, p.key)).map((p) => p.path)} />;
 }
 
 async function Who() {

@@ -16,7 +16,7 @@ export default function SourcePage({ source, searchParams }: { source: SourceId;
 }
 
 async function Gate({ source, searchParams }: { source: SourceId; searchParams: SP }) {
-  const user = await requirePage("admin");
+  const user = await requirePage(source === "billing" ? "billing" : "lorawan"); // pagina «Facturare» / «Dispozitive LoRaWAN»
   const sp = await searchParams;
   const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   const entries = Object.entries(sp).flatMap(([k, v]) => (first(v) !== undefined ? [[k, first(v) as string] as [string, string]] : []));

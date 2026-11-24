@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import UsersPanel from "@/app/components/UsersPanel";
+import { canOf } from "@/lib/access";
 import { requirePage } from "@/lib/dal";
 
 export const metadata: Metadata = { title: "Utilizatori" };
@@ -14,6 +15,6 @@ export default function Page() {
 }
 
 async function Gate() {
-  await requirePage("admin");
-  return <UsersPanel />;
+  const user = await requirePage("users");
+  return <UsersPanel can={canOf(user, "users")} />;
 }

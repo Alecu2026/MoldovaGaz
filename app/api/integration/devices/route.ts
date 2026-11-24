@@ -4,7 +4,7 @@ import { seenPage } from "@/lib/services/seen";
 
 /** „De la care contoare ia date”: contoarele care au trimis prin integrare + ce s-a păstrat, cu contorul cu care se potrivește. Doar utilizatori autentificați. */
 export async function GET(req: Request) {
-  const guard = await apiGuard("admin");
+  const guard = await apiGuard("integration");
   if ("res" in guard) return guard.res;
   try {
     const q = new URL(req.url).searchParams;

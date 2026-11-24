@@ -3,7 +3,7 @@ import { counterReport, resetCounters } from "@/lib/services/counters";
 
 /** Verificarea continuității: ce numere (counter) au venit și ce lipsește, pe flux. Doar utilizatori autentificați. */
 export async function GET() {
-  const guard = await apiGuard("admin");
+  const guard = await apiGuard("integration");
   if ("res" in guard) return guard.res;
   try {
     return Response.json(await counterReport(), { headers: { "Cache-Control": "private, no-store" } });
@@ -15,7 +15,7 @@ export async function GET() {
 
 /** „Test nou”: { "reset": "<flux>" | "all" } șterge contoarele urmărite. */
 export async function POST(req: Request) {
-  const guard = await apiGuard("admin");
+  const guard = await apiGuard("integration", "delete");
   if ("res" in guard) return guard.res;
   try {
     const b = (await req.json().catch(() => null)) as { reset?: unknown } | null;

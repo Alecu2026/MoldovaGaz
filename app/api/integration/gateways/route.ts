@@ -12,7 +12,7 @@ import { deviceGateways, gatewayDetail, gatewayStats, gatewaySummary } from "@/l
 export async function GET(req: Request) {
   const q = new URL(req.url).searchParams;
   const device = q.get("device");
-  const guard = device ? await apiMeterGuard("any", device.slice(0, 80)) : await apiGuard("admin");
+  const guard = device ? await apiMeterGuard("any", device.slice(0, 80)) : await apiGuard("integration");
   if ("res" in guard) return guard.res;
   const headers = { "Cache-Control": "private, no-store" };
   try {

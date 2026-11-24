@@ -19,7 +19,7 @@ function params(b: Record<string, unknown>): ReportParams | string {
 }
 
 export async function GET() {
-  const guard = await apiGuard("admin");
+  const guard = await apiGuard("reports");
   if ("res" in guard) return guard.res;
   try {
     return Response.json({ reports: await listReports(), dir: dir() }, { headers: { "Cache-Control": "private, no-store" } });
@@ -30,7 +30,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const guard = await apiGuard("admin");
+  const guard = await apiGuard("reports", "edit");
   if ("res" in guard) return guard.res;
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!b || (b.action !== "preview" && b.action !== "start")) return Response.json({ error: "Trimite { \"action\": \"preview\" | \"start\", … }." }, { status: 400 });

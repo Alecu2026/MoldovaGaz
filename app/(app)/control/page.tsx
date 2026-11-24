@@ -14,6 +14,6 @@ export default function Page() {
 }
 
 async function Gate() {
-  await requirePage("admin");
+  await requirePage("control");
   return <NightControl />;
 }

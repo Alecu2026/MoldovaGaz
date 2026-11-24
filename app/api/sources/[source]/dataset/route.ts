@@ -9,10 +9,10 @@ import { isSourceId } from "@/lib/source-shared";
  * ETag = amprenta datelor din baza de date ⇒ 304 fără corp când nu s-a schimbat nimic; `?enc=json` = JSON simplu pentru browsere fără DecompressionStream.
  */
 export async function GET(req: Request, ctx: { params: Promise<{ source: string }> }) {
-  const guard = await apiGuard("admin");
-  if ("res" in guard) return guard.res;
   const { source } = await ctx.params;
   if (!isSourceId(source)) return Response.json({ error: "Sursă necunoscută." }, { status: 404 });
+  const guard = await apiGuard(source === "billing" ? "billing" : "lorawan"); // pagina «Facturare» / «Dispozitive LoRaWAN»
+  if ("res" in guard) return guard.res;
   try {
     const b = await getSource(source);
     const plain = new URL(req.url).searchParams.get("enc") === "json";

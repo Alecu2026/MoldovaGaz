@@ -44,7 +44,7 @@ const toForm = (r: InstallerRecord): Form => ({ id: r.id, ContorNr: r.ContorNr, 
 /** ce pregătește serverul odată cu pagina: filtrul păstrat al utilizatorului și prima pagină a listei (fără cereri în plus după încărcare) */
 export type InstallerInitial = { filter: string; list: InstallerList | null };
 
-export default function InstallerApp({ canHome = false, initial }: { /** are acces și la pagina Contoare: doar atunci apare legătura spre aplicația principală */ canHome?: boolean; initial?: InstallerInitial }) {
+export default function InstallerApp({ canHome = false, canEdit = true, initial }: { /** poate salva (date de montaj, locație, poză)? fără — ecranul e doar de vizualizare */ canEdit?: boolean; /** are acces și la pagina Contoare: doar atunci apare legătura spre aplicația principală */ canHome?: boolean; initial?: InstallerInitial }) {
   /* ───────── lista (Device admin table) ───────── */
   const [q, setQ] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -108,6 +108,7 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
 
   /* ───────── acțiuni: locație, poză, QR ───────── */
   const saveLocation = useCallback((id: string, withTimeseries = false) => {
+    if (!canEdit) return;
     if (!navigator.geolocation) { toast(MSG.geoUnsupported, false, 4000); return; }
     toast(MSG.gpsAccess, true, 2000);
     navigator.geolocation.getCurrentPosition(
@@ -115,7 +116,7 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
       (e) => toast(e.code === 1 ? MSG.geoDenied : e.code === 2 ? MSG.geoUnavailable : e.code === 3 ? MSG.geoTimeout : MSG.geoDefault, false, 4000),
       { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 },
     );
-  }, [post, toast, keep, refresh]);
+  }, [post, toast, keep, refresh, canEdit]);
 
   const uploadPhoto = useCallback(async (id: string, blob: Blob) => {
     const r = await fetch(`/api/installer/meters/${id}/photo`, { method: "POST", headers: { "Content-Type": blob.type || "image/jpeg" }, body: blob });
@@ -125,10 +126,11 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
   }, [keep, refresh]);
 
   const onDropFile = async (file: File | undefined) => {
+    if (!canEdit) return;
     const id = sel; if (!file || !id) return;
     try { await uploadPhoto(id, file); toast(MSG.imageSaved); } catch (e) { toast((e as Error).message, false, 4000); }
   };
-  const openCamera = (id: string | null) => { if (!id) return; setCamFor(id); setSel(id); setDlg({ kind: "camera" }); };
+  const openCamera = (id: string | null) => { if (!id || !canEdit) return; setCamFor(id); setSel(id); setDlg({ kind: "camera" }); };
 
   const onScan = useCallback(async (text: string) => {
     setDlg(null);
@@ -148,6 +150,7 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
 
   /* ───────── formularul: Salvează / Anulează Ultima Comandă ───────── */
   const update = async () => {
+    if (!canEdit) return;
     if (!cur || !f || !valid || !dirty) return;
     setBusy(true);
     try {
@@ -292,7 +295,7 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
                   <tr key={r.id} className={sel === r.id ? "sel" : ""} onClick={() => setSel(r.id)}>
                     {cols.map((c) => <td key={c.key} className={c.num ? "num" : ""}>{cell(r, c.key)}</td>)}
                     <td className="tbx-sticky-a" onClick={(e) => e.stopPropagation()}>
-                      <span className="tbx-act-inline"><Btn n="photo_camera" label="Photo" onClick={() => openCamera(r.id)} /><Btn n="add_location" label="LocationBrowser" onClick={() => { setSel(r.id); saveLocation(r.id, true); }} /></span>
+                      {canEdit && <span className="tbx-act-inline"><Btn n="photo_camera" label="Photo" onClick={() => openCamera(r.id)} /><Btn n="add_location" label="LocationBrowser" onClick={() => { setSel(r.id); saveLocation(r.id, true); }} /></span>}
                       <span className="tbx-act-more"><Btn n="more_vert" label="Acțiuni" onClick={(e) => { const b = e.currentTarget.getBoundingClientRect(); setRowMenu({ id: r.id, x: b.right, y: b.bottom }); e.stopPropagation(); }} /></span>
                     </td>
                   </tr>
@@ -318,10 +321,10 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
         <section className="tbx-w tbx-w-update" aria-label="Meter Update">
           <header className="tbx-wh">
             <h3>Meter Update</h3><span className="tbx-spacer" />
-            <Btn n="pin_drop" label="Location" onClick={() => sel && saveLocation(sel)} disabled={!sel} className={green ? "tbx-green" : ""} />
+            {canEdit && <Btn n="pin_drop" label="Location" onClick={() => sel && saveLocation(sel)} disabled={!sel} className={green ? "tbx-green" : ""} />}
             <Btn n="visibility" label="Foto" onClick={() => setView(true)} disabled={!photoUrl} />
-            <Btn n="add_location" label="LocationBrowser" onClick={() => sel && saveLocation(sel)} disabled={!sel} />
-            <Btn n="add_a_photo" label="PhotoBrowser" onClick={() => openCamera(sel)} disabled={!sel} />
+            {canEdit && <Btn n="add_location" label="LocationBrowser" onClick={() => sel && saveLocation(sel)} disabled={!sel} />}
+            {canEdit && <Btn n="add_a_photo" label="PhotoBrowser" onClick={() => openCamera(sel)} disabled={!sel} />}
           </header>
           <div className="tbx-wb">
             {!sel && <p className="tbx-hint">No entity selected</p>}
@@ -329,7 +332,7 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
             {rec?.err && rec.id === sel && <p className="tbx-err" role="alert">{rec.err}</p>}
             {cur && f && (
               <form onSubmit={(e) => { e.preventDefault(); void update(); }} noValidate>
-                <fieldset className="tbx-group"><legend>{cur.name}</legend>
+                <fieldset className="tbx-group" disabled={!canEdit}><legend>{cur.name}</legend>
                   {field("ContorNr", "Contor Serial Number (Серийный номер счетчика газа)", { req: true, max: 40 })}
                   {field("lit", "Instalation Litres (Показание при установке ,литров)", { req: true, type: "num" })}
                   <label className="tbx-ff"><input value={fnum(cur.latitude)} readOnly placeholder=" " aria-required="true" /><span>latitude *</span><i /></label>
@@ -343,7 +346,7 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
                   {field("com", "Comments", { max: 2000 })}
                   <label className="tbx-ff tbx-dis"><b className="tbx-pre" aria-hidden="true"><Ico n="event" /></b><input value={fdt(cur.lastActivityTime)} disabled placeholder=" " /><span>lastActivityTime</span><i /></label>
                 </fieldset>
-                <div className="tbx-actions">
+                <div className="tbx-actions" hidden={!canEdit}>
                   <button type="button" className="tbx-btn" disabled={!dirty || busy} onClick={undo}>{MSG.undo}</button>
                   <button type="submit" className="tbx-btn tbx-raised tbx-primary" disabled={!valid || !dirty || busy}>{MSG.save}</button>
                 </div>
@@ -369,7 +372,7 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
         <section className="tbx-w tbx-w-foto" aria-label="Installation foto">
           <header className="tbx-wh"><h3>Installation foto</h3></header>
           <div className="tbx-wb">
-            <div className={`tbx-drop${sel ? "" : " off"}`} role="button" tabIndex={sel ? 0 : -1} aria-disabled={!sel}
+            <div className={`tbx-drop${sel && canEdit ? "" : " off"}`} role="button" tabIndex={sel && canEdit ? 0 : -1} aria-disabled={!sel || !canEdit} hidden={!canEdit}
               onClick={() => sel && fileDrop.current?.click()} onKeyDown={(e) => { if (sel && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); fileDrop.current?.click(); } }}
               onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); void onDropFile(e.dataTransfer.files?.[0]); }}>
               <Ico n="add_a_photo" s={32} /><span>Drop an image here or click to select</span>
@@ -388,8 +391,8 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
 
       {rowMenu && (
         <div className="tbx-menu tbx-menu-fixed" style={{ top: Math.min(rowMenu.y, window.innerHeight - 120), left: Math.max(8, rowMenu.x - 220) }} role="menu" onClick={(e) => e.stopPropagation()}>
-          <button type="button" className="tbx-mi" role="menuitem" onClick={() => { const id = rowMenu.id; setRowMenu(null); openCamera(id); }}><Ico n="photo_camera" /> Photo</button>
-          <button type="button" className="tbx-mi" role="menuitem" onClick={() => { const id = rowMenu.id; setRowMenu(null); setSel(id); saveLocation(id, true); }}><Ico n="add_location" /> LocationBrowser</button>
+          {canEdit && <button type="button" className="tbx-mi" role="menuitem" onClick={() => { const id = rowMenu.id; setRowMenu(null); openCamera(id); }}><Ico n="photo_camera" /> Photo</button>}
+          {canEdit && <button type="button" className="tbx-mi" role="menuitem" onClick={() => { const id = rowMenu.id; setRowMenu(null); setSel(id); saveLocation(id, true); }}><Ico n="add_location" /> LocationBrowser</button>}
         </div>
       )}
 

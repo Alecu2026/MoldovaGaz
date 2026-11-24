@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { Can } from "@/lib/access";
 import { chirpstackFields, chirpstackText } from "@/lib/antennas";
 import { DOWNLINKS, GAS_TYPES, TYPE_LABEL, type DownlinkKey, type ModType } from "@/lib/lorawan/config";
 
@@ -30,7 +31,8 @@ function parseCsv(text: string): Record<string, string>[] {
   return (hasHead ? lines.slice(1) : lines).map((l) => { const c = l.split(sep).map((x) => x.trim()); return Object.fromEntries(cols.map((k, i) => [k, c[i] ?? ""])); });
 }
 
-export default function LorawanPanel() {
+/** `can`: Editare = adaugă module / antene și simulează; Rulare = scrie în ChirpStack; Ștergere = scoate din evidență (butoanele care n-ar merge nu apar). */
+export default function LorawanPanel({ can }: { can: Can }) {
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [mods, setMods] = useState<Mod[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -127,6 +129,7 @@ export default function LorawanPanel() {
         {msg && <p className={msg.ok ? "cell-sub" : "form-error"} role={msg.ok ? "status" : "alert"} style={{ whiteSpace: "normal" }}>{msg.text}</p>}
       </section>
 
+      {can.edit && (
       <section className="card" aria-label="Adaugă module">
         <header className="card-h"><div><h3>Adaugă module</h3></div></header>
         <div className="usr-grid">
@@ -151,9 +154,12 @@ export default function LorawanPanel() {
           <div style={{ marginTop: 8 }}><button type="button" className="btn" disabled={busy === "add" || !csv.trim()} onClick={() => void add(parseCsv(csv))}>Adaugă din tabel</button></div>
         </details>
       </section>
+      )}
 
       <section className="card" aria-label="Antene">
         <header className="card-h"><div><h3>Antene (gateway)</h3><p>Antena se creează aici, apoi <b>copiezi valorile</b> și o încarci manual în ChirpStack (Gateways → Create). În SCADA antenele nu se creează în ChirpStack: apar singure după primul mesaj primit prin ele, iar la noi apar în ecranul «Instalator antene» din momentul creării.</p></div></header>
+        {can.edit && (
+        <>
         <div className="usr-grid">
           <label className="field"><span>Gateway name (ex. M-0E4750_Orhei_Spital)</span><input className="input" value={af.name} onChange={(e) => setAf({ ...af, name: e.target.value })} autoComplete="off" spellCheck={false} /></label>
           <label className="field"><span>Gateway ID (EUI, 16 hex)</span><input className="input mono" value={af.id} onChange={(e) => setAf({ ...af, id: e.target.value })} autoComplete="off" spellCheck={false} /></label>
@@ -165,6 +171,8 @@ export default function LorawanPanel() {
           <label className="field"><span>Comentarii (la noi)</span><input className="input" value={af.Comments} maxLength={2000} onChange={(e) => setAf({ ...af, Comments: e.target.value })} autoComplete="off" /></label>
         </div>
         <div style={{ marginTop: 10 }}><button type="button" className="btn btn-primary" disabled={busy === "ant" || !af.name.trim() || !af.id.trim()} onClick={() => void addAnt()}>Creează antena</button></div>
+        </>
+        )}
         {amsg && <p className={amsg.ok ? "cell-sub" : "form-error"} role={amsg.ok ? "status" : "alert"} style={{ whiteSpace: "normal", marginTop: 8 }}>{amsg.text}</p>}
         {ants && ants.length > 0 && (
           <div className="card-table" style={{ marginTop: 12, maxHeight: 420 }}>
@@ -179,7 +187,7 @@ export default function LorawanPanel() {
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                         <button type="button" className="btn btn-sm btn-primary" onClick={() => void copy(chirpstackText(a), "toate câmpurile")}>Copiază tot</button>
                         <button type="button" className="btn btn-sm" onClick={() => setOpenAnt(openAnt === a.id ? null : a.id)}>{openAnt === a.id ? "Ascunde câmpurile" : "Câmpuri pe rând"}</button>
-                        {!a.heard && <button type="button" className="btn btn-sm btn-ghost" onClick={() => void delAnt(a)} aria-label={`Scoate ${a.name}`}>Scoate</button>}
+                        {can.delete && !a.heard && <button type="button" className="btn btn-sm btn-ghost" onClick={() => void delAnt(a)} aria-label={`Scoate ${a.name}`}>Scoate</button>}
                       </div>
                       {openAnt === a.id && (
                         <ul style={{ listStyle: "none", margin: "8px 0 0", padding: 0, display: "grid", gap: 4 }}>
@@ -227,11 +235,11 @@ export default function LorawanPanel() {
                   <td className="cell-sub" style={{ whiteSpace: "normal" }}>{m.last ? <>{dt(m.last.at)} · {m.last.dry ? "simulare" : "rulat"} · {m.last.ok ? "ok" : "eșuat"}</> : "—"}</td>
                   <td style={{ minWidth: 260 }}>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                      <select className="select" style={{ width: 200, height: 30 }} value={kind[m.id] ?? "register"} onChange={(e) => setKind((k) => ({ ...k, [m.id]: e.target.value as Kind }))} aria-label="Proces">{KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+                      {can.edit && <select className="select" style={{ width: 200, height: 30 }} value={kind[m.id] ?? "register"} onChange={(e) => setKind((k) => ({ ...k, [m.id]: e.target.value as Kind }))} aria-label="Proces">{KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>}
                       {(kind[m.id] ?? "register") === "otaa_down" && <select className="select" style={{ width: 170, height: 30 }} value={cmd[m.id] ?? "to_abp"} onChange={(e) => setCmd((c) => ({ ...c, [m.id]: e.target.value as DownlinkKey }))} aria-label="Comandă">{(Object.keys(DOWNLINKS) as DownlinkKey[]).map((k) => <option key={k} value={k}>{DOWNLINKS[k].label}</option>)}</select>}
-                      <button type="button" className="btn btn-sm" disabled={busy === m.id} onClick={() => void run(m, true)}>Simulează</button>
-                      <button type="button" className="btn btn-sm btn-primary" disabled={busy === m.id || !cfg?.write} onClick={() => void run(m, false)} title={cfg?.write ? "Scrie în ChirpStack" : "Scrierea e oprită pe server"}>Rulează</button>
-                      <button type="button" className="btn btn-sm btn-ghost" onClick={() => void del(m)} aria-label={`Scoate ${m.name} din evidență`}>Scoate</button>
+                      {can.edit && <button type="button" className="btn btn-sm" disabled={busy === m.id} onClick={() => void run(m, true)}>Simulează</button>}
+                      {can.run && <button type="button" className="btn btn-sm btn-primary" disabled={busy === m.id || !cfg?.write} onClick={() => void run(m, false)} title={cfg?.write ? "Scrie în ChirpStack" : "Scrierea e oprită pe server"}>Rulează</button>}
+                      {can.delete && <button type="button" className="btn btn-sm btn-ghost" onClick={() => void del(m)} aria-label={`Scoate ${m.name} din evidență`}>Scoate</button>}
                     </div>
                   </td>
                 </tr>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { Can } from "@/lib/access";
 import type { CounterRow } from "@/lib/services/counters";
 import type { IntegrationDevices, IntegrationStats } from "@/lib/services/integration";
 import { ColumnChart, type Bar } from "./charts/primitives";
@@ -32,7 +33,8 @@ const SAMPLE = `{
  * Integrare: starea API-ului `POST /api/integration` (mesaje primite direct de la LoRaWAN / antene). Se actualizează la 2 secunde. „Verifică un mesaj” îl validează
  * și arată rezumatul derivat, FĂRĂ să-l salveze. Nu afișează tokenul și nici conținutul mesajelor primite.
  */
-export default function IntegrationPanel() {
+/** `can` = ce are voie utilizatorul pe această pagină: Editare = reia datele păstrate; Ștergere = curăță datele păstrate și resetează contoarele (butoanele care n-ar merge nu apar). */
+export default function IntegrationPanel({ can }: { can: Can }) {
   const [s, setS] = useState<IntegrationStats | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [origin, setOrigin] = useState("https://<server>");
@@ -132,7 +134,7 @@ export default function IntegrationPanel() {
         <div className={`stat ${s && s.depth > 1000 ? "alert" : ""}`}><div className="k">În cutia de intrare</div><div className="v">{s ? nf.format(s.depth) : "—"}</div><div className="s">{s ? `cel mai vechi: ${age(s.oldestAgeMs)} · limita ${nf.format(s.maxInbox)}` : " "}</div></div>
         <div className="stat"><div className="k">Ultimul pachet aplicat</div><div className="v">{s?.lastBatch ? `${nf.format(s.lastBatch.n)}` : "—"}</div><div className="s">{s?.lastBatch ? `${s.lastBatch.ms} ms · ${clock(s.lastBatch.at)}` : "încă niciunul"}</div></div>
         <div className="stat"><div className="k">Durată pachet (p50 / p95)</div><div className="v" style={{ fontSize: 18 }}>{s?.batchP50 != null ? `${s.batchP50} / ${s.batchP95} ms` : "—"}</div><div className="s">ultimele 100 de pachete</div></div>
-        <div className={`stat ${s && s.keptCount > 0 ? "alert" : ""}`}><div className="k">Păstrate pentru procesare ulterioară</div><div className="v">{s ? nf.format(s.keptCount) : "—"}</div><div className="s"><button type="button" className="btn btn-sm" onClick={reprocess}>Reia acum</button> {reMsg ?? "alt format / contor necunoscut"}</div></div>
+        <div className={`stat ${s && s.keptCount > 0 ? "alert" : ""}`}><div className="k">Păstrate pentru procesare ulterioară</div><div className="v">{s ? nf.format(s.keptCount) : "—"}</div><div className="s">{can.edit && <button type="button" className="btn btn-sm" onClick={reprocess}>Reia acum</button>} {reMsg ?? "alt format / contor necunoscut"}</div></div>
         <div className={`stat ${s && s.deadCount > 0 ? "alert" : ""}`}><div className="k">Respinse la aplicare</div><div className="v">{s ? nf.format(s.deadCount) : "—"}</div><div className="s">în „integration_dead” (30 de zile)</div></div>
       </section>
 
@@ -195,7 +197,7 @@ export default function IntegrationPanel() {
                     dacă sunt mai mulți expeditori, în plus <span className="mono">stream</span> cu numele lui. Numărăm la primire: un salt înseamnă numere care nu au ajuns la noi.
                   </p>
                 </div>
-                <button type="button" className="btn" disabled={!cnt || cnt.length === 0} onClick={async () => { if (window.confirm("Ștergi numerele urmărite și începi un test nou?")) { await fetch("/api/integration/counters", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reset: "all" }) }); setCnt([]); } }}>Test nou</button>
+                {can.delete && <button type="button" className="btn" disabled={!cnt || cnt.length === 0} onClick={async () => { if (window.confirm("Ștergi numerele urmărite și începi un test nou?")) { await fetch("/api/integration/counters", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reset: "all" }) }); setCnt([]); } }}>Test nou</button>}
               </header>
               {cnt === null ? (
                 <p className="cell-sub" style={{ padding: 12 }}>se încarcă…</p>
@@ -241,7 +243,7 @@ export default function IntegrationPanel() {
             </Widget>
           ) },
           { id: "seen", title: "De la care contoare vin datele", node: <SeenBrowser key="seen" /> },
-          { id: "kept", title: "Toate datele păstrate", node: <KeptBrowser key="kept" /> },
+          { id: "kept", title: "Toate datele păstrate", node: <KeptBrowser key="kept" canClear={can.delete} /> },
           { id: "keptdev", title: "Păstrate, pe dispozitiv", node: (
               <Widget key="keptdev" id="keptdev" defaultH={520} expanded={devFull} ariaLabel="Date păstrate">
                 <header className="card-h">

@@ -1,5 +1,5 @@
 import type { Db } from "mongodb";
-import { ADMIN_ROLE, NO_ACCESS, cleanAccess, type Viewer } from "./access";
+import { viewerFromDoc, type Viewer } from "./access";
 import { DAY, gatewayDown, gatewayDrop, silentByZone, silentProblem, type Day } from "./alert-rules";
 import { cleanNotify, eventVisible, type NotifyType } from "./notify";
 import { SUBS_COLLECTION, type PushSub, type Sender } from "./push";
@@ -91,7 +91,7 @@ export function planEvents(now: Problem[], openDocs: { _id: string; type: Notify
 
 /* ───────── cine primește ───────── */
 type UserLite = { _id: unknown; role?: string; access?: unknown; notify?: unknown; disabled?: boolean };
-const viewerOfDoc = (u: UserLite): Viewer => { if (u.role === ADMIN_ROLE) return { admin: true, access: NO_ACCESS }; const c = cleanAccess(u.access ?? {}); return { admin: false, access: "access" in c ? c.access : NO_ACCESS }; };
+const viewerOfDoc = (u: UserLite): Viewer => viewerFromDoc(u);
 export async function recipients(db: Db, ev: { type: NotifyType; zones: string[] }): Promise<string[]> {
   const users = await db.collection<UserLite>(process.env.USERS_COLLECTION || "users").find({ notify: ev.type, disabled: { $ne: true } }).toArray();
   const out: string[] = [];

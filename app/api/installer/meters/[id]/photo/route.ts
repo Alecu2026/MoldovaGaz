@@ -4,7 +4,7 @@ import { savePhoto } from "@/lib/services/installer";
 /** Poza făcută de instalator (corpul cererii = fișierul imagine, cel mult 25 MB). Se micșorează și se salvează pe server; nu se scrie nimic în SCADA. */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const guard = await apiMeterGuard("installer", id);
+  const guard = await apiMeterGuard("installer", id, "edit");
   if ("res" in guard) return guard.res;
   const len = Number(req.headers.get("content-length") ?? 0);
   if (len > 26_000_000) return Response.json({ error: "Poza e prea mare (cel mult 25 MB)." }, { status: 413 });

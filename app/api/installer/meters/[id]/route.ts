@@ -17,7 +17,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const guard = await apiMeterGuard("installer", id);
+  const guard = await apiMeterGuard("installer", id, "edit");
   if ("res" in guard) return guard.res;
   const body = await req.json().catch(() => null);
   try {

@@ -42,7 +42,7 @@ const parseNum = (s: string): number | null => { const t = s.trim().replace(",",
 
 export type AntennaInitial = { filter: string; list: AntennaList | null };
 
-export default function AntennaApp({ canHome = false, initial }: { canHome?: boolean; initial?: AntennaInitial }) {
+export default function AntennaApp({ canHome = false, canEdit = true, initial }: { canHome?: boolean; /** poate salva (date, locație, poză)? fără — ecranul e doar de vizualizare */ canEdit?: boolean; initial?: AntennaInitial }) {
   /* ───────── lista (Gateway admin table) ───────── */
   const [list, setList] = useState<AntennaList | null>(initial?.list ?? null);
   const [listErr, setListErr] = useState<string | null>(null);
@@ -120,6 +120,7 @@ export default function AntennaApp({ canHome = false, initial }: { canHome?: boo
 
   /* ───────── acțiuni: locație, poză, QR ───────── */
   const saveLocation = useCallback((id: string) => {
+    if (!canEdit) return;
     if (!navigator.geolocation) { toast(MSG.geoUnsupported, false, 4000); return; }
     toast(MSG.gpsAccess, true, 2000);
     navigator.geolocation.getCurrentPosition(
@@ -127,7 +128,7 @@ export default function AntennaApp({ canHome = false, initial }: { canHome?: boo
       (e) => toast(e.code === 1 ? MSG.geoDenied : e.code === 2 ? MSG.geoUnavailable : e.code === 3 ? MSG.geoTimeout : MSG.geoDefault, false, 4000),
       { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 },
     );
-  }, [post, toast, adopt, loadList]);
+  }, [post, toast, adopt, loadList, canEdit]);
 
   const uploadPhoto = useCallback(async (id: string, blob: Blob) => {
     const r = await fetch(`/api/antennas/${id}/photo`, { method: "POST", headers: { "Content-Type": blob.type || "image/jpeg" }, body: blob });
@@ -136,10 +137,11 @@ export default function AntennaApp({ canHome = false, initial }: { canHome?: boo
     keep(j); setPv((n) => n + 1); void loadList();
   }, [keep, loadList]);
   const onDropFile = async (file: File | undefined) => {
+    if (!canEdit) return;
     const id = sel; if (!file || !id) return;
     try { await uploadPhoto(id, file); toast(MSG.imageSaved); } catch (e) { toast((e as Error).message, false, 4000); }
   };
-  const openCamera = (id: string | null) => { if (!id) return; setCamFor(id); setSel(id); setDlg({ kind: "camera" }); };
+  const openCamera = (id: string | null) => { if (!id || !canEdit) return; setCamFor(id); setSel(id); setDlg({ kind: "camera" }); };
 
   const onScan = useCallback((text: string) => {
     setDlg(null);
@@ -153,6 +155,7 @@ export default function AntennaApp({ canHome = false, initial }: { canHome?: boo
 
   /* ───────── formularul: Salvează / Anulează Ultima Comandă ───────── */
   const update = async () => {
+    if (!canEdit) return;
     if (!cur || !f || !valid || !dirty) return;
     setBusy(true);
     try {
@@ -299,7 +302,7 @@ export default function AntennaApp({ canHome = false, initial }: { canHome?: boo
                   <tr key={r.id} className={sel === r.id ? "sel" : ""} onClick={() => setSel(r.id)}>
                     {cols.map((c) => <td key={c.key} className={c.num ? "num" : ""}>{cell(r, c.key)}</td>)}
                     <td className="tbx-sticky-a" onClick={(e) => e.stopPropagation()}>
-                      <span className="tbx-act-inline"><Btn n="visibility" label="Foto" onClick={() => openCamera(r.id)} /><Btn n="pin_drop" label="Location" onClick={() => { setSel(r.id); saveLocation(r.id); }} /></span>
+                      {canEdit && <span className="tbx-act-inline"><Btn n="visibility" label="Foto" onClick={() => openCamera(r.id)} /><Btn n="pin_drop" label="Location" onClick={() => { setSel(r.id); saveLocation(r.id); }} /></span>}
                       <span className="tbx-act-more"><Btn n="more_vert" label="Acțiuni" onClick={(e) => { const b = e.currentTarget.getBoundingClientRect(); setRowMenu({ id: r.id, x: b.right, y: b.bottom }); e.stopPropagation(); }} /></span>
                     </td>
                   </tr>
@@ -339,8 +342,8 @@ export default function AntennaApp({ canHome = false, initial }: { canHome?: boo
         <section className="tbx-w tbx-w-update" aria-label="Gateway Update">
           <header className="tbx-wh">
             <h3>Gateway Update</h3><span className="tbx-spacer" />
-            <Btn n="pin_drop" label="Location" onClick={() => sel && saveLocation(sel)} disabled={!sel} />
-            <Btn n="visibility" label="Foto" onClick={() => openCamera(sel)} disabled={!sel} />
+            {canEdit && <Btn n="pin_drop" label="Location" onClick={() => sel && saveLocation(sel)} disabled={!sel} />}
+            {canEdit && <Btn n="visibility" label="Foto" onClick={() => openCamera(sel)} disabled={!sel} />}
           </header>
           <div className="tbx-wb">
             {!sel && <p className="tbx-hint">{AMSG.noEntity}</p>}
@@ -348,7 +351,7 @@ export default function AntennaApp({ canHome = false, initial }: { canHome?: boo
             {rec?.err && rec.id === sel && <p className="tbx-err" role="alert">{rec.err}</p>}
             {cur && f && (
               <form onSubmit={(e) => { e.preventDefault(); void update(); }} noValidate>
-                <fieldset className="tbx-group"><legend>{cur.id}</legend>
+                <fieldset className="tbx-group" disabled={!canEdit}><legend>{cur.id}</legend>
                   {field("NumeInstalator", "Nume Instalator (Имя Установщика )", { req: true, max: 60 })}
                   {numField("lat", "Latitude_instalator")}
                   {numField("lon", "Longitude_instalator")}
@@ -360,7 +363,7 @@ export default function AntennaApp({ canHome = false, initial }: { canHome?: boo
                   {field("Client", "Client", { max: 200 })}
                   <label className="tbx-ff tbx-dis"><b className="tbx-pre" aria-hidden="true"><Ico n="event" /></b><input value={fdtA(cur.last)} disabled placeholder=" " /><span>lastActivityTime</span><i /></label>
                 </fieldset>
-                <div className="tbx-actions">
+                <div className="tbx-actions" hidden={!canEdit}>
                   <button type="button" className="tbx-btn" disabled={!dirty || busy} onClick={undo}>{MSG.undo}</button>
                   <button type="submit" className="tbx-btn tbx-raised tbx-primary" disabled={!valid || !dirty || busy}>{MSG.save}</button>
                 </div>
@@ -386,7 +389,7 @@ export default function AntennaApp({ canHome = false, initial }: { canHome?: boo
         <section className="tbx-w tbx-w-foto" aria-label="Installation foto">
           <header className="tbx-wh"><h3>Installation foto</h3></header>
           <div className="tbx-wb">
-            <div className={`tbx-drop${sel ? "" : " off"}`} role="button" tabIndex={sel ? 0 : -1} aria-disabled={!sel}
+            <div className={`tbx-drop${sel && canEdit ? "" : " off"}`} role="button" tabIndex={sel && canEdit ? 0 : -1} aria-disabled={!sel || !canEdit} hidden={!canEdit}
               onClick={() => sel && fileDrop.current?.click()} onKeyDown={(e) => { if (sel && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); fileDrop.current?.click(); } }}
               onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); void onDropFile(e.dataTransfer.files?.[0]); }}>
               <Ico n="add_a_photo" s={32} /><span>Drop an image here or click to select</span>
@@ -411,8 +414,8 @@ export default function AntennaApp({ canHome = false, initial }: { canHome?: boo
 
       {rowMenu && (
         <div className="tbx-menu tbx-menu-fixed" style={{ top: Math.min(rowMenu.y, window.innerHeight - 120), left: Math.max(8, rowMenu.x - 220) }} role="menu" onClick={(e) => e.stopPropagation()}>
-          <button type="button" className="tbx-mi" role="menuitem" onClick={() => { const id = rowMenu.id; setRowMenu(null); openCamera(id); }}><Ico n="visibility" /> Foto</button>
-          <button type="button" className="tbx-mi" role="menuitem" onClick={() => { const id = rowMenu.id; setRowMenu(null); setSel(id); saveLocation(id); }}><Ico n="pin_drop" /> Location</button>
+          {canEdit && <button type="button" className="tbx-mi" role="menuitem" onClick={() => { const id = rowMenu.id; setRowMenu(null); openCamera(id); }}><Ico n="visibility" /> Foto</button>}
+          {canEdit && <button type="button" className="tbx-mi" role="menuitem" onClick={() => { const id = rowMenu.id; setRowMenu(null); setSel(id); saveLocation(id); }}><Ico n="pin_drop" /> Location</button>}
         </div>
       )}
 

@@ -118,7 +118,7 @@ function KeptList({ reason, q, onTotal, onOpen, openId }: { reason: string; q: s
   );
 }
 
-export default function KeptBrowser() {
+export default function KeptBrowser({ canClear = false }: { /** are dreptul «Ștergere» pe pagina Integrare: doar atunci apare «Curăță…» */ canClear?: boolean }) {
   const [reasons, setReasons] = useState<KeptReason[]>([]);
   const [reason, setReason] = useState("");
   const [qInput, setQInput] = useState("");
@@ -186,12 +186,12 @@ export default function KeptBrowser() {
           </select>
           <input className="input" type="search" placeholder="caută: dispozitiv, devEUI, aplicație" aria-label="Caută" value={qInput} onChange={(e) => onQ(e.target.value)} style={{ height: 34, width: 240 }} />
           <button type="button" className="btn" onClick={() => setVersion((v) => v + 1)}>Reîmprospătează</button>
-          <button type="button" className="btn" onClick={() => { setPanel((p) => !p); setDone(null); }} aria-expanded={panel}>Curăță…</button>
+          {canClear && <button type="button" className="btn" onClick={() => { setPanel((p) => !p); setDone(null); }} aria-expanded={panel}>Curăță…</button>}
           <ExpandButton open={full} onToggle={() => setFull(!full)} />
         </div>
       </header>
 
-      {panel && (
+      {canClear && panel && (
         <div className="kept-clean" role="group" aria-label="Curățare">
           <label className="field" style={{ minWidth: 280 }}>
             <span>Ce se șterge</span>

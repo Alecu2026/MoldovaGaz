@@ -3,7 +3,7 @@ import { checkMessage } from "@/lib/services/integration";
 
 /** Verifică un mesaj FĂRĂ să-l salveze (doar utilizatori autentificați): îl validează și arată rezumatul derivat. Pentru a depana ce trimite expeditorul. */
 export async function POST(req: Request) {
-  const guard = await apiGuard("admin");
+  const guard = await apiGuard("integration");
   if ("res" in guard) return guard.res;
   let body: unknown;
   try {

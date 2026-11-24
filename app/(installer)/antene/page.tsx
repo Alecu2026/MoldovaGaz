@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import AntennaApp from "@/app/components/AntennaApp";
+import { can } from "@/lib/access";
 import { requirePage } from "@/lib/dal";
 import { getAntennaFilter, listAntennas } from "@/lib/services/antennas";
 
@@ -18,7 +19,7 @@ async function Gate() {
   const user = await requirePage("antennas");
   // filtrul păstrat și lista antenelor vin odată cu pagina: prima pictare are deja date
   const [filter, list] = await Promise.all([getAntennaFilter(user.id).catch(() => ""), listAntennas().catch(() => null)]);
-  return <AntennaApp canHome={user.admin || user.access.pages.includes("meters")} initial={{ filter, list }} />;
+  return <AntennaApp canHome={can(user, "meters")} canEdit={can(user, "antennas", "edit")} initial={{ filter, list }} />;
 }
 
 /** Cât așteaptă sesiunea și lista: bara verde de sus apare imediat, restul se umple după. */

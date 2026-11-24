@@ -5,7 +5,7 @@ import { removeReport, reportFile } from "@/lib/services/reports";
 
 /** Descărcarea (GET) și ștergerea (DELETE) unui raport de citiri, doar pentru utilizatori autentificați. Fișierul curge direct de pe disc (poate avea sute de MB). */
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const guard = await apiGuard("admin");
+  const guard = await apiGuard("reports", "export");
   if ("res" in guard) return guard.res;
   const { id } = await ctx.params;
   const f = await reportFile(id);
@@ -15,7 +15,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const guard = await apiGuard("admin");
+  const guard = await apiGuard("reports", "delete");
   if ("res" in guard) return guard.res;
   const { id } = await ctx.params;
   return (await removeReport(id)) ? Response.json({ ok: true }) : Response.json({ error: "Raportul nu există sau încă se generează." }, { status: 404 });

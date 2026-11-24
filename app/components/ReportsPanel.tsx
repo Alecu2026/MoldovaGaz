@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Can } from "@/lib/access";
 import type { ReportRow } from "@/lib/report-readings";
 
 /**
@@ -18,7 +19,8 @@ const atText = (ms: number) => { const d = new Date(ms); return `${day(ms)} ${p2
 /** „acum”, în ora Moldovei, ca „AAAA-LL-ZZTHH:MM” (valoarea unui câmp datetime-local) */
 const nowLocal = () => new Date().toLocaleString("sv-SE", { timeZone: "Europe/Chisinau" }).slice(0, 16).replace(" ", "T");
 
-export default function ReportsPanel() {
+/** `can`: Editare = generează / previzualizează; Descărcare = fișierul CSV; Ștergere = șterge rapoarte (butoanele care n-ar merge nu apar). */
+export default function ReportsPanel({ can }: { can: Can }) {
   const [rows, setRows] = useState<ReportRow[] | null>(null);
   const [dir, setDir] = useState("");
   const [at, setAt] = useState("");
@@ -80,7 +82,8 @@ export default function ReportsPanel() {
             <p>Un fișier CSV cu, pentru fiecare contor, <b>ultima citire până la data și ora aleasă</b>, doar cu trei câmpuri: seria radiomodulului, indicația (volumul total în m³) și data reală a citirii. Se scrie pe serverul aplicației, de unde îl preia facturarea.</p>
           </div>
         </header>
-        <div className="toolbar-row2" role="group" aria-label="Opțiuni raport" style={{ marginBottom: 10 }}>
+        {!can.edit && <p className="cell-sub" style={{ whiteSpace: "normal" }}>Nu ai dreptul să generezi rapoarte noi; vezi doar lista celor existente.</p>}
+        {can.edit && <div className="toolbar-row2" role="group" aria-label="Opțiuni raport" style={{ marginBottom: 10 }}>
           <label className="field"><span>Citirea la data și ora (ora Moldovei)</span>
             <input className="input" type="datetime-local" value={at} onChange={(e) => { setAt(e.target.value); setPv(null); }} aria-label="Data și ora raportului" />
           </label>
@@ -90,7 +93,7 @@ export default function ReportsPanel() {
           </label>
           <button type="button" className="btn" onClick={() => void call("preview")} disabled={busy}>Previzualizează</button>
           <button type="button" className="btn btn-primary" onClick={() => void call("start")} disabled={busy || running || !at} title={running ? "Un raport se generează deja" : "Generează fișierul pe server"}>Generează fișierul</button>
-        </div>
+        </div>}
         {msg && <p className={msg.ok ? "cell-sub" : "form-error"} role={msg.ok ? "status" : "alert"} style={{ whiteSpace: "normal" }}>{msg.text}</p>}
 
         {pv && (
@@ -142,8 +145,8 @@ export default function ReportsPanel() {
                   </td>
                   <td className="mono">{dt(r.createdAt)}</td>
                   <td style={{ whiteSpace: "nowrap" }}>
-                    {r.status === "done" && r.file && <a className="btn btn-sm" href={`/api/reports/${r.id}`} download>Descarcă</a>}{" "}
-                    {r.status !== "running" && <button type="button" className="btn btn-sm" onClick={() => void remove(r)}>Șterge</button>}
+                    {can.export && r.status === "done" && r.file && <a className="btn btn-sm" href={`/api/reports/${r.id}`} download>Descarcă</a>}{" "}
+                    {can.delete && r.status !== "running" && <button type="button" className="btn btn-sm" onClick={() => void remove(r)}>Șterge</button>}
                     {r.sha256 && <div className="cell-sub mono" title={r.sha256}>sha256 {r.sha256.slice(0, 10)}…</div>}
                   </td>
                 </tr>

@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import IntegrationPanel from "@/app/components/IntegrationPanel";
+import { canOf } from "@/lib/access";
 import { requirePage } from "@/lib/dal";
 
 export const metadata: Metadata = { title: "Integrare" };
@@ -14,6 +15,6 @@ export default function Page() {
 }
 
 async function Gate() {
-  await requirePage("admin");
-  return <IntegrationPanel />;
+  const user = await requirePage("integration");
+  return <IntegrationPanel can={canOf(user, "integration")} />;
 }

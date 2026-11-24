@@ -1,25 +1,34 @@
 import "server-only";
 import { ObjectId } from "mongodb";
-import { ADMIN_ROLE, NO_ACCESS, cleanAccess, filOf, NO_CITY, type Access } from "../access";
+import { ADMIN_ROLE, NO_ACCESS, cleanAccess, filOf, grantable, sameAccess, NO_CITY, type Access } from "../access";
 import { cleanNotify, type NotifyType } from "../notify";
 import { COLLECTIONS, col } from "../mongo";
 import { hashPassword } from "../password";
-import { forgetUser, notifyOf, viewerOf, type UserDoc } from "../session";
+import { forgetUser, notifyOf, viewerOf, type SessionUser, type UserDoc } from "../session";
 import { getStore } from "./meter-dataset";
 
 /**
  * Conturile aplicației (colecția `users`): creare, schimbare drepturi (pagini + filiale / orașe), parolă, dezactivare, ștergere.
  * Administrator = rolul `super_admin`; ceilalți sunt limitați la ce e bifat (vezi lib/access.ts). Nu atinge nicio altă colecție în afară de `sessions` (la ștergere / dezactivare).
+ * Cine NU e administrator dar are dreptul la «Utilizatori» (editare / ștergere) lucrează doar în limita drepturilor lui: nu atinge administratori, nu își schimbă propriile drepturi
+ * și nu poate da (sau gestiona conturi cu) mai mult decât are el — vezi `grantable`.
  */
-export type UserView = { id: string; email: string; name: string; admin: boolean; disabled: boolean; access: Access; notify: NotifyType[]; createdAt: number | null };
+export type UserView = { id: string; email: string; name: string; admin: boolean; disabled: boolean; access: Access; notify: NotifyType[]; createdAt: number | null; /** actorul îl poate modifica / șterge (drepturile lui se încadrează în ale actorului) */ manage: boolean; self: boolean };
 type Err = { error: string; status: number };
 
 const EMAIL = /^[^\s@]{1,100}@[^\s@]{1,150}\.[^\s@]{2,40}$/;
-const view = (u: UserDoc): UserView => ({ id: String(u._id), email: u.email, name: u.name ?? "", disabled: !!u.disabled, createdAt: u.createdAt instanceof Date ? u.createdAt.getTime() : null, notify: notifyOf(u), ...(() => { const v = viewerOf(u); return { admin: v.admin, access: v.admin ? NO_ACCESS : v.access }; })() });
+const view = (u: UserDoc, actor: SessionUser): UserView => {
+  const v = viewerOf(u), self = String(u._id) === actor.id;
+  const manage = actor.admin || (!v.admin && !self && grantable(actor, v.access));
+  return { id: String(u._id), email: u.email, name: u.name ?? "", disabled: !!u.disabled, createdAt: u.createdAt instanceof Date ? u.createdAt.getTime() : null, notify: notifyOf(u), admin: v.admin, access: v.admin ? NO_ACCESS : v.access, manage, self };
+};
+/** Actorul poate umbla la contul acesta? (administratorul orice; ceilalți doar conturi limitate, ale altora, încadrate în drepturile lor) */
+const mayManage = (actor: SessionUser, target: UserDoc): boolean => { const v = viewerOf(target); return actor.admin || (!v.admin && String(target._id) !== actor.id && grantable(actor, v.access)); };
 
-export async function listUsers(): Promise<UserView[]> {
+/** Administratorul vede toate conturile; ceilalți doar pe ale lor (cele pe care le pot gestiona) și contul propriu. */
+export async function listUsers(actor: SessionUser): Promise<UserView[]> {
   const docs = await (await col<UserDoc>(COLLECTIONS.users)).find({}, { projection: { passwordHash: 0 } }).sort({ email: 1 }).toArray();
-  return docs.map(view);
+  return docs.filter((u) => actor.admin || String(u._id) === actor.id || mayManage(actor, u)).map((u) => view(u, actor));
 }
 
 /** Câți administratori activi are aplicația (ca să nu rămână niciunul). */
@@ -31,17 +40,19 @@ async function adminCount(exceptId?: string): Promise<number> {
 
 export type NewUser = { email?: unknown; name?: unknown; password?: unknown; admin?: unknown; access?: unknown; notify?: unknown };
 
-export async function createUser(b: NewUser): Promise<{ user: UserView } | Err> {
+export async function createUser(b: NewUser, actor: SessionUser): Promise<{ user: UserView } | Err> {
   const email = String(b.email ?? "").trim().toLowerCase();
   if (!EMAIL.test(email) || email.length > 254) return { error: "Adresa de e-mail nu e validă.", status: 400 };
   const password = String(b.password ?? "");
   if (password.length < 8 || password.length > 200) return { error: "Parola trebuie să aibă cel puțin 8 caractere.", status: 400 };
   const name = String(b.name ?? "").trim().slice(0, 80);
   const admin = b.admin === true;
+  if (admin && !actor.admin) return { error: "Doar un administrator poate crea alt administrator.", status: 403 };
   let access: Access = NO_ACCESS;
   if (!admin) {
     const c = cleanAccess(b.access ?? NO_ACCESS);
     if ("error" in c) return { error: c.error, status: 400 };
+    if (!grantable(actor, c.access)) return { error: "Nu poți da drepturi mai mari decât ai tu (acțiuni sau zonă).", status: 403 };
     access = c.access;
   }
   const nt = cleanNotify(b.notify);
@@ -51,14 +62,25 @@ export async function createUser(b: NewUser): Promise<{ user: UserView } | Err> 
   const now = new Date();
   const doc = { email, name: name || email, passwordHash: await hashPassword(password), role: admin ? ADMIN_ROLE : "user", access: admin ? undefined : access, notify: nt.notify, disabled: false, createdAt: now, updatedAt: now };
   const r = await users.insertOne(doc as never);
-  return { user: view({ ...doc, _id: r.insertedId } as UserDoc) };
+  return { user: view({ ...doc, _id: r.insertedId } as UserDoc, actor) };
 }
 
-export async function updateUser(id: string, b: NewUser & { disabled?: unknown }, actorId: string): Promise<{ user: UserView } | Err> {
+export async function updateUser(id: string, b: NewUser & { disabled?: unknown }, actor: SessionUser): Promise<{ user: UserView } | Err> {
+  const actorId = actor.id;
   if (!ObjectId.isValid(id)) return { error: "Cont invalid.", status: 400 };
   const users = await col<UserDoc>(COLLECTIONS.users);
   const cur = await users.findOne({ _id: new ObjectId(id) });
   if (!cur) return { error: "Contul nu există.", status: 404 };
+  if (!actor.admin) {
+    // fără drept de administrator: contul propriu doar nume / parolă / notificări; conturile altora doar dacă se încadrează în drepturile lui
+    if (id === actorId) {
+      if (b.admin === true || b.disabled === true) return { error: "Nu-ți poți schimba singur drepturile.", status: 403 };
+      if (b.access !== undefined) { const c = cleanAccess(b.access); if ("error" in c || !sameAccess(c.access, viewerOf(cur).access)) return { error: "Nu-ți poți schimba singur drepturile.", status: 403 }; }
+    } else {
+      if (!mayManage(actor, cur)) return { error: "Nu poți modifica acest cont.", status: 403 };
+      if (b.admin === true) return { error: "Doar un administrator poate da drepturi de administrator.", status: 403 };
+    }
+  }
   const set: Record<string, unknown> = { updatedAt: new Date() };
   const unset: Record<string, ""> = {};
   const wasAdmin = cur.role === ADMIN_ROLE;
@@ -70,7 +92,7 @@ export async function updateUser(id: string, b: NewUser & { disabled?: unknown }
     if (p.length < 8 || p.length > 200) return { error: "Parola trebuie să aibă cel puțin 8 caractere.", status: 400 };
     set.passwordHash = await hashPassword(p);
   }
-  if (id === actorId && (!admin || disabled)) return { error: "Nu-ți poți scoate singur drepturile de administrator sau dezactiva contul.", status: 400 };
+  if (id === actorId && (disabled || (wasAdmin && !admin))) return { error: "Nu-ți poți scoate singur drepturile de administrator sau dezactiva contul.", status: 400 };
   if (wasAdmin && !cur.disabled && (!admin || disabled) && (await adminCount(id)) === 0) return { error: "Trebuie să rămână cel puțin un administrator activ.", status: 400 };
   if (b.notify !== undefined) {
     const nt = cleanNotify(b.notify);
@@ -83,21 +105,23 @@ export async function updateUser(id: string, b: NewUser & { disabled?: unknown }
   else if (b.access !== undefined) {
     const c = cleanAccess(b.access);
     if ("error" in c) return { error: c.error, status: 400 };
+    if (!grantable(actor, c.access)) return { error: "Nu poți da drepturi mai mari decât ai tu (acțiuni sau zonă).", status: 403 };
     set.access = c.access;
   }
   await users.updateOne({ _id: cur._id }, { $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}) });
   if (disabled || set.passwordHash) await (await col(COLLECTIONS.sessions)).deleteMany({ userId: id }); // dezactivat / parolă nouă ⇒ iese de pe toate dispozitivele
   forgetUser(id);
   const next = await users.findOne({ _id: cur._id }, { projection: { passwordHash: 0 } });
-  return next ? { user: view(next) } : { error: "Contul nu există.", status: 404 };
+  return next ? { user: view(next, actor) } : { error: "Contul nu există.", status: 404 };
 }
 
-export async function deleteUser(id: string, actorId: string): Promise<{ ok: true } | Err> {
+export async function deleteUser(id: string, actor: SessionUser): Promise<{ ok: true } | Err> {
   if (!ObjectId.isValid(id)) return { error: "Cont invalid.", status: 400 };
-  if (id === actorId) return { error: "Nu-ți poți șterge propriul cont.", status: 400 };
+  if (id === actor.id) return { error: "Nu-ți poți șterge propriul cont.", status: 400 };
   const users = await col<UserDoc>(COLLECTIONS.users);
   const cur = await users.findOne({ _id: new ObjectId(id) });
   if (!cur) return { error: "Contul nu există.", status: 404 };
+  if (!mayManage(actor, cur)) return { error: "Nu poți șterge acest cont.", status: 403 };
   if (cur.role === ADMIN_ROLE && !cur.disabled && (await adminCount(id)) === 0) return { error: "Trebuie să rămână cel puțin un administrator activ.", status: 400 };
   await users.deleteOne({ _id: cur._id });
   await (await col(COLLECTIONS.sessions)).deleteMany({ userId: id });

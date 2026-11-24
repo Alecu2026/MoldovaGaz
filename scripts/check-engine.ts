@@ -40,7 +40,7 @@ import { ChirpStack, type FetchFn } from "../lib/lorawan/chirpstack";
 import { GAS_TYPES, backupTarget, chirpName, cleanModule, primaryTarget, v4Target, type ModuleInput } from "../lib/lorawan/config";
 import { decryptJson, encryptJson } from "../lib/lorawan/crypto";
 import { abpExtraFrame, emergencyBackup, expectedDevAddr, otaaDown, registerPrimary, type Ctx } from "../lib/lorawan/flows";
-import { allowsMeter, canPage, cleanAccess, firstPath, scopeKey, type Viewer } from "../lib/access";
+import { PAGES, PRESETS, allowsMeter, can, canOf, canPage, cleanAccess, firstPath, grantable, sameAccess, scopeKey, viewerFromDoc, type Viewer } from "../lib/access";
 import type { Db } from "mongodb";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -1087,8 +1087,8 @@ const sectionNotify = (async () => {
   const crit = planEvents([P("meters_silent|05|Comrat", 31, "crit")], [{ _id: "meters_silent|05|Comrat", type: "meters_silent", level: "warn", nsize: 30 }], new Set(["meters_silent|05|Comrat"]));
   check("alerte: trecerea de la «atenție» la «grav» se anunță din nou", crit.escalate.length === 1);
   // cine primește: tipul bifat + zona
-  const lim = (access: object) => ({ admin: false as const, access: { pages: [], branches: [], cities: [], ...access } });
-  check("notificări: administratorul vede orice zonă; limitatul doar zonele lui; eveniment fără zone doar administratorul; orașul altei filiale cu același nume nu intră", eventVisible({ admin: true, access: { pages: [], branches: [], cities: [] } }, ["05|Comrat"]) && eventVisible(lim({ cities: ["05|Comrat"] }), ["20|Orhei", "05|Comrat"]) && !eventVisible(lim({ cities: ["05|Comrat"] }), ["20|Orhei"]) && eventVisible(lim({ branches: ["20"] }), ["20|Orhei"]) && !eventVisible(lim({ branches: ["20"] }), []) && !eventVisible(lim({ cities: ["05|Orhei"] }), ["20|Orhei"]) && eventVisible({ admin: true, access: { pages: [], branches: [], cities: [] } }, []));
+  const lim = (access: object) => ({ admin: false as const, access: { perms: {}, allZones: false, branches: [], cities: [], ...access } });
+  check("notificări: administratorul vede orice zonă; limitatul doar zonele lui; eveniment fără zone doar administratorul; orașul altei filiale cu același nume nu intră", eventVisible({ admin: true, access: { perms: {}, allZones: false, branches: [], cities: [] } }, ["05|Comrat"]) && eventVisible(lim({ cities: ["05|Comrat"] }), ["20|Orhei", "05|Comrat"]) && !eventVisible(lim({ cities: ["05|Comrat"] }), ["20|Orhei"]) && eventVisible(lim({ branches: ["20"] }), ["20|Orhei"]) && !eventVisible(lim({ branches: ["20"] }), []) && !eventVisible(lim({ cities: ["05|Orhei"] }), ["20|Orhei"]) && eventVisible({ admin: true, access: { perms: {}, allZones: false, branches: [], cities: [] } }, []));
   const cn = cleanNotify(["meters_silent", "gw_down", "x", "gw_down", 5 as unknown as string]);
   check("notificări: lista de tipuri se curăță (necunoscute / dubluri ies); valori greșite ⇒ eroare; lipsă ⇒ nimic", "error" in cn && "notify" in cleanNotify(["gw_drop", "gw_drop", "zzz"]) && (cleanNotify(["gw_drop", "gw_drop", "zzz"]) as { notify: string[] }).notify.join() === "gw_drop" && (cleanNotify(undefined) as { notify: string[] }).notify.length === 0 && "error" in cleanNotify("gw_down"));
   check("notificări: abonamentul push se validează (https, chei de lungime rezonabilă)", cleanSub({ endpoint: "https://fcm.googleapis.com/fcm/send/abcdefgh", keys: { p256dh: "B".repeat(87), auth: "a".repeat(22) } }) !== null && cleanSub({ endpoint: "http://x.example/aaaaaaaaaa", keys: { p256dh: "B".repeat(87), auth: "a".repeat(22) } }) === null && cleanSub({ endpoint: "https://x.example/aaaaaaaa", keys: { p256dh: "B", auth: "a" } }) === null && cleanSub(null) === null);
@@ -1099,7 +1099,7 @@ const sectionNotify = (async () => {
     { _id: "orhei", role: "user", access: { pages: ["meters"], branches: ["20"], cities: [] }, notify: ["meters_silent"] },
     { _id: "nutip", role: "user", access: { pages: ["meters"], branches: ["05"], cities: [] }, notify: ["gw_down"] },
     { _id: "off", role: "user", access: { pages: ["meters"], branches: ["05"], cities: [] }, notify: ["meters_silent"], disabled: true },
-    { _id: "gol", role: "user", access: { pages: [], branches: [], cities: [] }, notify: ["meters_silent"] },
+    { _id: "gol", role: "user", access: { perms: {}, allZones: false, branches: [], cities: [] }, notify: ["meters_silent"] },
   ];
   const subs = [{ _id: "s1", userId: "adm", endpoint: "https://p/1", keys: { p256dh: "x".repeat(30), auth: "y".repeat(10) } }, { _id: "s2", userId: "comrat", endpoint: "https://p/2", keys: { p256dh: "x".repeat(30), auth: "y".repeat(10) } }, { _id: "s3", userId: "comrat", endpoint: "https://p/3", keys: { p256dh: "x".repeat(30), auth: "y".repeat(10) } }, { _id: "s4", userId: "orhei", endpoint: "https://p/4", keys: { p256dh: "x".repeat(30), auth: "y".repeat(10) } }];
   const deleted: unknown[] = [];
@@ -1151,8 +1151,8 @@ const sectionNotify = (async () => {
 
 // ───── acces: utilizatori limitați la filiale / orașe
 {
-  const lim = (access: Partial<Viewer["access"]>): Viewer => ({ admin: false, access: { pages: [], branches: [], cities: [], ...access } });
-  const adm: Viewer = { admin: true, access: { pages: [], branches: [], cities: [] } };
+  const lim = (access: Partial<Viewer["access"]>): Viewer => ({ admin: false, access: { perms: {}, allZones: false, branches: [], cities: [], ...access } });
+  const adm: Viewer = { admin: true, access: { perms: {}, allZones: false, branches: [], cities: [] } };
   const COM = "05 · Comrat", ORH = "20 · Orhei";
   check("acces: administratorul vede orice contor", allowsMeter(adm, COM, "Comrat") && allowsMeter(adm, "Nedeterminată", "—"));
   check("acces: filială bifată întreagă ⇒ toate orașele ei (și „fără oraș”), nimic din alte filiale", (() => { const v = lim({ branches: ["05"] }); return allowsMeter(v, COM, "Comrat") && allowsMeter(v, COM, "Ceadir-Lunga") && allowsMeter(v, COM, "—") && !allowsMeter(v, ORH, "Orhei"); })());
@@ -1160,19 +1160,64 @@ const sectionNotify = (async () => {
   check("acces: „fără oraș” se bifează separat (05|—)", (() => { const v = lim({ cities: ["05|—"] }); return allowsMeter(v, COM, "—") && allowsMeter(v, COM, "") && !allowsMeter(v, COM, "Comrat"); })());
   check("acces: nimic bifat ⇒ niciun contor; filială necunoscută / nedeterminată nu intră niciodată la limitați", !allowsMeter(lim({}), COM, "Comrat") && !allowsMeter(lim({ branches: ["05"] }), "Nedeterminată", "—") && !allowsMeter(lim({ branches: ["05"] }), "", ""));
   check("acces: orașul cu „|” în nume rămâne în filiala lui", (() => { const v = lim({ cities: ["05|A|B"] }); return allowsMeter(v, COM, "A|B") && !allowsMeter(v, COM, "A"); })());
-  check("acces: pagini — limitatul vede doar ce e bifat, administratorul tot; prima pagină permisă", canPage(lim({ pages: ["installer"] }), "installer") && !canPage(lim({ pages: ["installer"] }), "meters") && canPage(adm, "meters") && firstPath(lim({ pages: ["installer"] })) === "/instalator" && firstPath(lim({ pages: ["meters", "installer"] })) === "/" && firstPath(lim({})) === null && firstPath(adm) === "/");
+  const P = (perms: NonNullable<Viewer["access"]["perms"]>, extra: Partial<Viewer["access"]> = {}) => lim({ perms, ...extra });
+  check("acces: pagini — limitatul vede doar ce e bifat, administratorul tot; prima pagină permisă", canPage(P({ installer: ["view", "edit"] }), "installer") && !canPage(P({ installer: ["view"] }), "meters") && canPage(adm, "meters") && firstPath(P({ installer: ["view"] })) === "/instalator" && firstPath(P({ meters: ["view"], installer: ["view"] })) === "/" && firstPath(lim({})) === null && firstPath(adm) === "/");
+  check("acces: acțiuni separate — editarea nu dă ștergerea, administratorul poate tot, fără dreptul pe pagină nimic", can(P({ reports: ["view", "edit"] }, { allZones: true }), "reports", "edit") && !can(P({ reports: ["view", "edit"] }, { allZones: true }), "reports", "delete") && !can(P({ reports: ["view"] }, { allZones: true }), "reports", "export") && can(adm, "reports", "delete") && !can(lim({}), "meters") && canOf(P({ module: ["view", "edit"] }), "module").edit === true && canOf(P({ module: ["view", "edit"] }), "module").run === false);
   check("acces: cheia zonei nu depinde de ordinea bifelor și diferă între zone", scopeKey(lim({ branches: ["20", "05"], cities: ["11|B", "11|A"] })) === scopeKey(lim({ branches: ["05", "20"], cities: ["11|A", "11|B"] })) && scopeKey(lim({ branches: ["05"] })) !== scopeKey(lim({ branches: ["20"] })) && scopeKey(adm) === "");
-  const c1 = cleanAccess({ pages: ["meters", "instalator", "meters", "installer"], branches: ["05", "x", "05", "999999"], cities: ["05|Comrat", "20|Orhei", "bad", "20|"] });
-  check("acces: validare — pagini / filiale / orașe necunoscute sunt scoase, duplicatele la fel, orașele din filiale bifate întregi dispar", "access" in c1 && c1.access.pages.join() === "meters,installer" && c1.access.branches.join() === "05" && c1.access.cities.join() === "20|Orhei", JSON.stringify(c1));
-  check("acces: validare — cerere greșită respinsă", "error" in cleanAccess(null) && "error" in cleanAccess({ pages: "meters", branches: [], cities: [] }) && "error" in cleanAccess({ pages: [], branches: [1], cities: [] }));
+  const c1 = cleanAccess({ perms: { meters: ["view", "view"], instalator: ["view"], installer: ["view", "zbor", "delete"] }, branches: ["05", "x", "05", "999999"], cities: ["05|Comrat", "20|Orhei", "bad", "20|"] });
+  check("acces: validare — pagini / acțiuni / filiale / orașe necunoscute sunt scoase, duplicatele la fel, orașele din filiale bifate întregi dispar", "access" in c1 && c1.access.perms.meters?.join() === "view" && c1.access.perms.installer?.join() === "view" && !("instalator" in c1.access.perms) && c1.access.branches.join() === "05" && c1.access.cities.join() === "20|Orhei", JSON.stringify(c1));
+  check("acces: validare — cerere greșită respinsă", "error" in cleanAccess(null) && "error" in cleanAccess({ perms: "meters", branches: [], cities: [] }) && "error" in cleanAccess({ perms: {}, branches: [1], cities: [] }) && "error" in cleanAccess({ perms: { meters: "view" }, branches: [], cities: [] }) && "error" in cleanAccess({ pages: "meters", branches: [], cities: [] }));
+  // legătura dintre acțiuni
+  const lk = cleanAccess({ perms: { module: ["run"], reports: ["delete", "export"], integration: ["edit"] }, allZones: true, branches: [], cities: [] });
+  check("acces: acțiunile se leagă — rulare ⇒ și editare + vizualizare; ștergere / descărcare ⇒ vizualizare", "access" in lk && lk.access.perms.module?.join() === "view,edit,run" && lk.access.perms.reports?.join() === "view,delete,export" && lk.access.perms.integration?.join() === "view,edit");
+  check("acces: o acțiune pe care pagina n-o are se ignoră (contoare nu se editează, facturarea nu se șterge)", (() => { const c = cleanAccess({ perms: { meters: ["view", "edit", "delete"], billing: ["view", "run"] }, allZones: true, branches: [], cities: [] }); return "access" in c && c.access.perms.meters?.join() === "view" && c.access.perms.billing?.join() === "view"; })());
+  // paginile cu date din toate filialele cer «Toate filialele»
+  const gl = cleanAccess({ perms: { reports: ["view"], meters: ["view"] }, branches: ["05"], cities: [] });
+  const gr = cleanAccess({ perms: { reports: ["view"], meters: ["view"] }, branches: ["05"], cities: [] }, false);
+  check("acces: pagină globală fără «Toate filialele» ⇒ la scriere eroare explicită, la citire se ignoră (contul nu se blochează)", "error" in gl && /Toate filialele/.test((gl as { error: string }).error) && "access" in gr && !("reports" in gr.access.perms) && gr.access.perms.meters?.join() === "view");
+  const az = cleanAccess({ perms: { reports: ["view"] }, allZones: true, branches: ["05"], cities: ["05|Comrat"] });
+  check("acces: «Toate filialele» ⇒ vede orice contor, filialele / orașele bifate nu mai contează, cheia zonei e goală", "access" in az && az.access.allZones && az.access.branches.length === 0 && allowsMeter({ admin: false, access: az.access }, COM, "Comrat") && allowsMeter({ admin: false, access: az.access }, ORH, "—") && scopeKey({ admin: false, access: az.access }) === "");
+  // drepturile vechi (listă de pagini) se citesc ca matrice: instalatorii puteau și salva, restul doar vedeau
+  const lg = cleanAccess({ pages: ["meters", "installer", "antennas", "nimic"], branches: ["05"], cities: [] });
+  check("acces: drepturile vechi (listă de pagini) se convertesc: contoare = vizualizare; instalator și antene = vizualizare + editare", "access" in lg && lg.access.perms.meters?.join() === "view" && lg.access.perms.installer?.join() === "view,edit" && lg.access.perms.antennas?.join() === "view,edit" && viewerFromDoc({ role: "user", access: { pages: ["installer"], branches: ["05"], cities: [] } }).access.perms.installer?.join() === "view,edit" && viewerFromDoc({ role: "super_admin" }).admin && !viewerFromDoc({ role: "user", access: "stricat" }).admin);
+  // cine poate da ce
+  const mgr = P({ users: ["view", "edit"], reports: ["view", "edit"], meters: ["view"] }, { branches: ["05"], cities: ["20|Orhei"], allZones: false });
+  const tgt = (perms: NonNullable<Viewer["access"]["perms"]>, extra: Partial<Viewer["access"]> = {}) => ({ perms, allZones: false, branches: [], cities: [], ...extra });
+  check("acces: «cine poate da ce» — nu poți da o acțiune sau o pagină pe care n-o ai, nici toată zona; poți da mai puțin", grantable(mgr, tgt({ meters: ["view"] }, { branches: ["05"] })) && !grantable(mgr, tgt({ reports: ["view", "delete"] })) && !grantable(mgr, tgt({ module: ["view"] })) && !grantable(mgr, tgt({ meters: ["view"] }, { allZones: true })) && grantable(adm, tgt({ module: ["view", "run"] }, { allZones: true })));
+  check("acces: «cine poate da ce» — zona: filială proprie, oraș propriu sau oraș dintr-o filială proprie da; filială sau oraș străin nu", grantable(mgr, tgt({ meters: ["view"] }, { cities: ["05|Comrat", "20|Orhei"] })) && !grantable(mgr, tgt({ meters: ["view"] }, { branches: ["20"] })) && !grantable(mgr, tgt({ meters: ["view"] }, { cities: ["20|Soroca"] })) && !grantable(mgr, tgt({ meters: ["view"] }, { branches: ["99"] })));
+  check("acces: aceleași drepturi (sameAccess) ignoră ordinea bifelor", sameAccess(tgt({ meters: ["view"] }, { branches: ["05", "20"] }), tgt({ meters: ["view"] }, { branches: ["20", "05"] })) && !sameAccess(tgt({ meters: ["view"] }), tgt({ meters: ["view", "edit"] })) && !sameAccess(tgt({ meters: ["view"] }), tgt({ meters: ["view"] }, { allZones: true })));
+  check("acces: toate rețetele sunt valide (trec de validarea strictă, fără acțiuni inexistente) și nu cer mai mult decât zona lor", PRESETS.every((p) => { const c = cleanAccess({ perms: p.perms, allZones: p.allZones, branches: [], cities: [] }); return "access" in c && PAGES.every((d) => (c.access.perms[d.key] ?? []).join() === (p.perms[d.key] ?? []).join()); }));
+  check("acces: fiecare pagină are «Vizualizare»; acțiunile paginii au descriere; căile sunt unice", PAGES.every((d) => !!d.actions.view && Object.values(d.actions).every((t) => !!t)) && new Set(PAGES.map((d) => d.path)).size === PAGES.length);
   // paginile de administrare și API-urile lor cer „admin”; contoarele cer zona
   const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
-  const adminRoutes = ["app/api/control/suspects/route.ts", "app/api/integration/check/route.ts", "app/api/integration/counters/route.ts", "app/api/integration/devices/route.ts", "app/api/integration/kept/route.ts", "app/api/integration/reprocess/route.ts", "app/api/integration/stats/route.ts", "app/api/reports/route.ts", "app/api/reports/[id]/route.ts", "app/api/sources/[source]/dataset/route.ts", "app/api/lorawan/route.ts", "app/api/users/route.ts", "app/api/users/[id]/route.ts"];
-  check("acces: API-urile de administrare cer rolul de administrator", adminRoutes.every((f) => read(f).includes('apiGuard("admin")') && !read(f).includes("getCurrentUser")), adminRoutes.filter((f) => !read(f).includes('apiGuard("admin")')).join(", "));
+  // fiecare API cere pagina ȘI acțiunea potrivită (matricea din lib/access.ts), nu doar „e administrator”
+  const guards: Record<string, string[]> = {
+    "app/api/control/suspects/route.ts": ['apiGuard("control")'],
+    "app/api/integration/check/route.ts": ['apiGuard("integration")'],
+    "app/api/integration/counters/route.ts": ['apiGuard("integration")', 'apiGuard("integration", "delete")'],
+    "app/api/integration/devices/route.ts": ['apiGuard("integration")'],
+    "app/api/integration/kept/route.ts": ['apiGuard("integration")', 'apiGuard("integration", "delete")'],
+    "app/api/integration/reprocess/route.ts": ['apiGuard("integration", "edit")'],
+    "app/api/integration/stats/route.ts": ['apiGuard("integration")'],
+    "app/api/reports/route.ts": ['apiGuard("reports")', 'apiGuard("reports", "edit")'],
+    "app/api/reports/[id]/route.ts": ['apiGuard("reports", "export")', 'apiGuard("reports", "delete")'],
+    "app/api/sources/[source]/dataset/route.ts": ['apiGuard(source === "billing" ? "billing" : "lorawan")'],
+    "app/api/lorawan/route.ts": ['apiGuard("module")', 'apiGuard("module", "edit")', 'apiGuard("module", "delete")'],
+    "app/api/users/route.ts": ['apiGuard("users")', 'apiGuard("users", "edit")'],
+    "app/api/users/[id]/route.ts": ['apiGuard("users", "edit")', 'apiGuard("users", "delete")'],
+    "app/api/antennas/[id]/route.ts": ['apiGuard("antennas")', 'apiGuard("antennas", "edit")'],
+    "app/api/antennas/[id]/photo/route.ts": ['apiGuard("antennas")', 'apiGuard("antennas", "edit")'],
+    "app/api/installer/meters/[id]/route.ts": ['apiMeterGuard("installer", id)', 'apiMeterGuard("installer", id, "edit")'],
+    "app/api/installer/meters/[id]/photo/route.ts": ['apiMeterGuard("installer", id, "edit")'],
+  };
+  const badG = Object.entries(guards).filter(([f, gs]) => { const t = read(f); let at = -1; return !gs.every((g) => { at = t.indexOf(g, at + 1); return at >= 0; }) || t.includes('apiGuard("admin")') || t.includes("getCurrentUser"); }).map(([f]) => f);
+  check("acces: fiecare API cere pagina și acțiunea potrivită (vizualizare / editare / ștergere / descărcare / rulare), în ordinea handlerelor", badG.length === 0, badG.join(", "));
+  check("acces: rularea reală în ChirpStack cere dreptul «Rulare» (altfel doar simulare), nu doar «Editare»", read("app/api/lorawan/route.ts").includes('can(g.user, "module", "run")') && /dry === false/.test(read("app/api/lorawan/route.ts")));
+  check("acces: conturi — doar în limita drepturilor proprii (grantable / mayManage), fără a-și schimba singur drepturile", ["grantable(actor, c.access)", "mayManage(actor, cur)", "Nu-ți poți schimba singur drepturile"].every((x) => read("lib/services/users.ts").includes(x)));
   const meterRoutes = ["app/api/meters/[id]/route.ts", "app/api/meters/[id]/history/route.ts", "app/api/meters/[id]/photo/route.ts", "app/api/installer/meters/[id]/route.ts", "app/api/installer/meters/[id]/photo/route.ts"];
   check("acces: API-urile unui contor verifică zona utilizatorului (apiMeterGuard)", meterRoutes.every((f) => read(f).includes("apiMeterGuard(") && !read(f).includes("getCurrentUser")), meterRoutes.filter((f) => !read(f).includes("apiMeterGuard(")).join(", "));
-  const pages = ["app/(app)/control/page.tsx", "app/(app)/integration/page.tsx", "app/(app)/rapoarte/page.tsx", "app/(app)/utilizatori/page.tsx", "app/components/SourcePage.tsx"];
-  check("acces: paginile de administrare cer administrator (requirePage)", pages.every((f) => read(f).includes('requirePage("admin")')), pages.filter((f) => !read(f).includes('requirePage("admin")')).join(", "));
+  const pageGates: [string, string][] = [["app/(app)/control/page.tsx", 'requirePage("control")'], ["app/(app)/integration/page.tsx", 'requirePage("integration")'], ["app/(app)/rapoarte/page.tsx", 'requirePage("reports")'], ["app/(app)/module/page.tsx", 'requirePage("module")'], ["app/(app)/utilizatori/page.tsx", 'requirePage("users")'], ["app/components/SourcePage.tsx", 'requirePage(source === "billing" ? "billing" : "lorawan")'], ["app/(installer)/instalator/page.tsx", 'requirePage("installer")'], ["app/(installer)/antene/page.tsx", 'requirePage("antennas")']];
+  check("acces: fiecare pagină cere dreptul propriu (requirePage pe pagină), nu «admin»", pageGates.every(([f, g]) => read(f).includes(g) && !read(f).includes('requirePage("admin")')), pageGates.filter(([f, g]) => !read(f).includes(g)).map(([f]) => f).join(", "));
   const noAuth = ["app/api/meters/dataset/route.ts", "app/api/meters/delta/route.ts", "app/api/installer/meters/route.ts", "app/api/installer/prefs/route.ts", "app/api/installer/dataset/route.ts", "app/api/installer/edits/route.ts", "app/api/antennas/route.ts", "app/api/antennas/[id]/route.ts", "app/api/antennas/[id]/photo/route.ts", "app/api/antennas/[id]/stats/route.ts", "app/api/antennas/prefs/route.ts", "app/api/integration/gateways/route.ts"];
   check("acces: lista de contoare, instalatorul și antenele folosesc verificarea de acces, nu doar autentificarea", noAuth.every((f) => (read(f).includes("apiGuard(") || read(f).includes("apiMeterGuard(")) && !read(f).includes("getCurrentUser")), noAuth.filter((f) => !(read(f).includes("apiGuard(") || read(f).includes("apiMeterGuard("))).join(", "));
 }

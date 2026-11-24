@@ -9,7 +9,7 @@ import { clearKept, keptDetail, keptPage, keptReasons } from "@/lib/services/kep
  *   POST /api/integration/kept  { "action": "clear", "reason"?: "…" }   curăță (reia întâi ce se potrivește, apoi șterge restul)
  */
 export async function GET(req: Request) {
-  const guard = await apiGuard("admin");
+  const guard = await apiGuard("integration");
   if ("res" in guard) return guard.res;
   const q = new URL(req.url).searchParams;
   const headers = { "Cache-Control": "private, no-store" };
@@ -28,7 +28,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const guard = await apiGuard("admin");
+  const guard = await apiGuard("integration", "delete");
   if ("res" in guard) return guard.res;
   try {
     const b = (await req.json().catch(() => null)) as { action?: unknown; reason?: unknown } | null;

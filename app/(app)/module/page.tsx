@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import LorawanPanel from "@/app/components/LorawanPanel";
+import { canOf } from "@/lib/access";
 import { requirePage } from "@/lib/dal";
 
 export const metadata: Metadata = { title: "Module LoRaWAN" };
@@ -14,6 +15,6 @@ export default function Page() {
 }
 
 async function Gate() {
-  await requirePage("admin");
-  return <LorawanPanel />;
+  const user = await requirePage("module");
+  return <LorawanPanel can={canOf(user, "module")} />;
 }

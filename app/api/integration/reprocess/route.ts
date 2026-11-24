@@ -3,7 +3,7 @@ import { reprocessKept } from "@/lib/services/integration";
 
 /** Reia datele păstrate (integration_raw): ce se poate aplica acum merge în cutia de intrare. Doar utilizatori autentificați; apelat de butonul din pagina /integration. */
 export async function POST() {
-  const guard = await apiGuard("admin");
+  const guard = await apiGuard("integration", "edit");
   if ("res" in guard) return guard.res;
   try {
     return Response.json(await reprocessKept(), { headers: { "Cache-Control": "private, no-store" } });

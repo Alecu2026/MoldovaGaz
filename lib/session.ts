@@ -2,7 +2,7 @@ import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { COLLECTIONS, col } from "./mongo";
-import { ADMIN_ROLE, NO_ACCESS, cleanAccess, type Viewer } from "./access";
+import { viewerFromDoc, type Viewer } from "./access";
 import { cleanNotify, type NotifyType } from "./notify";
 
 /**
@@ -24,9 +24,7 @@ const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
 
 /** Drepturile din documentul utilizatorului: administrator (rol super_admin) sau limitat la ce e bifat; fără nimic bifat = fără acces. */
 export function viewerOf(u: Pick<UserDoc, "role" | "access">): Viewer {
-  if (u.role === ADMIN_ROLE) return { admin: true, access: NO_ACCESS };
-  const c = cleanAccess(u.access ?? {});
-  return { admin: false, access: "access" in c ? c.access : NO_ACCESS };
+  return viewerFromDoc(u);
 }
 
 /** Tipurile de notificări bifate la cont (necunoscutele se ignoră). */

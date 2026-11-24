@@ -1,17 +1,17 @@
 import { apiGuard } from "@/lib/guard";
 import { deleteUser, updateUser } from "@/lib/services/users";
 
-/** Un cont (doar administratori): PATCH = schimbă nume / parolă / drepturi / dezactivare; DELETE = șterge contul. */
+/** Un cont (pagina «Utilizatori»: editare / ștergere, în limita drepturilor proprii): PATCH = schimbă nume / parolă / drepturi / dezactivare; DELETE = șterge contul. */
 const H = { "Cache-Control": "private, no-store" };
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const guard = await apiGuard("admin");
+  const guard = await apiGuard("users", "edit");
   if ("res" in guard) return guard.res;
   const { id } = await ctx.params;
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object") return Response.json({ error: "Cerere invalidă." }, { status: 400 });
   try {
-    const r = await updateUser(id, body, guard.user.id);
+    const r = await updateUser(id, body, guard.user);
     return "error" in r ? Response.json({ error: r.error }, { status: r.status }) : Response.json(r.user, { headers: H });
   } catch (e) {
     console.error("[users] modificare eșuată:", e);
@@ -20,11 +20,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const guard = await apiGuard("admin");
+  const guard = await apiGuard("users", "delete");
   if ("res" in guard) return guard.res;
   const { id } = await ctx.params;
   try {
-    const r = await deleteUser(id, guard.user.id);
+    const r = await deleteUser(id, guard.user);
     return "error" in r ? Response.json({ error: r.error }, { status: r.status }) : Response.json({ ok: true }, { headers: H });
   } catch (e) {
     console.error("[users] ștergere eșuată:", e);
