@@ -20,13 +20,13 @@ const ITEMS: { href: string; label: string; sub: string; title: string }[] = [
 export default function AppNav({ hrefs }: { hrefs: string[] }) {
   const path = usePathname();
   return (
-    <nav className="appnav" aria-label="Pagini">
+    <nav className="side-nav" aria-label="Pagini">
       {ITEMS.filter((it) => hrefs.includes(it.href)).map((it) => {
         const on = it.href === "/" ? path === "/" : path.startsWith(it.href);
         return (
-          <Link key={it.href} href={it.href} aria-current={on ? "page" : undefined} title={it.title}>
-            {it.label}
-            <span className="appnav-sub">{it.sub}</span>
+          <Link key={it.href} href={it.href} aria-current={on ? "page" : undefined} title={it.title} className="side-link">
+            <span>{it.label}</span>
+            <span className="side-sub">{it.sub}</span>
           </Link>
         );
       })}
