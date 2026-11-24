@@ -5,6 +5,7 @@
  *  1. aplicația Next (un SINGUR proces, fork — intenționat: lista de contoare din memorie e per proces; în cluster ar fi mai multe copii);
  *  2. „<nume>-sync”: o dată pe oră (minutul 0) rulează scripts/sync-meters.ts (lista și valorile din SCADA + getmgdb → colecția `meters`; scrie doar contoarele modificate);
  *  2b. „<nume>-report”: pe 1 ale lunii la 07:00 rulează scripts/monthly-report.ts (raportul cu ultima citire a fiecărui contor la 1 ale lunii ora 07:00, CSV în REPORT_OUT_DIR, pentru facturare);
+ *  2d. „<nume>-antennas”: scripts/pull-antennas.ts aduce din SCADA antenele (gateway-uri) pentru ecranul instalatorului de antene (/antene); pozele lor doar cu ANTENNA_PHOTO_PULL=1;
  *  2c. „<nume>-photos”: scripts/pull-photos.ts extrage din SCADA pozele contoarelor (atributul `image`), le micșorează și le scrie în PHOTO_DIR; pornește doar cu PHOTO_PULL=1 (în fiecare zi la 22:00, reluabil);
  *  3. „<nume>-autodeploy”: o dată pe minut verifică GitHub-ul (deploy/auto-deploy.sh) și, dacă există commit nou pe branch, face deploy
  *     (git pull, npm ci doar dacă s-au schimbat dependențele, build, reload; la build eșuat revine la commit-ul anterior).
@@ -84,6 +85,21 @@ module.exports = {
       merge_logs: true,
       out_file: "logs/report.log",
       error_file: "logs/report.log",
+    },
+    {
+      name: `${NAME}-antennas`,
+      cwd: __dirname,
+      script: "node_modules/tsx/dist/cli.mjs",
+      args: "scripts/pull-antennas.ts",
+      exec_mode: "fork",
+      instances: 1,
+      autorestart: false, // rulează până termină și iese; pm2 îl repornește după cron_restart
+      cron_restart: "30 22 * * *", // în fiecare zi la 22:30: antenele din SCADA (atribute; pozele doar cu ANTENNA_PHOTO_PULL=1 în .env.local)
+      watch: false,
+      time: true,
+      merge_logs: true,
+      out_file: "logs/antennas.log",
+      error_file: "logs/antennas.log",
     },
     {
       name: `${NAME}-photos`,

@@ -60,6 +60,8 @@ const ALLOWED: { method: string; path: RegExp }[] = [
   { method: "GET", path: /^\/api\/plugins\/telemetry\/DEVICE\/[0-9a-f-]{36}\/values\/timeseries\?[^#]*$/ },
   // poza contorului: DOAR atributul `image`, un dispozitiv pe cerere (scripts/pull-photos.ts)
   { method: "GET", path: /^\/api\/plugins\/telemetry\/DEVICE\/[0-9a-f-]{36}\/values\/attributes\?keys=image$/ },
+  // antenele (gateway-uri): lista dispozitivelor de tip gatewayType / gatewayType1 (scripts/pull-antennas.ts)
+  { method: "GET", path: /^\/api\/tenant\/devices\?type=gatewayType1?&pageSize=\d{1,3}&page=\d{1,3}$/ },
   // lista dispozitivelor unui client (doar citire; se păstrează doar câmpurile de identificare, vezi tbCustomerDevices)
   { method: "GET", path: /^\/api\/customer\/[0-9a-f-]{36}\/devices\?pageSize=\d{1,4}&page=\d{1,4}$/ },
 ];

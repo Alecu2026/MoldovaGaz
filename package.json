@@ -14,6 +14,7 @@
     "analyze:nights": "tsx scripts/analyze-nights.ts",
     "report:monthly": "tsx scripts/monthly-report.ts",
     "photos:pull": "tsx scripts/pull-photos.ts",
+    "antennas:pull": "tsx scripts/pull-antennas.ts",
     "bench:integration": "tsx scripts/bench-integration.ts",
     "history:fetch": "tsx scripts/fetch-history.ts",
     "history:load": "tsx scripts/load-history.ts"

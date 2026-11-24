@@ -2,7 +2,7 @@
  * Cine ce poate vedea (partea comună client + server, fără importuri de server).
  *
  *  - Administrator = contul cu rolul `super_admin`: vede tot și administrează utilizatorii.
- *  - Ceilalți utilizatori sunt LIMITAȚI: văd doar paginile bifate la ei (`pages`) și doar contoarele din zona bifată:
+ *  - Ceilalți utilizatori sunt LIMITAȚI: văd doar paginile bifate la ei (`pages`) și doar contoarele din zona bifată (pagina «Instalator antene» nu depinde de zonă: antenele nu aparțin unei filiale):
  *      · `branches` = filiale întregi (cod FIL, ex. „05”);
  *      · `cities`   = orașe dintr-o filială, ca „05|Comrat” (orașul din facturare; „—” = contoare fără oraș).
  *    Un cont fără nimic bifat nu vede nimic.
@@ -11,10 +11,11 @@
 export const ADMIN_ROLE = "super_admin";
 export const NO_CITY = "—";
 
-export type PageKey = "meters" | "installer";
+export type PageKey = "meters" | "installer" | "antennas";
 export const PAGES: { key: PageKey; label: string; path: string }[] = [
   { key: "meters", label: "Contoare, hartă și grafice", path: "/" },
   { key: "installer", label: "Instalator", path: "/instalator" },
+  { key: "antennas", label: "Instalator antene", path: "/antene" },
 ];
 
 export type Access = { pages: PageKey[]; branches: string[]; cities: string[] };

@@ -157,6 +157,14 @@ Copia aplicației din SCADA pe care o folosesc instalatorii (dashboardul **<Fili
 
 - **Tabelul e instant, ca pagina Contoare:** lista contoarelor (doar zona utilizatorului) stă în memoria serverului, coloanar și mică (`lib/services/installer-store.ts`), se descarcă o dată în browser (`/api/installer/dataset`, ETag ⇒ 304 la redeschidere) și căutarea (nume / ContorNr), sortarea și paginarea (10 … 1000 / All, cu rânduri desenate doar cât se văd) sunt locale. Se pune la zi singură cu rândurile schimbate (`?since=`) și după fiecare salvare; ce introduc instalatorii (`/api/installer/edits`) suprascrie valorile din SCADA în tabel.
 
+## Ecranul instalatorului de antene (/antene)
+
+Copia aplicației din SCADA **Gateway_App** (dashboardul «Gateways_Lorawan_App»): **Gateway admin table** (Entity name, active, Comments, Client, Gateways_name_A, CounterMessages, lastActivityTime, NrTel_SIM, ip_address, NumeInstalator; restul coloanelor din «Select columns»), **Select Device**, **Gateway Update** (Nume Instalator *, Latitude / Longitude_instalator *, image *, Instalta, Antena_mobila, NrTel_SIM, ip_address, Comments, Client, lastActivityTime), **Instalation Photo** / **Installation foto**, **Harta_Instalator** (toate antenele, verzi / roșii) și **Meters Location**; ScanQR, Foto (camera) și Location (GPS) ca în SCADA. Tip nou de utilizator: la «Utilizatori» se bifează pagina **Instalator antene** (nu depinde de filială / oraș); contul vede doar `/antene`.
+
+- **Datele introduse se salvează DOAR la noi** (`antenna_data`; poza ca fișier în `<PHOTO_DIR>/antennas/…`, micșorată, fără metadate) — nimic nu se scrie în SCADA.
+- **Lista** = antenele din SCADA (colecția `antennas`, adusă de `npm run antennas:pull` / aplicația pm2 `<nume>-antennas`, zilnic la 22:30 și la creare; doar citire: lista dispozitivelor `gatewayType` / `gatewayType1` + atributele lor) unite după EUI cu antenele care ne trimit mesaje prin integrare (`integration_gateways`: nume din rețea, ultima activitate, număr de mesaje). «active» = a auzit ceva în ultimele 24 h. Poza din SCADA (atributul `image`, ~4 MB / antenă) se aduce doar cu `ANTENNA_PHOTO_PULL=1` în `.env.local` (sau `npm run antennas:pull -- --photos`).
+- Mesajele pe zi (graficul) vin din agregatele integrării (`integration_gw_day`), nu din SCADA.
+
 ## Utilizatori și drepturi (/utilizatori)
 
 - **Administrator** = contul cu rolul `super_admin` (se creează cu `npm run seed:user -- email parola "Nume" super_admin`): vede tot și are pagina **Utilizatori**, unde creează conturi, schimbă parole, dezactivează / șterge. Nu-și poate scoate singur drepturile și mereu rămâne cel puțin un administrator activ.

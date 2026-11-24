@@ -35,7 +35,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 /** Meniul: doar paginile pe care le poate vedea utilizatorul (administratorul le vede pe toate). */
 async function Nav() {
   const user = await requireUser();
-  const all = ["/", "/control", "/integration", "/rapoarte", "/instalator", "/lorawan", "/facturare", "/utilizatori"];
+  const all = ["/", "/control", "/integration", "/rapoarte", "/instalator", "/antene", "/lorawan", "/facturare", "/utilizatori"];
   return <AppNav hrefs={user.admin ? all : PAGES.filter((p) => user.access.pages.includes(p.key)).map((p) => p.path)} />;
 }
 

@@ -35,6 +35,10 @@ start_or_reload() {
   if ! pm2 describe "$NAME-photos" >/dev/null 2>&1; then
     pm2 start ecosystem.config.js --only "$NAME-photos" --update-env
   fi
+  # antenele din SCADA (ecranul /antene): tot separat și doar dacă nu există; aduce doar atribute (puține cereri), pozele doar cu ANTENNA_PHOTO_PULL=1 în .env.local
+  if ! pm2 describe "$NAME-antennas" >/dev/null 2>&1; then
+    pm2 start ecosystem.config.js --only "$NAME-antennas" --update-env
+  fi
   pm2 save >/dev/null
 }
 

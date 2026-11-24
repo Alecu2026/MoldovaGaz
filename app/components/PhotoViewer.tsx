@@ -12,7 +12,7 @@ const MIN = 1, MAX = 12;
 const FIT: View = { s: 1, x: 0, y: 0 };
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
-export default function PhotoViewer({ id, title, onClose }: { id: string; title: string; onClose: () => void }) {
+export default function PhotoViewer({ id, title, onClose, base = "/api/meters" }: { id: string; title: string; onClose: () => void; /** adresa API-ului de poze (contoare sau antene) */ base?: string }) {
   const stage = useRef<HTMLDivElement>(null);
   const img = useRef<HTMLImageElement>(null);
   const cur = useRef<View>(FIT);
@@ -22,7 +22,7 @@ export default function PhotoViewer({ id, title, onClose }: { id: string; title:
   const gesture = useRef<{ d: number; mx: number; my: number; v: View } | null>(null);
   const moved = useRef(false);
   const downOnBg = useRef(false);
-  const src = `/api/meters/${id}/photo`;
+  const src = `${base}/${id}/photo`;
 
   const apply = (v: View) => {
     const st = stage.current, im = img.current;

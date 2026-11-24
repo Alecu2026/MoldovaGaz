@@ -10,6 +10,7 @@ const ITEMS: { href: string; label: string; sub: string; title: string }[] = [
   { href: "/integration", label: "Integrare", sub: "api", title: "API-ul prin care primim mesaje direct de la LoRaWAN / antene: stare, ritm, verificare mesaj" },
   { href: "/rapoarte", label: "Rapoarte", sub: "facturare", title: "Raport de citiri către facturare (Oracle): perioadă la alegere, fișier CSV pe server, generare automată pe 1 ale lunii la 07:00" },
   { href: "/instalator", label: "Instalator", sub: "montaj", title: "Ecranul instalatorului, ca în SCADA (ChisinauGaz_Instalator_App): listă de contoare, scanare QR, poză, locație și datele de montaj; se salvează doar la noi" },
+  { href: "/antene", label: "Antene", sub: "instalator", title: "Ecranul instalatorului de antene, ca în SCADA (Gateways_Lorawan_App): lista antenelor, poză, locație, instalator, număr SIM; se salvează doar la noi" },
   { href: "/lorawan", label: "Dispozitive LoRaWAN", sub: "lorawandb", title: "Doar datele din lorawandb (primul IP)" },
   { href: "/facturare", label: "Facturare", sub: "getmgdb", title: "Doar datele din getmgdb (al doilea IP)" },
   { href: "/utilizatori", label: "Utilizatori", sub: "acces", title: "Conturile aplicației: cine ce pagini vede și ce filiale / orașe (doar administratorii)" },
