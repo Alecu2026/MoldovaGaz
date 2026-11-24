@@ -1,11 +1,11 @@
-import { getCurrentUser } from "@/lib/dal";
+import { apiMeterGuard } from "@/lib/guard";
 import { getRecord, saveFields } from "@/lib/services/installer";
 
 /** Datele unui contor pentru formularul instalatorului (GET) și salvarea câmpurilor trimise (POST). Se salvează doar în baza noastră, nu în SCADA. */
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
   const { id } = await ctx.params;
+  const guard = await apiMeterGuard("installer", id);
+  if ("res" in guard) return guard.res;
   try {
     const r = await getRecord(id);
     return r ? Response.json(r, { headers: { "Cache-Control": "private, no-store" } }) : Response.json({ error: "Contorul nu există." }, { status: 404 });
@@ -16,12 +16,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
   const { id } = await ctx.params;
+  const guard = await apiMeterGuard("installer", id);
+  if ("res" in guard) return guard.res;
   const body = await req.json().catch(() => null);
   try {
-    const r = await saveFields(id, body, user.email);
+    const r = await saveFields(id, body, guard.user.email);
     return "error" in r ? Response.json({ error: r.error }, { status: r.status }) : Response.json(r.record, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
     console.error("[installer] salvare eșuată:", e);

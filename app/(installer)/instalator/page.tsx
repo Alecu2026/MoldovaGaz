@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import InstallerApp from "@/app/components/InstallerApp";
-import { requireUser } from "@/lib/dal";
+import { requirePage } from "@/lib/dal";
 
 export const metadata: Metadata = { title: "Instalator" };
 
@@ -14,6 +14,6 @@ export default function Page() {
 }
 
 async function Gate() {
-  await requireUser();
+  await requirePage("installer");
   return <InstallerApp />;
 }

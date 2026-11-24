@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { requireUser } from "@/lib/dal";
+import { requirePage } from "@/lib/dal";
 import { filtersFromEntries, sortFromEntries } from "@/lib/source-filter";
 import { SOURCES, type SourceId } from "@/lib/source-shared";
 import SourceTable from "./SourceTable";
@@ -16,7 +16,7 @@ export default function SourcePage({ source, searchParams }: { source: SourceId;
 }
 
 async function Gate({ source, searchParams }: { source: SourceId; searchParams: SP }) {
-  const user = await requireUser();
+  const user = await requirePage("admin");
   const sp = await searchParams;
   const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   const entries = Object.entries(sp).flatMap(([k, v]) => (first(v) !== undefined ? [[k, first(v) as string] as [string, string]] : []));

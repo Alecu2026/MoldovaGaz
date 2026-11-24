@@ -1,10 +1,10 @@
-import { getCurrentUser } from "@/lib/dal";
+import { apiGuard } from "@/lib/guard";
 import { checkMessage } from "@/lib/services/integration";
 
 /** Verifică un mesaj FĂRĂ să-l salveze (doar utilizatori autentificați): îl validează și arată rezumatul derivat. Pentru a depana ce trimite expeditorul. */
 export async function POST(req: Request) {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
+  const guard = await apiGuard("admin");
+  if ("res" in guard) return guard.res;
   let body: unknown;
   try {
     const text = await req.text();

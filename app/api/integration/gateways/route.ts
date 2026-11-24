@@ -1,4 +1,4 @@
-import { getCurrentUser } from "@/lib/dal";
+import { apiGuard, apiMeterGuard } from "@/lib/guard";
 import { DAY, MAX_DAYS } from "@/lib/gateway-stats";
 import { deviceGateways, gatewayDetail, gatewayStats, gatewaySummary } from "@/lib/services/gateways";
 
@@ -10,9 +10,10 @@ import { deviceGateways, gatewayDetail, gatewayStats, gatewaySummary } from "@/l
  *   GET /api/integration/gateways?stats=1&from=&to=&state=&q=&min=&sort=&gw=   → eficiența antenelor pe perioadă, pe zile (from / to = AAAA-LL-ZZ sau ms)
  */
 export async function GET(req: Request) {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
   const q = new URL(req.url).searchParams;
+  const device = q.get("device");
+  const guard = device ? await apiMeterGuard("any", device.slice(0, 80)) : await apiGuard("admin");
+  if ("res" in guard) return guard.res;
   const headers = { "Cache-Control": "private, no-store" };
   try {
     if (q.get("stats")) {
@@ -27,7 +28,7 @@ export async function GET(req: Request) {
       const stats = await gatewayStats({ from, to, state, q: (q.get("q") ?? "").slice(0, 60), minDevices: Math.max(0, Math.floor(Number(q.get("min")) || 0)), sort: (q.get("sort") ?? "devices").slice(0, 12), gw: (q.get("gw") ?? "").slice(0, 120) });
       return Response.json(stats, { headers });
     }
-    const id = q.get("id"), device = q.get("device");
+    const id = q.get("id");
     if (id) {
       const d = await gatewayDetail(id.slice(0, 120));
       return d ? Response.json(d, { headers }) : Response.json({ error: "Antena nu există." }, { status: 404 });

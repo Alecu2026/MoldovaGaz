@@ -1,4 +1,4 @@
-import { getCurrentUser } from "@/lib/dal";
+import { apiGuard } from "@/lib/guard";
 import { clampParams, suspects } from "@/lib/services/night-dataset";
 
 /**
@@ -6,8 +6,8 @@ import { clampParams, suspects } from "@/lib/services/night-dataset";
  * Lucrează doar din baza noastră (colecția meter_nights), fără SCADA; răspunsul e instant după prima încărcare în memorie.
  */
 export async function GET(req: Request) {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
+  const guard = await apiGuard("admin");
+  if ("res" in guard) return guard.res;
   const q = new URL(req.url).searchParams;
   try {
     const p = clampParams({ startHour: q.get("from"), endHour: q.get("to"), nights: q.get("nights"), maxNight: q.get("maxNight"), minDay: q.get("minDay"), minTemp: q.get("minTemp"), maxTemp: q.get("maxTemp"), hasTemp: q.get("hasTemp"), tempMode: q.get("tempMode"), maxTempDrop: q.get("drop"), minNights: q.get("minNights") });

@@ -1430,3 +1430,15 @@ button.badge-btn:hover {
   .tbx-table th, .tbx-table td { padding: 0 12px; }
 }
 @media (max-width: 600px) { .tbx-ps { display: none; } .tbx-range { margin: 0 12px 0 0; } .tbx-pager { padding-left: 16px; } }
+
+/* ───────── Utilizatori (administrare) ───────── */
+.usr-edit { width: min(640px, 100%); }
+.usr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.usr-tree { display: grid; gap: 8px; }
+.usr-branch { border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+.usr-branch-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; flex-wrap: wrap; }
+.usr-cities { padding: 4px 10px 10px; border-top: 1px solid var(--border); }
+.usr-citylist { max-height: 260px; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px 12px; padding: 4px 0; }
+.usr-city { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.usr-foot { position: sticky; bottom: 0; background: var(--surface); border-bottom: 0 !important; border-top: 1px solid var(--border); }
+@media (max-width: 640px) { .usr-citylist { grid-template-columns: 1fr; max-height: 220px; } }

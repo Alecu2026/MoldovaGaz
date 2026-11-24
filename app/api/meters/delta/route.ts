@@ -1,5 +1,5 @@
-import { getCurrentUser } from "@/lib/dal";
-import { buildDelta, getStore } from "@/lib/services/meter-dataset";
+import { apiGuard } from "@/lib/guard";
+import { buildDeltaFor, genFor, getStore } from "@/lib/services/meter-dataset";
 
 type Lens = { ap: number; gw: number; ty: number; br: number; ct: number; pf: number };
 
@@ -9,8 +9,9 @@ type Lens = { ap: number; gw: number; ty: number; br: number; ct: number; pf: nu
  * Fără modificări răspunsul are zero rânduri (câteva zeci de octeți) — pentru polling. Compresia (gzip) o face Next.
  */
 export async function GET(req: Request) {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
+  const guard = await apiGuard("meters");
+  if ("res" in guard) return guard.res;
+  const user = guard.user;
   const sp = new URL(req.url).searchParams;
   const int = (k: string) => {
     const n = Number(sp.get(k));
@@ -23,7 +24,7 @@ export async function GET(req: Request) {
   }
   try {
     const st = await getStore();
-    const out = sp.get("gen") === st.gen ? buildDelta(st, after, l as Lens) : { v: 3 as const, full: true as const };
+    const out = sp.get("gen") === genFor(st, user) ? buildDeltaFor(st, user, after, l as Lens) : { v: 3 as const, full: true as const };
     return Response.json(out, { headers: { "Cache-Control": "no-store", Vary: "Cookie" } });
   } catch (e) {
     console.error("[meters/delta] eșuat:", e);

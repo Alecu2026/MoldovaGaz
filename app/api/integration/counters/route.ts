@@ -1,10 +1,10 @@
-import { getCurrentUser } from "@/lib/dal";
+import { apiGuard } from "@/lib/guard";
 import { counterReport, resetCounters } from "@/lib/services/counters";
 
 /** Verificarea continuității: ce numere (counter) au venit și ce lipsește, pe flux. Doar utilizatori autentificați. */
 export async function GET() {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
+  const guard = await apiGuard("admin");
+  if ("res" in guard) return guard.res;
   try {
     return Response.json(await counterReport(), { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
@@ -15,8 +15,8 @@ export async function GET() {
 
 /** „Test nou”: { "reset": "<flux>" | "all" } șterge contoarele urmărite. */
 export async function POST(req: Request) {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
+  const guard = await apiGuard("admin");
+  if ("res" in guard) return guard.res;
   try {
     const b = (await req.json().catch(() => null)) as { reset?: unknown } | null;
     if (typeof b?.reset !== "string" || !b.reset) return Response.json({ error: "Trimite { \"reset\": \"all\" } sau numele fluxului." }, { status: 400 });

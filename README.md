@@ -154,6 +154,13 @@ Copia aplicației din SCADA pe care o folosesc instalatorii (dashboardul **<Fili
 - **Datele se salvează DOAR la noi**, nu în SCADA (rămâne strict citire): colecția `installer_data` (un document per contor, cu cine și când a salvat) și poza ca fișier în `<PHOTO_DIR>/installer/…` (micșorată, fără locația din poză); poza instalatorului are prioritate față de cea din SCADA în `/api/meters/<id>/photo`. `Permissions-Policy` din [next.config.ts](next.config.ts) permite camera și GPS-ul doar aplicației însăși.
 - «Localitate»: la Orhei lista din SCADA (Orhei, Soldanesti, Rezina, Telenesti); la celelalte filiale, valorile folosite la cel puțin 20 de contoare ale filialei. `Volume_Liters` și `inactivityTimeout` se citesc acum la sincronizare (apar după următoarea rulare orară).
 
+## Utilizatori și drepturi (/utilizatori)
+
+- **Administrator** = contul cu rolul `super_admin` (se creează cu `npm run seed:user -- email parola "Nume" super_admin`): vede tot și are pagina **Utilizatori**, unde creează conturi, schimbă parole, dezactivează / șterge. Nu-și poate scoate singur drepturile și mereu rămâne cel puțin un administrator activ.
+- **Utilizatorii limitați** (orice alt cont) văd doar ce li se bifează: **paginile** (Contoare + hartă + grafice; Instalator) și **zona** — filiale întregi sau doar anumite orașe dintr-o filială (orașul din facturare; «fără oraș» se bifează separat). Fără nimic bifat nu văd nimic (pagina «/acces» le spune să ceară drepturi). Drepturile se păstrează în contul din colecția `users` (`access: { pages, branches, cities }`).
+- Paginile de administrare (Consum nemăsurat, Integrare, Rapoarte, Dispozitive LoRaWAN, Facturare, Utilizatori) și API-urile lor sunt **doar pentru administratori** (403 altfel). Antenele de pe hartă la fel; un limitat vede antenele propriilor contoare, în detaliile contorului.
+- Zona se aplică **pe server**, nu doar în ecran: lista de contoare (și dicționarele ei — nu apar numele altor filiale / orașe), detaliile, istoricul, poza, antenele unui contor și tot ecranul instalatorului (listă, QR, formular, poză, salvare) răspund 403 / «negăsit» pentru contoarele din afara zonei. Fiecare zonă are lista ei în memorie (gzip memorat), iar schimbarea zonei de către administrator se vede imediat (generația listei include zona).
+
 ## Limite și date personale
 
 - Facturarea conține **date personale** (nume consumator, adresă). Ele ajung în browserul utilizatorilor autentificați (căutare instant) și în IndexedDB-ul lor; se șterg la „Ieșire”. Exportul CSV **nu** le include. Dă acces doar persoanelor autorizate.

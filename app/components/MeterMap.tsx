@@ -77,9 +77,11 @@ type Props = {
   /** se schimbă când se schimbă filtrele: harta se încadrează pe rezultate */
   fitKey: string;
   onOpen: (id: string) => void;
+  /** stratul cu toate antenele (doar administratorii; un utilizator limitat nu vede antenele altor zone) */
+  antennas: boolean;
 };
 
-export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
+export default function MeterMap({ store, idx, rev, fitKey, onOpen, antennas }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
@@ -88,7 +90,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
   const [by, setBy] = useState<ColorBy>("status");
   const [sel, setSel] = useState<number | null>(null);
   const [mapObj, setMapObj] = useState<L.Map | null>(null);
-  const [gwOn, setGwOn] = useState(true);
+  const [gwOn, setGwOn] = useState(antennas);
   const [legendOn, setLegendOn] = useState(true);
   const [metersOn, setMetersOn] = useState(true);
   const [full, setFull] = useState(false);
@@ -347,9 +349,11 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
         <label className="chk" style={{ alignSelf: "center" }}>
           <input type="checkbox" checked={metersOn} onChange={(e) => { setMetersOn(e.target.checked); if (!e.target.checked) setSel(null); }} /> Arată contoarele
         </label>
-        <label className="chk" style={{ alignSelf: "center" }}>
-          <input type="checkbox" checked={gwOn} onChange={(e) => setGwOn(e.target.checked)} /> Arată antenele
-        </label>
+        {antennas && (
+          <label className="chk" style={{ alignSelf: "center" }}>
+            <input type="checkbox" checked={gwOn} onChange={(e) => setGwOn(e.target.checked)} /> Arată antenele
+          </label>
+        )}
         <label className="chk" style={{ alignSelf: "center" }}>
           <input type="checkbox" checked={legendOn} onChange={(e) => setLegendOn(e.target.checked)} /> Legendă
         </label>
@@ -393,7 +397,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen }: Props) {
 
         <GatewayLayer
           map={mapObj}
-          enabled={gwOn}
+          enabled={gwOn && antennas}
           meterId={pid} meterName={pname} meterLa={plat} meterLo={plon}
           onOpen={onOpen}
           onPickGateway={pickGateway}

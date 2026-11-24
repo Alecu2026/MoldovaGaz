@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import ReportsPanel from "@/app/components/ReportsPanel";
-import { requireUser } from "@/lib/dal";
+import { requirePage } from "@/lib/dal";
 
 export const metadata: Metadata = { title: "Rapoarte" };
 
@@ -14,6 +14,6 @@ export default function Page() {
 }
 
 async function Gate() {
-  await requireUser();
+  await requirePage("admin");
   return <ReportsPanel />;
 }

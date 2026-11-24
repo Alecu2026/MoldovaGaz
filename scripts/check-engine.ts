@@ -31,6 +31,7 @@ import { eventToMsg, gatewaysOf, looksLikeEvent, looksLikeUplink, nameKey, uplin
 import { MAX_BATCH, isStaleFcnt, isStaleUplink, ingestIsNewer, mergeDerive, mergeMsgs, normTs, parseMessage, type MeterDocIng } from "../lib/integration";
 import { MAX_READINGS, appendReadings, readingOf } from "../lib/meter-readings";
 import { DEFECT_PROFILE, GAS_CUSTOMERS } from "../lib/meter-scope";
+import { allowsMeter, canPage, cleanAccess, firstPath, scopeKey, type Viewer } from "../lib/access";
 import type { Db } from "mongodb";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -347,11 +348,11 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   const walk = (d: string): string[] => readdirSync(d).flatMap((n) => (n === "node_modules" || n === ".next" || n.startsWith(".") ? [] : statSync(join(d, n)).isDirectory() ? walk(join(d, n)) : /\.(ts|tsx)$/.test(n) ? [join(d, n)] : []));
   const files = ["app", "lib", "scripts"].flatMap(walk).filter((f) => !f.endsWith("check-engine.ts"));
   const fetches = files.flatMap((f) => (readFileSync(f, "utf8").match(/\bfetch\(/g) ?? []).map(() => f.replace(/\\/g, "/")));
-  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "app/components/GatewayLayer.tsx", "app/components/KeptBrowser.tsx", "app/components/ReportsPanel.tsx", "app/components/InstallerApp.tsx", "app/components/GatewayPopup.tsx", "app/components/GatewayCharts.tsx", "app/components/SeenBrowser.tsx", "app/components/MeterAntennas.tsx", "scripts/bench-integration.ts"]);
+  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "app/components/GatewayLayer.tsx", "app/components/KeptBrowser.tsx", "app/components/ReportsPanel.tsx", "app/components/InstallerApp.tsx", "app/components/GatewayPopup.tsx", "app/components/GatewayCharts.tsx", "app/components/SeenBrowser.tsx", "app/components/MeterAntennas.tsx", "app/components/UsersPanel.tsx", "scripts/bench-integration.ts"]);
   check("read-only: fetch() doar în fișierele așteptate", fetches.every((f) => allowedFetch.has(f)), [...new Set(fetches)].join(", "));
   const mutating = files.filter((f) => /method:\s*"(PUT|DELETE|PATCH)"|\.(deleteOne|deleteMany|drop|updateMany|updateOne|insertOne|insertMany|replaceOne|bulkWrite)\(/.test(readFileSync(f, "utf8"))).map((f) => f.replace(/\\/g, "/"));
   // scrieri în baza NOASTRĂ: doar sesiuni / utilizator (login, seed) și colecția `meters` (sincronizare); niciodată în surse
-  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts", "lib/services/gateways.ts", "lib/services/counters.ts", "lib/services/kept.ts", "lib/report-job.ts", "lib/services/reports.ts", "lib/photo-job.ts", "lib/services/installer.ts", "app/components/ReportsPanel.tsx"]);
+  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts", "lib/services/gateways.ts", "lib/services/counters.ts", "lib/services/kept.ts", "lib/report-job.ts", "lib/services/reports.ts", "lib/photo-job.ts", "lib/services/installer.ts", "lib/services/users.ts", "app/components/ReportsPanel.tsx", "app/components/UsersPanel.tsx"]);
   check("read-only: scrieri în baza de date doar în sesiuni, seed:user, sync-meters, load-history și lib/source-sync", mutating.every((f) => allowedWrites.has(f)), mutating.join(", "));
   const syncSrc = readFileSync("scripts/sync-meters.ts", "utf8");
   const syncCollections = syncSrc.match(/client\.db\(\)\.collection[^\n]*/g) ?? [];
@@ -952,6 +953,34 @@ const section8 = (async () => {
   check("interpolare într-o trecere = interpolarea punct cu punct (inclusiv pentru goluri și capete)", xs.every((x, k) => { const a = NA.volumeAt(rp, x), b = many[k]; return (Number.isNaN(a) && Number.isNaN(b)) || Math.abs(a - b) < 1e-9; }));
   check("profil pe ore: consum în 0,001 m³ pe Uint16 și temperatură în 0,5 °C pe Int8 (rotunjire corectă)", (() => { const q = NA.hourlyProfile([P(D[0], 0, 21.3), P(D[0] + H, 1.2346, 21.3), P(D[0] + 2 * H, 1.2346, null)], D.slice(0, 1)); return q.cons[0] === 1235 && q.temp[0] === 43 && q.cons[1] === 0 && q.temp[1] === 43 ? true : q.cons[0] === 1235 && q.temp[0] === 43; })());
 })();
+
+// ───── acces: utilizatori limitați la filiale / orașe
+{
+  const lim = (access: Partial<Viewer["access"]>): Viewer => ({ admin: false, access: { pages: [], branches: [], cities: [], ...access } });
+  const adm: Viewer = { admin: true, access: { pages: [], branches: [], cities: [] } };
+  const COM = "05 · Comrat", ORH = "20 · Orhei";
+  check("acces: administratorul vede orice contor", allowsMeter(adm, COM, "Comrat") && allowsMeter(adm, "Nedeterminată", "—"));
+  check("acces: filială bifată întreagă ⇒ toate orașele ei (și „fără oraș”), nimic din alte filiale", (() => { const v = lim({ branches: ["05"] }); return allowsMeter(v, COM, "Comrat") && allowsMeter(v, COM, "Ceadir-Lunga") && allowsMeter(v, COM, "—") && !allowsMeter(v, ORH, "Orhei"); })());
+  check("acces: doar anumite orașe ⇒ numai ele, în filiala lor (același oraș din altă filială nu intră)", (() => { const v = lim({ cities: ["05|Comrat", "20|Orhei"] }); return allowsMeter(v, COM, "Comrat") && allowsMeter(v, ORH, "Orhei") && !allowsMeter(v, COM, "Ceadir-Lunga") && !allowsMeter(v, ORH, "Comrat") && !allowsMeter(v, COM, "—"); })());
+  check("acces: „fără oraș” se bifează separat (05|—)", (() => { const v = lim({ cities: ["05|—"] }); return allowsMeter(v, COM, "—") && allowsMeter(v, COM, "") && !allowsMeter(v, COM, "Comrat"); })());
+  check("acces: nimic bifat ⇒ niciun contor; filială necunoscută / nedeterminată nu intră niciodată la limitați", !allowsMeter(lim({}), COM, "Comrat") && !allowsMeter(lim({ branches: ["05"] }), "Nedeterminată", "—") && !allowsMeter(lim({ branches: ["05"] }), "", ""));
+  check("acces: orașul cu „|” în nume rămâne în filiala lui", (() => { const v = lim({ cities: ["05|A|B"] }); return allowsMeter(v, COM, "A|B") && !allowsMeter(v, COM, "A"); })());
+  check("acces: pagini — limitatul vede doar ce e bifat, administratorul tot; prima pagină permisă", canPage(lim({ pages: ["installer"] }), "installer") && !canPage(lim({ pages: ["installer"] }), "meters") && canPage(adm, "meters") && firstPath(lim({ pages: ["installer"] })) === "/instalator" && firstPath(lim({ pages: ["meters", "installer"] })) === "/" && firstPath(lim({})) === null && firstPath(adm) === "/");
+  check("acces: cheia zonei nu depinde de ordinea bifelor și diferă între zone", scopeKey(lim({ branches: ["20", "05"], cities: ["11|B", "11|A"] })) === scopeKey(lim({ branches: ["05", "20"], cities: ["11|A", "11|B"] })) && scopeKey(lim({ branches: ["05"] })) !== scopeKey(lim({ branches: ["20"] })) && scopeKey(adm) === "");
+  const c1 = cleanAccess({ pages: ["meters", "instalator", "meters", "installer"], branches: ["05", "x", "05", "999999"], cities: ["05|Comrat", "20|Orhei", "bad", "20|"] });
+  check("acces: validare — pagini / filiale / orașe necunoscute sunt scoase, duplicatele la fel, orașele din filiale bifate întregi dispar", "access" in c1 && c1.access.pages.join() === "meters,installer" && c1.access.branches.join() === "05" && c1.access.cities.join() === "20|Orhei", JSON.stringify(c1));
+  check("acces: validare — cerere greșită respinsă", "error" in cleanAccess(null) && "error" in cleanAccess({ pages: "meters", branches: [], cities: [] }) && "error" in cleanAccess({ pages: [], branches: [1], cities: [] }));
+  // paginile de administrare și API-urile lor cer „admin”; contoarele cer zona
+  const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
+  const adminRoutes = ["app/api/control/suspects/route.ts", "app/api/integration/check/route.ts", "app/api/integration/counters/route.ts", "app/api/integration/devices/route.ts", "app/api/integration/kept/route.ts", "app/api/integration/reprocess/route.ts", "app/api/integration/stats/route.ts", "app/api/reports/route.ts", "app/api/reports/[id]/route.ts", "app/api/sources/[source]/dataset/route.ts", "app/api/users/route.ts", "app/api/users/[id]/route.ts"];
+  check("acces: API-urile de administrare cer rolul de administrator", adminRoutes.every((f) => read(f).includes('apiGuard("admin")') && !read(f).includes("getCurrentUser")), adminRoutes.filter((f) => !read(f).includes('apiGuard("admin")')).join(", "));
+  const meterRoutes = ["app/api/meters/[id]/route.ts", "app/api/meters/[id]/history/route.ts", "app/api/meters/[id]/photo/route.ts", "app/api/installer/meters/[id]/route.ts", "app/api/installer/meters/[id]/photo/route.ts"];
+  check("acces: API-urile unui contor verifică zona utilizatorului (apiMeterGuard)", meterRoutes.every((f) => read(f).includes("apiMeterGuard(") && !read(f).includes("getCurrentUser")), meterRoutes.filter((f) => !read(f).includes("apiMeterGuard(")).join(", "));
+  const pages = ["app/(app)/control/page.tsx", "app/(app)/integration/page.tsx", "app/(app)/rapoarte/page.tsx", "app/(app)/utilizatori/page.tsx", "app/components/SourcePage.tsx"];
+  check("acces: paginile de administrare cer administrator (requirePage)", pages.every((f) => read(f).includes('requirePage("admin")')), pages.filter((f) => !read(f).includes('requirePage("admin")')).join(", "));
+  const noAuth = ["app/api/meters/dataset/route.ts", "app/api/meters/delta/route.ts", "app/api/installer/meters/route.ts", "app/api/installer/prefs/route.ts", "app/api/integration/gateways/route.ts"];
+  check("acces: lista de contoare, instalatorul și antenele folosesc verificarea de acces, nu doar autentificarea", noAuth.every((f) => (read(f).includes("apiGuard(") || read(f).includes("apiMeterGuard(")) && !read(f).includes("getCurrentUser")), noAuth.filter((f) => !(read(f).includes("apiGuard(") || read(f).includes("apiMeterGuard("))).join(", "));
+}
 
 section7.then(() => section8).then(() => {
   console.log(bad ? `\n${bad} EȘECURI` : "\nToate verificările au trecut.");

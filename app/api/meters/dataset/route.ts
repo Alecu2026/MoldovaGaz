@@ -1,6 +1,6 @@
 import { gunzipSync } from "node:zlib";
-import { getCurrentUser } from "@/lib/dal";
-import { encodedDataset, getStore } from "@/lib/services/meter-dataset";
+import { apiGuard } from "@/lib/guard";
+import { encodedDatasetFor, getStore } from "@/lib/services/meter-dataset";
 
 /**
  * Lista COMPLETĂ de contoare (coloanar) pentru motorul local din browser. ETag = `gen.seq`: aceeași versiune ⇒ 304 fără corp.
@@ -11,16 +11,17 @@ import { encodedDataset, getStore } from "@/lib/services/meter-dataset";
  * îi decomprimă cu DecompressionStream (vezi useMeterStore). Fără suport pentru el: `?enc=json` întoarce JSON simplu, pe care îl comprimă Next.
  */
 export async function GET(req: Request) {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
+  const guard = await apiGuard("meters");
+  if ("res" in guard) return guard.res;
+  const user = guard.user;
   try {
     const st = await getStore();
-    const { etag, gz } = encodedDataset(st);
+    const { etag, gz } = encodedDatasetFor(st, user); // utilizatorul limitat primește doar contoarele din zona lui
     const plain = new URL(req.url).searchParams.get("enc") === "json";
     // private + no-cache: date interne, validate la fiecare folosire (If-None-Match → 304)
     const base = { ETag: etag, "Cache-Control": plain ? "private, no-cache" : "private, no-cache, no-transform", Vary: "Cookie" };
     if (req.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers: base });
-    const buf = await gz;
+    const buf = await gz();
     if (plain) return new Response(new Uint8Array(gunzipSync(buf)), { headers: { ...base, "Content-Type": "application/json" } });
     return new Response(new Uint8Array(buf), { headers: { ...base, "Content-Type": "application/gzip" } });
   } catch (e) {

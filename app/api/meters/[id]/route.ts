@@ -1,11 +1,11 @@
-import { getCurrentUser } from "@/lib/dal";
+import { apiMeterGuard } from "@/lib/guard";
 import { getMeterDoc } from "@/lib/services/meter-dataset";
 
 /** Documentul complet al unui contor (facturare, atribute, ultima telemetrie) pentru panoul de detalii. Se revalidează (ETag = momentul ultimei modificări). */
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
   const { id } = await ctx.params;
+  const guard = await apiMeterGuard("any", id);
+  if ("res" in guard) return guard.res;
   if (!/^[0-9a-f-]{36}$/.test(id)) return Response.json({ error: "Id invalid." }, { status: 400 });
   try {
     const d = await getMeterDoc(id);

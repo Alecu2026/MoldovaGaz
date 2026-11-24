@@ -12,13 +12,15 @@ const ITEMS: { href: string; label: string; sub: string; title: string }[] = [
   { href: "/instalator", label: "Instalator", sub: "montaj", title: "Ecranul instalatorului, ca în SCADA (ChisinauGaz_Instalator_App): listă de contoare, scanare QR, poză, locație și datele de montaj; se salvează doar la noi" },
   { href: "/lorawan", label: "Dispozitive LoRaWAN", sub: "lorawandb", title: "Doar datele din lorawandb (primul IP)" },
   { href: "/facturare", label: "Facturare", sub: "getmgdb", title: "Doar datele din getmgdb (al doilea IP)" },
+  { href: "/utilizatori", label: "Utilizatori", sub: "acces", title: "Conturile aplicației: cine ce pagini vede și ce filiale / orașe (doar administratorii)" },
 ];
 
-export default function AppNav() {
+/** `hrefs` = paginile pe care le poate vedea utilizatorul conectat (restul nu apar în meniu). */
+export default function AppNav({ hrefs }: { hrefs: string[] }) {
   const path = usePathname();
   return (
     <nav className="appnav" aria-label="Pagini">
-      {ITEMS.map((it) => {
+      {ITEMS.filter((it) => hrefs.includes(it.href)).map((it) => {
         const on = it.href === "/" ? path === "/" : path.startsWith(it.href);
         return (
           <Link key={it.href} href={it.href} aria-current={on ? "page" : undefined} title={it.title}>

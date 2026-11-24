@@ -1,4 +1,4 @@
-import { getCurrentUser } from "@/lib/dal";
+import { apiGuard } from "@/lib/guard";
 import { clearKept, keptDetail, keptPage, keptReasons } from "@/lib/services/kept";
 
 /**
@@ -9,8 +9,8 @@ import { clearKept, keptDetail, keptPage, keptReasons } from "@/lib/services/kep
  *   POST /api/integration/kept  { "action": "clear", "reason"?: "…" }   curăță (reia întâi ce se potrivește, apoi șterge restul)
  */
 export async function GET(req: Request) {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
+  const guard = await apiGuard("admin");
+  if ("res" in guard) return guard.res;
   const q = new URL(req.url).searchParams;
   const headers = { "Cache-Control": "private, no-store" };
   try {
@@ -28,8 +28,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
+  const guard = await apiGuard("admin");
+  if ("res" in guard) return guard.res;
   try {
     const b = (await req.json().catch(() => null)) as { action?: unknown; reason?: unknown } | null;
     if (b?.action !== "clear") return Response.json({ error: "Trimite { \"action\": \"clear\" }." }, { status: 400 });

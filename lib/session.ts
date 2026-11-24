@@ -2,6 +2,7 @@ import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { COLLECTIONS, col } from "./mongo";
+import { ADMIN_ROLE, NO_ACCESS, cleanAccess, type Viewer } from "./access";
 
 /**
  * Sesiuni în baza de date: în cookie stă un token aleatoriu, în DB doar hash-ul lui (un dump al bazei nu dă sesiuni valide).
@@ -11,14 +12,26 @@ export const SESSION_COOKIE = "mg_session";
 export const SESSION_DAYS = 14;
 const CACHE_MS = 30_000;
 
-export type SessionUser = { id: string; email: string; name: string };
-type UserDoc = { _id: ObjectId; email: string; name?: string; passwordHash: string; disabled?: boolean };
+export type SessionUser = Viewer & { id: string; email: string; name: string };
+export type UserDoc = { _id: ObjectId; email: string; name?: string; role?: string; access?: unknown; passwordHash: string; disabled?: boolean; createdAt?: Date; updatedAt?: Date };
 type SessionDoc = { tokenHash: string; userId: string; createdAt: Date; expiresAt: Date };
 
 const g = globalThis as unknown as { __sessCache?: Map<string, { user: SessionUser; until: number }> };
 const cache = (g.__sessCache ??= new Map());
 
 const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
+
+/** Drepturile din documentul utilizatorului: administrator (rol super_admin) sau limitat la ce e bifat; fără nimic bifat = fără acces. */
+export function viewerOf(u: Pick<UserDoc, "role" | "access">): Viewer {
+  if (u.role === ADMIN_ROLE) return { admin: true, access: NO_ACCESS };
+  const c = cleanAccess(u.access ?? {});
+  return { admin: false, access: "access" in c ? c.access : NO_ACCESS };
+}
+
+/** După o modificare a unui utilizator: sesiunile lui din memorie se citesc din nou la următoarea cerere (nu așteaptă cele 30 s). */
+export function forgetUser(userId: string): void {
+  for (const [k, v] of cache) if (v.user.id === userId) cache.delete(k);
+}
 
 export async function findUserByEmail(email: string): Promise<UserDoc | null> {
   return (await col<UserDoc>(COLLECTIONS.users)).findOne({ email });
@@ -41,7 +54,7 @@ export async function validateSession(token: string): Promise<SessionUser | null
   if (!s || !ObjectId.isValid(s.userId)) return null;
   const u = await (await col<UserDoc>(COLLECTIONS.users)).findOne({ _id: new ObjectId(s.userId) });
   if (!u || u.disabled) return null;
-  const user: SessionUser = { id: String(u._id), email: u.email, name: u.name || u.email };
+  const user: SessionUser = { id: String(u._id), email: u.email, name: u.name || u.email, ...viewerOf(u) };
   cache.set(th, { user, until: Date.now() + CACHE_MS });
   if (cache.size > 500) for (const [k, v] of cache) if (v.until < Date.now()) cache.delete(k);
   return user;

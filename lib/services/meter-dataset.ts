@@ -1,9 +1,11 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
 import type { Document } from "mongodb";
 import { COLLECTIONS, col } from "../mongo";
+import { allowsMeter, scopeKey, type Viewer } from "../access";
 import { OTHER_TYPE, TYPE_SLOTS, emptyDict, safeTs, type ColsWire, type DatasetWire, type DeltaFull, type DeltaWire, type Dict, type MeterSummary, type RowView } from "../meter-shared";
 
 /**
@@ -40,7 +42,11 @@ type Store = {
   maxUpd: number;
   mergedAt: number;
   gz: { seq: number; p: Promise<Buffer> } | null;
+  /** listele utilizatorilor limitați (după zona lor), recalculate când se schimbă `seq` */
+  views: Map<string, View>;
 };
+/** Ce vede un utilizator limitat: indicii rândurilor din zona lui, ultimul `seq` din zonă și ce intrări de dicționar folosesc rândurile lui. */
+type View = { seq: number; idx: number[]; last: number; used: Record<"ap" | "gw" | "br" | "ct" | "pf", Set<number>>; gz: Promise<Buffer> | null; ids: string[] | null };
 
 const g = globalThis as unknown as { __mtStore?: Store; __mtBuild?: { p: Promise<Store> }; __mtStamp?: { at: number; epoch: number; p: Promise<Stamp> }; __mtEpoch?: number };
 
@@ -63,6 +69,7 @@ function newStore(stamp: Stamp): Store {
     maxUpd: 0,
     mergedAt: Date.now(),
     gz: null,
+    views: new Map(),
   };
 }
 
@@ -186,13 +193,13 @@ export async function getStore(): Promise<Store> {
 }
 
 /** Versiunea listei, DOAR dacă lista e deja în memorie (altfel pornește construirea în fundal și întoarce null — pagina nu așteaptă după ea). */
-export async function warmVersion(): Promise<{ gen: string; head: number } | null> {
+export async function warmVersion(v?: Viewer): Promise<{ gen: string; head: number } | null> {
   if (!g.__mtStore) {
     void getStore().catch((e) => console.error("[meters] construirea listei:", e));
     return null;
   }
   const st = await getStore();
-  return { gen: st.gen, head: st.seq };
+  return { gen: v ? genFor(st, v) : st.gen, head: v && !v.admin ? viewOf(st, v).last : st.seq };
 }
 
 const COLS: (keyof ColsWire)[] = ["id", "ts", "nm", "eu", "q", "ap", "gw", "br", "ct", "pf", "rssi", "snr", "fr", "fl", "fc", "pt", "tm", "val", "bat", "dc", "mc", "ac", "ia", "il", "cal", "xsp", "xcp", "xsn", "xsr", "xhs", "xap", "dt", "mt", "la", "lo"];
@@ -232,13 +239,105 @@ export function encodedDataset(st: Store): { etag: string; gz: Promise<Buffer> }
   return { etag: versionOf({ gen: st.gen, head: st.seq }), gz: st.gz.p };
 }
 
+/* ───── utilizatori limitați la anumite filiale / orașe ───── */
+const DICT_KEYS = ["ap", "gw", "br", "ct", "pf"] as const;
+
+function viewOf(st: Store, v: Viewer): View {
+  const key = scopeKey(v);
+  const hit = st.views.get(key);
+  if (hit && hit.seq === st.seq) return hit;
+  const c = st.cols, d = st.dict;
+  const idx: number[] = [];
+  const used = { ap: new Set<number>(), gw: new Set<number>(), br: new Set<number>(), ct: new Set<number>(), pf: new Set<number>() };
+  const verdict = new Map<number, boolean>(); // (filială, oraș) → intră în zonă? (se calculează o singură dată per pereche)
+  let last = 0;
+  for (let i = 0; i < c.id.length; i++) {
+    const b = c.br[i], t = c.ct[i], k = (b + 1) * 1_000_003 + (t + 1);
+    let ok = verdict.get(k);
+    if (ok === undefined) { ok = allowsMeter(v, b >= 0 ? d.br[b] : "", t >= 0 ? d.ct[t] : ""); verdict.set(k, ok); }
+    if (!ok) continue;
+    idx.push(i);
+    if (c.sq[i] > last) last = c.sq[i];
+    for (const f of DICT_KEYS) { const x = c[f][i]; if (x >= 0) used[f].add(x); }
+  }
+  const view: View = { seq: st.seq, idx, last, used, gz: hit && hit.last === last && hit.idx.length === idx.length ? hit.gz : null, ids: null };
+  st.views.set(key, view);
+  if (st.views.size > 60) st.views.delete(st.views.keys().next().value as string);
+  return view;
+}
+
+/** Dicționarele pentru un utilizator limitat: intrările pe care nu le folosește niciun rând al lui sunt goale (nu aflăm numele altor orașe / aplicații). */
+function blankDict(st: Store, view: View): Dict {
+  const out = { ...st.dict, ty: st.dict.ty.slice() } as Dict;
+  for (const f of DICT_KEYS) out[f] = st.dict[f].map((x, i) => (view.used[f].has(i) ? x : ""));
+  return out;
+}
+
+function wireIdx(st: Store, idx: number[]): ColsWire {
+  const c = st.cols;
+  const out = Object.fromEntries(COLS.map((k) => [k, [] as unknown[]])) as unknown as Record<keyof ColsWire, unknown[]>;
+  for (const i of idx) for (const k of COLS) out[k].push(c[k][i]);
+  return out as unknown as ColsWire;
+}
+
+const scopeTag = (v: Viewer) => createHash("sha1").update(scopeKey(v)).digest("hex").slice(0, 8);
+/** „Generația” listei văzută de acest utilizator: la limitați include zona lui, ca o zonă schimbată să facă browserul să arunce copia veche din memorie. */
+export const genFor = (st: { gen: string }, v: Viewer): string => (v.admin ? st.gen : `${st.gen}-${scopeTag(v)}`);
+
+/** Lista întreagă pentru acest utilizator: a administratorului = cea comună; a unui utilizator limitat = doar rândurile din zona lui (gzip memorat pe zonă). */
+export function encodedDatasetFor(st: Store, v: Viewer): { etag: string; gz: () => Promise<Buffer> } {
+  if (v.admin) { const e = encodedDataset(st); return { etag: e.etag, gz: () => e.gz }; }
+  const view = viewOf(st, v);
+  return {
+    etag: `"${genFor(st, v)}.${view.last}"`,
+    gz: () => (view.gz ??= gzipAsync(JSON.stringify({ v: 3, gen: genFor(st, v), head: view.last, total: view.idx.length, dict: blankDict(st, view), cols: wireIdx(st, view.idx) } satisfies DatasetWire), { level: 5 })),
+  };
+}
+
+/** Delta pentru un utilizator limitat: nicio schimbare în zona lui ⇒ răspuns gol; altfel lista întreagă a zonei (mică) se descarcă din nou. */
+export function buildDeltaFor(st: Store, v: Viewer, after: number, lens: Record<keyof Dict, number>): DeltaWire | DeltaFull {
+  if (v.admin) return buildDelta(st, after, lens);
+  const view = viewOf(st, v);
+  if (after !== view.last) return { v: 3, full: true };
+  return { v: 3, gen: genFor(st, v), head: view.last, total: view.idx.length, dict: { ap: [], gw: [], ty: [], br: [], ct: [], pf: [] }, cols: wireIdx(st, []) };
+}
+
+/** Id-urile contoarelor din zona utilizatorului (null = toate, pentru administrator). */
+export async function allowedIds(v: Viewer): Promise<string[] | null> {
+  if (v.admin) return null;
+  const st = await getStore();
+  const view = viewOf(st, v);
+  return (view.ids ??= view.idx.map((i) => st.cols.id[i]));
+}
+
+/** Contorul e în zona utilizatorului? (verificat în memorie, fără interogare) */
+export async function meterAllowed(v: Viewer, id: string): Promise<boolean> {
+  if (v.admin) return true;
+  const st = await getStore();
+  const i = st.idx.get(id);
+  if (i === undefined) return false;
+  const b = st.cols.br[i], t = st.cols.ct[i];
+  return allowsMeter(v, b >= 0 ? st.dict.br[b] : "", t >= 0 ? st.dict.ct[t] : "");
+}
+
 const rowOf = (id: string, s: MeterSummary, volT?: unknown): RowView => ({
   id, ts: safeTs(s.t, volT), name: s.n, eui: s.e, app: s.a, gw: s.g, rssi: s.r, snr: s.sn, freqKhz: s.f, fl: s.fl, fc: s.fc, pt: s.pt, types: s.ty ? [s.ty] : [],
   val: s.v, bat: s.b, dc: s.dc, mc: s.mc, ac: s.ac ?? null, ia: s.ia ?? null, xsp: s.sp ?? "", xcp: s.cp ?? "", xsn: s.sn2 ?? "", xsr: s.sr ?? "", xhs: s.hs ?? "", xap: s.apt ?? "", il: s.il ?? null, cal: s.cl ?? null, lat: s.la ?? null, lon: s.lo ?? null, branch: s.br, city: s.ct, profile: s.pf,
 });
 
 /** Cele mai recente `n` contoare + totalul, direct din baza de date (indexat): prima pictare a paginii nu așteaptă lista completă. */
-export async function getHeadRows(n: number): Promise<{ rows: RowView[]; total: number }> {
+export async function getHeadRows(n: number, v?: Viewer): Promise<{ rows: RowView[]; total: number }> {
+  if (v && !v.admin) {
+    // utilizator limitat: cele mai recente `n` contoare din zona lui (din lista din memorie), apoi documentele lor
+    const st = await getStore();
+    const view = viewOf(st, v);
+    const top = view.idx.filter((i) => st.cols.ts[i] <= Date.now() + FUTURE_MS).sort((a, b) => st.cols.ts[b] - st.cols.ts[a]).slice(0, n).map((i) => st.cols.id[i]);
+    const docs = top.length ? await (await col<Row>(COLLECTIONS.meters)).find({ _id: { $in: top as never[] } }, { projection: { s: 1, "tel.Volume_m3_Total.t": 1 } }).toArray() : [];
+    const byId = new Map(docs.map((d) => [String(d._id), d]));
+    const rows: RowView[] = [];
+    for (const id of top) { const d = byId.get(id); if (d?.s) rows.push(rowOf(id, d.s, d.tel?.Volume_m3_Total?.t)); }
+    return { rows, total: view.idx.length };
+  }
   const coll = await col<Row>(COLLECTIONS.meters);
   const [docs, stamp] = await Promise.all([coll.find({ "s.t": { $lte: Date.now() + FUTURE_MS } }, { projection: { s: 1, "tel.Volume_m3_Total.t": 1 } }).sort({ "s.t": -1 }).limit(n).toArray(), getStamp()]);
   return { rows: docs.filter((d) => d.s).map((d) => rowOf(String(d._id), d.s as MeterSummary, d.tel?.Volume_m3_Total?.t)), total: stamp.total };

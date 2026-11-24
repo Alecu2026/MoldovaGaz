@@ -47,6 +47,8 @@ function ago(ms: number): string {
 type Head = { rows: RowView[]; total: number };
 type Props = {
   userId: string;
+  /** administrator: vede și stratul cu antenele de pe hartă */
+  admin: boolean;
   warm: { gen: string; head: number } | null;
   head: Head;
   initialFilters: Filters;
@@ -66,7 +68,7 @@ const RANGES: [string, string][] = [
 const hasAdvanced = (f: Filters) =>
   !!(f.app || f.gw || f.type || f.fr || f.port || f.model || f.year || f.billed || f.geo || f.valMin || f.valMax || f.dcMin || f.dcMax || f.batMin || f.batMax || f.rssiMin || f.rssiMax || f.snrMin || f.snrMax || f.fcMin || f.fcMax);
 
-export default function MetersTable({ userId, warm, head, initialFilters, initialSort, initialView }: Props) {
+export default function MetersTable({ userId, admin, warm, head, initialFilters, initialSort, initialView }: Props) {
   const [filters, setFilters] = useState<Filters>(initialFilters);
   const [sort, setSort] = useState<Sort>(initialSort);
   const [view, setView] = useState<"table" | "charts" | "map">(initialView);
@@ -289,7 +291,7 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
       ) : view === "map" ? (
         <section className="mapbox" id="panel-view" role="tabpanel" aria-labelledby="tab-map" aria-label="Hartă">
           {store && result ? (
-            <MeterMap store={store} idx={result.idx} rev={rev} fitKey={JSON.stringify(filters)} onOpen={setOpenId} />
+            <MeterMap store={store} idx={result.idx} rev={rev} fitKey={JSON.stringify(filters)} onOpen={setOpenId} antennas={admin} />
           ) : (
             <div className="empty">
               <h2>{status === "error" ? "Nu am putut încărca lista" : "Se încarcă lista…"}</h2>

@@ -1,10 +1,10 @@
-import { getCurrentUser } from "@/lib/dal";
+import { apiGuard } from "@/lib/guard";
 import { integrationStats } from "@/lib/services/integration";
 
 /** Starea integrării pentru pagina /integration (doar utilizatori autentificați): ritm, cutia de intrare, ultimele mesaje. Fără token și fără conținutul mesajelor. */
 export async function GET() {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
+  const guard = await apiGuard("admin");
+  if ("res" in guard) return guard.res;
   try {
     return Response.json(await integrationStats(), { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {

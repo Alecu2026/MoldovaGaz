@@ -1,4 +1,4 @@
-import { getCurrentUser } from "@/lib/dal";
+import { apiGuard } from "@/lib/guard";
 import { localMidnight } from "@/lib/night-analysis";
 import { previousMonth, thisMonthSoFar, type ReportMode, type ReportParams } from "@/lib/report-readings";
 import { createReport, dir, listReports, previewNow } from "@/lib/services/reports";
@@ -35,8 +35,8 @@ function params(b: Record<string, unknown>): ReportParams | string {
 }
 
 export async function GET() {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
+  const guard = await apiGuard("admin");
+  if ("res" in guard) return guard.res;
   try {
     return Response.json({ reports: await listReports(), dir: dir() }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
@@ -46,8 +46,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
+  const guard = await apiGuard("admin");
+  if ("res" in guard) return guard.res;
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!b || (b.action !== "preview" && b.action !== "start")) return Response.json({ error: "Trimite { \"action\": \"preview\" | \"start\", … }." }, { status: 400 });
   const p = params(b);
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
   try {
     const headers = { "Cache-Control": "private, no-store" };
     if (b.action === "preview") return Response.json({ ...(await previewNow(p)), from: p.from, to: p.to }, { headers });
-    return Response.json({ id: await createReport(p, String((user as { email?: string }).email ?? "utilizator")) }, { headers });
+    return Response.json({ id: await createReport(p, guard.user.email) }, { headers });
   } catch (e) {
     console.error("[reports] eșuat:", e);
     return Response.json({ error: (e as Error).message || "Nu am putut genera raportul." }, { status: 500 });

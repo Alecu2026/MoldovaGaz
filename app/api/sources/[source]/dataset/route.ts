@@ -1,5 +1,5 @@
 import { gunzipSync } from "node:zlib";
-import { getCurrentUser } from "@/lib/dal";
+import { apiGuard } from "@/lib/guard";
 import { getSource } from "@/lib/services/source-dataset";
 import { isSourceId } from "@/lib/source-shared";
 
@@ -9,8 +9,8 @@ import { isSourceId } from "@/lib/source-shared";
  * ETag = amprenta datelor din baza de date ⇒ 304 fără corp când nu s-a schimbat nimic; `?enc=json` = JSON simplu pentru browsere fără DecompressionStream.
  */
 export async function GET(req: Request, ctx: { params: Promise<{ source: string }> }) {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
+  const guard = await apiGuard("admin");
+  if ("res" in guard) return guard.res;
   const { source } = await ctx.params;
   if (!isSourceId(source)) return Response.json({ error: "Sursă necunoscută." }, { status: 404 });
   try {

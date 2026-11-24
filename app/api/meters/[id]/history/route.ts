@@ -1,4 +1,4 @@
-import { getCurrentUser } from "@/lib/dal";
+import { apiMeterGuard } from "@/lib/guard";
 import { unpack, type Pts } from "@/lib/meter-history";
 import { COLLECTIONS, col } from "@/lib/mongo";
 import { tbSeries, type TsPoint } from "@/lib/thingsboard";
@@ -18,9 +18,9 @@ const cache = (g.__mtHist ??= new Map());
 type Stored = { to: number; fetchedAt: number; h: { n: number; t: never; v: never }; x: { n: number; t: never; v: never } };
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
   const { id } = await ctx.params;
+  const guard = await apiMeterGuard("any", id);
+  if ("res" in guard) return guard.res;
   if (!/^[0-9a-f-]{36}$/.test(id)) return Response.json({ error: "Id invalid." }, { status: 400 });
   const days = Math.max(1, Math.min(400, Number(new URL(req.url).searchParams.get("days")) || 30));
   const key = `${id}:${days}`;

@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import MetersTable from "@/app/components/MetersTable";
-import { requireUser } from "@/lib/dal";
+import { requirePage } from "@/lib/dal";
 import { getHeadRows, warmVersion } from "@/lib/services/meter-dataset";
 import { filtersFromParams, sortFromParams } from "@/lib/meter-filter";
 
@@ -23,14 +23,14 @@ export default function Page({ searchParams }: { searchParams: SP }) {
  * Lista completă NU trece prin HTML: vine separat, gzip, din /api/meters/dataset.
  */
 async function Gate({ searchParams }: { searchParams: SP }) {
-  const user = await requireUser();
+  const user = await requirePage("meters");
   const sp = await searchParams;
   const get = (k: string) => {
     const v = sp[k];
     return Array.isArray(v) ? v[0] : v;
   };
-  const [head, warm] = await Promise.all([getHeadRows(40), warmVersion()]);
-  return <MetersTable userId={user.id} warm={warm} head={head} initialFilters={filtersFromParams(get)} initialSort={sortFromParams(get)} initialView={get("view") === "charts" ? "charts" : get("view") === "map" ? "map" : "table"} />;
+  const [head, warm] = await Promise.all([getHeadRows(40, user), warmVersion(user)]);
+  return <MetersTable userId={user.id} admin={user.admin} warm={warm} head={head} initialFilters={filtersFromParams(get)} initialSort={sortFromParams(get)} initialView={get("view") === "charts" ? "charts" : get("view") === "map" ? "map" : "table"} />;
 }
 
 function TableSkeleton() {

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { Readable } from "node:stream";
-import { getCurrentUser } from "@/lib/dal";
+import { apiMeterGuard } from "@/lib/guard";
 import { photoPath, validId } from "@/lib/photos";
 import { installerPhotoPath } from "@/lib/services/installer";
 
@@ -12,9 +12,9 @@ import { installerPhotoPath } from "@/lib/services/installer";
  * 404 dacă contorul n-are poză (sau încă n-a fost extrasă).
  */
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
   const { id } = await ctx.params;
+  const guard = await apiMeterGuard("any", id);
+  if ("res" in guard) return guard.res;
   if (!validId(id)) return Response.json({ error: "Id invalid." }, { status: 400 });
   const thumb = new URL(req.url).searchParams.get("size") === "thumb";
   // poza făcută de instalator (ecranul /instalator) are prioritate față de cea extrasă din SCADA

@@ -2,6 +2,8 @@ import "server-only";
 import fs from "node:fs";
 import path from "node:path";
 import { getDb, COLLECTIONS } from "../mongo";
+import type { Viewer } from "../access";
+import { allowedIds, meterAllowed } from "./meter-dataset";
 import { cleanPatch, type InstallerList, type InstallerRecord, type InstallerRow, type Patch } from "../installer";
 import { decodeImage, photoDir, photoPath, processImage, validId } from "../photos";
 
@@ -50,27 +52,30 @@ async function localityOptions(branch: string): Promise<string[]> {
 }
 
 /** Lista paginată (căutare după nume, sortare, pagină) — ca „Device admin table”. */
-export async function listMeters(o: { q: string; page: number; size: number; sort: string; dir: 1 | -1 }): Promise<InstallerList> {
+export async function listMeters(v: Viewer, o: { q: string; page: number; size: number; sort: string; dir: 1 | -1 }): Promise<InstallerList> {
   const db = await getDb();
   const meters = db.collection<MeterLite>(COLLECTIONS.meters);
   const q = o.q.trim().slice(0, 80);
   const rx = { $regex: esc(q), $options: "i" };
-  const filter = q ? { $or: [{ "tb.name": rx }, { "attrs.ContorNr": rx }] } : {};
+  const ids = await allowedIds(v); // utilizator limitat: doar contoarele din zona lui
+  const base = ids ? { _id: { $in: ids as never[] } } : {};
+  const filter = q ? { ...base, $or: [{ "tb.name": rx }, { "attrs.ContorNr": rx }] } : base;
   const key = SORTS[o.sort] ?? "tb.name";
   const [total, docs] = await Promise.all([
-    q ? meters.countDocuments(filter) : meters.estimatedDocumentCount(),
+    q || ids ? meters.countDocuments(filter) : meters.estimatedDocumentCount(),
     meters.find(filter, { projection: PROJ }).sort({ [key]: o.dir, _id: 1 }).skip(Math.max(0, o.page) * o.size).limit(o.size).toArray(),
   ]);
   const data = new Map((await db.collection<DataDoc>(DATA_COLLECTION).find({ _id: { $in: docs.map((d) => String(d._id)) } }).toArray()).map((d) => [d._id, d]));
   return { total, rows: docs.map((m) => rowOf(m, data.get(String(m._id)))) };
 }
 
-export const countMeters = async (): Promise<number> => (await getDb()).collection(COLLECTIONS.meters).estimatedDocumentCount();
+export const countMeters = async (v: Viewer): Promise<number> => (await allowedIds(v))?.length ?? (await getDb()).collection(COLLECTIONS.meters).estimatedDocumentCount();
 
 /** Contorul după un nume exact (din codul QR): întoarce id-ul și numele, sau null. */
-export async function findByName(name: string): Promise<{ id: string; name: string } | null> {
+export async function findByName(name: string, v: Viewer): Promise<{ id: string; name: string } | null> {
   const m = await (await getDb()).collection<MeterLite>(COLLECTIONS.meters).findOne({ "tb.name": name }, { projection: { _id: 1, "tb.name": 1 } });
-  return m ? { id: String(m._id), name: nameOf(m) } : null;
+  if (!m || !(await meterAllowed(v, String(m._id)))) return null; // un contor din afara zonei apare ca „negăsit”
+  return { id: String(m._id), name: nameOf(m) };
 }
 
 /** Datele unui contor pentru formular: ce a introdus instalatorul, altfel valorile din SCADA. */

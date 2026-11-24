@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import AppNav from "@/app/components/AppNav";
 import BrandMark from "@/app/components/BrandMark";
 import LogoutButton from "@/app/components/LogoutButton";
+import { PAGES } from "@/lib/access";
 import { requireUser } from "@/lib/dal";
 
 /** Cadrul aplicației: bara de sus e statică (în shell); doar numele utilizatorului așteaptă sesiunea, într-un Suspense. */
@@ -19,7 +20,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </div>
-        <AppNav />
+        <Suspense fallback={<nav className="appnav" aria-label="Pagini" />}>
+          <Nav />
+        </Suspense>
         <Suspense fallback={<div className="skeleton" style={{ width: 180, height: 28 }} />}>
           <Who />
         </Suspense>
@@ -27,6 +30,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {children}
     </>
   );
+}
+
+/** Meniul: doar paginile pe care le poate vedea utilizatorul (administratorul le vede pe toate). */
+async function Nav() {
+  const user = await requireUser();
+  const all = ["/", "/control", "/integration", "/rapoarte", "/instalator", "/lorawan", "/facturare", "/utilizatori"];
+  return <AppNav hrefs={user.admin ? all : PAGES.filter((p) => user.access.pages.includes(p.key)).map((p) => p.path)} />;
 }
 
 async function Who() {
