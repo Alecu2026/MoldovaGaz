@@ -682,6 +682,7 @@ body {
   width: min(640px, 100%);
   height: 100%;
   overflow: auto;
+  overflow-x: hidden; /* niciun rând lung nu mai poate împinge panoul în lateral */
   background: var(--surface);
   border-left: 1px solid var(--border);
   box-shadow: var(--shadow);
@@ -707,6 +708,7 @@ body {
   font-size: 17px;
 }
 .drawer section {
+  min-width: 0;
   padding: 16px 20px;
   border-bottom: 1px solid var(--border);
 }
@@ -791,6 +793,11 @@ body {
   .drawer .kv dd { font-weight: 500; }
   .drawer .kpis { grid-template-columns: 1fr 1fr !important; gap: 8px; }
   .drawer .kpis .stat { padding: 10px; }
+  /* antenele: săgeata deasupra, textul pe mai multe rânduri (nu o linie lungă care iese din panou) */
+  .drawer .ant-list li { grid-template-columns: minmax(0, 1fr); gap: 4px; align-items: start; }
+  .drawer .ant-flow { max-width: 100%; }
+  .drawer .ant-list b, .drawer .ant-flow b { overflow-wrap: anywhere; white-space: normal; }
+  .drawer .cell-sub { white-space: normal; overflow-wrap: anywhere; }
   .drawer .mini { font-size: 12px; }
   .drawer .mini th, .drawer .mini td { padding: 4px 5px; }
   .drawer .map-mini { height: 200px; }
