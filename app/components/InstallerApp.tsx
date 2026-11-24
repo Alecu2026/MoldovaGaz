@@ -11,12 +11,13 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { logoutAction } from "@/app/actions/auth";
 import { LIST_COLUMNS, MSG, activity, qrNotInDb, type InstallerList, type InstallerRecord, type InstallerRow } from "@/lib/installer";
-import CameraDialog from "./CameraDialog";
-import PhotoViewer from "./PhotoViewer";
 import { ICON, type IconName } from "./tbicons";
 import { clearMeterCaches } from "./useMeterStore";
 
+// ce nu se vede de la început (scaner QR, cameră, poză mărită, hartă) se încarcă abia când e nevoie: pagina pornește mai repede, mai ales pe telefon
 const QrScanner = dynamic(() => import("./QrScanner"), { ssr: false });
+const CameraDialog = dynamic(() => import("./CameraDialog"), { ssr: false });
+const PhotoViewer = dynamic(() => import("./PhotoViewer"), { ssr: false });
 const ModuleMap = dynamic(() => import("./ModuleMap"), { ssr: false, loading: () => <div className="tbx-map" /> });
 
 /**
@@ -38,11 +39,14 @@ type Dlg = { kind: "alert"; title: string; body?: string } | { kind: "scan" } | 
 type Form = { id: string; ContorNr: string; lit: string; Aragaz: boolean; Cazan: boolean; Incalzire: boolean; mod: boolean; loc: string; com: string };
 const toForm = (r: InstallerRecord): Form => ({ id: r.id, ContorNr: r.ContorNr, lit: fnum(r.Instalation_Litres), Aragaz: r.Aragaz, Cazan: r.Cazan, Incalzire: r.Incalzire, mod: r.ModuleWriteInitial, loc: r.locationModule, com: r.Comments });
 
-export default function InstallerApp({ canHome = false }: { /** are acces și la pagina Contoare: doar atunci apare legătura spre aplicația principală */ canHome?: boolean }) {
+/** ce pregătește serverul odată cu pagina: filtrul păstrat al utilizatorului și prima pagină a listei (fără cereri în plus după încărcare) */
+export type InstallerInitial = { filter: string; list: InstallerList | null };
+
+export default function InstallerApp({ canHome = false, initial }: { /** are acces și la pagina Contoare: doar atunci apare legătura spre aplicația principală */ canHome?: boolean; initial?: InstallerInitial }) {
   /* ───────── lista (Device admin table) ───────── */
   const [q, setQ] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = useState(initial?.filter ?? "");
   const [filterDraft, setFilterDraft] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [size, setSize] = useState(10);
@@ -51,7 +55,11 @@ export default function InstallerApp({ canHome = false }: { /** are acces și la
   const [colMenu, setColMenu] = useState(false);
   const [rowMenu, setRowMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [menu, setMenu] = useState(false);
-  const [list, setList] = useState<{ key: string; data: InstallerList | null; err: string | null } | null>(null);
+  // prima pagină a listei vine odată cu pagina (aceeași cheie ca a cererii pe care ar fi făcut-o): prima pictare are deja date
+  const initKey = `${(initial?.filter ?? "").trim()}|0|10|name|asc|0`;
+  const [list, setList] = useState<{ key: string; data: InstallerList | null; err: string | null } | null>(initial?.list ? { key: initKey, data: initial.list, err: null } : null);
+  const listNow = useRef(list);
+  useEffect(() => { listNow.current = list; });
   const [reload, setReload] = useState(0);
   const [now] = useState(() => Date.now());
   const eff = q.trim() || filter.trim();
@@ -59,6 +67,7 @@ export default function InstallerApp({ canHome = false }: { /** are acces și la
   useEffect(() => { const t = setTimeout(() => { try { const v = JSON.parse(localStorage.getItem(COL_KEY) ?? "[]") as string[]; if (Array.isArray(v)) setHidden(v); } catch { /* fără stocare locală */ } }, 0); return () => clearTimeout(t); }, []);
 
   useEffect(() => {
+    if (listNow.current?.key === key && listNow.current.data) return; // lista pentru această cheie e deja în pagină (cea de la început)
     const ac = new AbortController();
     const t = setTimeout(() => {
       void fetch(`/api/installer/meters?q=${encodeURIComponent(eff)}&page=${page}&size=${size}&sort=${sort.key}&dir=${sort.dir}`, { signal: ac.signal, cache: "no-store" })
@@ -67,10 +76,6 @@ export default function InstallerApp({ canHome = false }: { /** are acces și la
     }, q ? 250 : 0);
     return () => { clearTimeout(t); ac.abort(); };
   }, [key, eff, page, size, sort.key, sort.dir, q]);
-
-  useEffect(() => {
-    void fetch("/api/installer/prefs", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j: { filter?: string } | null) => { if (j?.filter) setFilter(j.filter); }).catch(() => undefined);
-  }, []);
 
   /* ───────── contorul ales (formularul + poza + harta) ───────── */
   const [sel, setSel] = useState<string | null>(null);
