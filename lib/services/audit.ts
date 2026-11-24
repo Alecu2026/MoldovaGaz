@@ -245,3 +245,10 @@ export async function* exportAuditCsv(f: AuditFilterState): AsyncGenerator<strin
     cursor = encCursor(docs[docs.length - 1] as unknown as Slim);
   }
 }
+
+export type AuthActivity = { at: number; action: string; ok: boolean; ip: string | null; ua: string | null };
+/** Activitatea de autentificare a unui cont (pentru pagina Securitate): intrări, ieșiri, parolă schimbată / resetată, sesiuni închise și încercările EȘUATE cu adresa lui de e-mail. */
+export async function recentAuthActivity(userId: string, email: string, limit = 15): Promise<AuthActivity[]> {
+  const docs = await (await coll()).find({ $or: [{ uid: userId, a: { $in: ["auth.login", "auth.logout", "auth.password_change", "auth.password_reset", "auth.sessions_revoke", "user.password_change"] } }, { a: "auth.login_failed", ue: email.toLowerCase() }] }, { projection: { at: 1, a: 1, ok: 1, ip: 1, ua: 1 } }).sort({ at: -1 }).limit(limit).toArray();
+  return docs.map((d) => ({ at: d.at.getTime(), action: d.a, ok: d.ok, ip: d.ip, ua: d.ua }));
+}

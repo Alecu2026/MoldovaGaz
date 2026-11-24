@@ -16,6 +16,7 @@ const ITEMS: { href: string; label: string; sub: string; title: string }[] = [
   { href: "/lorawan", label: "Dispozitive LoRaWAN", sub: "lorawandb", title: "Doar datele din lorawandb (primul IP)" },
   { href: "/facturare", label: "Facturare", sub: "getmgdb", title: "Doar datele din getmgdb (al doilea IP)" },
   { href: "/audit", label: "Jurnal de audit", sub: "audit", title: "Cine a făcut ce, când și de unde: autentificări, drepturi, rapoarte, module, date modificate, acces refuzat" },
+  { href: "/securitate", label: "Securitate", sub: "parola mea", title: "Schimbă-ți parola, vezi sesiunile deschise și activitatea contului tău" },
   { href: "/utilizatori", label: "Utilizatori", sub: "acces", title: "Conturile aplicației: cine ce pagini vede și ce filiale / orașe (doar administratorii)" },
 ];
 

@@ -39,7 +39,7 @@ export async function loginAction(_prev: LoginState, form: FormData): Promise<Lo
   }
   clearFails(key);
 
-  const { token, expires } = await createSession(String(user._id));
+  const { token, expires } = await createSession(String(user._id), { ua: h.get("user-agent"), ip });
   await logAudit({ id: String(user._id), name: user.name || user.email, email: user.email, admin: user.role === ADMIN_ROLE }, { action: "auth.login", objectName: user.email });
   // Secure doar când cererea vine pe HTTPS (Origin-ul trimis de browser sau X-Forwarded-Proto de la proxy): pe HTTP simplu, ex. IP din LAN, browserul ar refuza cookie-ul Secure
   const https = (h.get("x-forwarded-proto") ?? "").split(",")[0].trim() === "https" || (h.get("origin") ?? "").startsWith("https://");

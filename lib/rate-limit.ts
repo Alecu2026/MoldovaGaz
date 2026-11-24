@@ -27,3 +27,18 @@ export function recordFail(key: string): void {
 export function clearFails(key: string): void {
   fails.delete(key);
 }
+
+/**
+ * Limitare după număr de EVENIMENTE (nu doar eșecuri): cel mult `max` evenimente cu aceeași cheie într-o fereastră de `windowMs`.
+ * `hit` numără evenimentul și întoarce true dacă încă încape; false = limita a fost depășită (evenimentul nu trebuie procesat).
+ */
+const gh = globalThis as unknown as { __hits?: Map<string, { n: number; first: number }> };
+const hits = (gh.__hits ??= new Map());
+export function hit(key: string, max: number, windowMs: number): boolean {
+  const now = Date.now();
+  const e = hits.get(key);
+  if (!e || now - e.first > windowMs) hits.set(key, { n: 1, first: now });
+  else e.n++;
+  if (hits.size > 5000) for (const [k, v] of hits) if (now - v.first > 3_600_000) hits.delete(k);
+  return (hits.get(key)?.n ?? 1) <= max;
+}

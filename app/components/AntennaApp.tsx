@@ -241,10 +241,11 @@ export default function AntennaApp({ canHome = false, canEdit = true, initial }:
           <h1>{TITLE}</h1>
           <div className="tbx-rel" style={{ display: "flex", alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
             <form action={logoutAction} onSubmit={logout}><button type="submit" className="tbx-iconbtn tbx-white" aria-label="Ieșire" title="Ieșire / Sign out"><Ico n="logout" /></button></form>
-            {canHome && <Btn n="more_vert" label="Meniu" className="tbx-white" onClick={() => setMenu(!menu)} />}
-            {canHome && menu && (
+            <Btn n="more_vert" label="Meniu" className="tbx-white" onClick={() => setMenu(!menu)} />
+            {menu && (
               <div className="tbx-menu tbx-menu-r" role="menu">
-                <Link className="tbx-mi" href="/" role="menuitem"><Ico n="home" /> Moldovagaz</Link>
+                {canHome && <Link className="tbx-mi" href="/" role="menuitem"><Ico n="home" /> Moldovagaz</Link>}
+                <Link className="tbx-mi" href="/securitate" role="menuitem"><Ico n="visibility" /> Securitate (parola)</Link>
                 <form action={logoutAction} onSubmit={logout}><button type="submit" className="tbx-mi" role="menuitem"><Ico n="logout" /> Sign out</button></form>
               </div>
             )}

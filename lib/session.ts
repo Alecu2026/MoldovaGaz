@@ -17,7 +17,7 @@ const CACHE_MS = 30_000;
 export type SessionUser = Viewer & { id: string; email: string; name: string; /** tipurile de notificări pe care le primește */ notify: NotifyType[];
   /** setat doar în simulare de login: contul real care a intrat «ca» acesta, și până când ține simularea */ impersonation?: ImpersonationInfo };
 export type UserDoc = { _id: ObjectId; email: string; name?: string; role?: string; access?: unknown; notify?: unknown; passwordHash: string; disabled?: boolean; createdAt?: Date; updatedAt?: Date };
-type SessionDoc = { tokenHash: string; userId: string; createdAt: Date; expiresAt: Date; /** simulare de login: id-ul contului real */ impersonatorId?: string };
+type SessionDoc = { tokenHash: string; userId: string; createdAt: Date; expiresAt: Date; /** de unde s-a făcut autentificarea (pentru lista de sesiuni din pagina Securitate) */ ua?: string; ip?: string; /** simulare de login: id-ul contului real */ impersonatorId?: string };
 
 const g = globalThis as unknown as { __sessCache?: Map<string, { user: SessionUser; until: number }> };
 const cache = (g.__sessCache ??= new Map());
@@ -44,12 +44,30 @@ export async function findUserByEmail(email: string): Promise<UserDoc | null> {
   return (await col<UserDoc>(COLLECTIONS.users)).findOne({ email });
 }
 
-export async function createSession(userId: string): Promise<{ token: string; expires: Date }> {
+export async function createSession(userId: string, meta?: { ua?: string | null; ip?: string | null }): Promise<{ token: string; expires: Date }> {
   const token = randomBytes(32).toString("base64url");
   const now = new Date();
   const expires = new Date(now.getTime() + SESSION_DAYS * 86_400_000);
-  await (await col<SessionDoc>(COLLECTIONS.sessions)).insertOne({ tokenHash: hashToken(token), userId, createdAt: now, expiresAt: expires });
+  await (await col<SessionDoc>(COLLECTIONS.sessions)).insertOne({ tokenHash: hashToken(token), userId, createdAt: now, expiresAt: expires, ...(meta?.ua ? { ua: meta.ua.slice(0, 300) } : {}), ...(meta?.ip ? { ip: meta.ip.slice(0, 64) } : {}) });
   return { token, expires };
+}
+
+export type SessionInfo = { id: string; createdAt: number; expiresAt: number; ua: string | null; ip: string | null; current: boolean };
+/** Sesiunile proprii active ale unui cont (fără cele de simulare), cele mai noi primele; `currentToken` = tokenul din cookie, ca să se vadă care e sesiunea curentă. */
+export async function listSessions(userId: string, currentToken: string | undefined): Promise<SessionInfo[]> {
+  const cur = currentToken ? hashToken(currentToken) : "";
+  const docs = await (await col<SessionDoc>(COLLECTIONS.sessions)).find({ userId, impersonatorId: { $exists: false }, expiresAt: { $gt: new Date() } }).sort({ createdAt: -1 }).limit(50).toArray();
+  return docs.map((d) => ({ id: String((d as unknown as { _id: ObjectId })._id), createdAt: d.createdAt.getTime(), expiresAt: d.expiresAt.getTime(), ua: d.ua ?? null, ip: d.ip ?? null, current: d.tokenHash === cur }));
+}
+/** Închide sesiunile unui cont, în afară de cea curentă (`keepToken`); `id` = doar una. Întoarce câte s-au închis. */
+export async function revokeSessions(userId: string, o: { keepToken?: string; id?: string }): Promise<number> {
+  const c = await col<SessionDoc>(COLLECTIONS.sessions);
+  const keep = o.keepToken ? hashToken(o.keepToken) : null;
+  const q: Record<string, unknown> = { userId, impersonatorId: { $exists: false } };
+  if (o.id) { if (!ObjectId.isValid(o.id)) return 0; q._id = new ObjectId(o.id); }
+  if (keep) q.tokenHash = { $ne: keep };
+  for (const d of await c.find(q, { projection: { tokenHash: 1 } }).toArray()) cache.delete(d.tokenHash);
+  return (await c.deleteMany(q)).deletedCount;
 }
 
 /** Sesiune de simulare: contul `userId` văzut de `byId`; expiră FIX la `expires` (fără prelungire). */

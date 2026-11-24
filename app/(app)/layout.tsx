@@ -23,7 +23,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 /** Meniul: doar paginile la care utilizatorul are dreptul «Vizualizare» (administratorul le vede pe toate). */
 async function Nav() {
   const user = await requireUser();
-  return <AppNav hrefs={PAGES.filter((p) => can(user, p.key)).map((p) => p.path)} />;
+  // «Securitate» (parola proprie, sesiuni) e pentru orice cont autentificat, nu depinde de drepturile pe pagini
+  return <AppNav hrefs={[...PAGES.filter((p) => can(user, p.key)).map((p) => p.path), "/securitate"]} />;
 }
 
 async function Who() {

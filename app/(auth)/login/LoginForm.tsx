@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useState } from "react";
 import { loginAction, type LoginState } from "@/app/actions/auth";
 
@@ -56,6 +57,9 @@ export default function LoginForm() {
       <button className="btn btn-primary" type="submit" disabled={pending} style={{ height: 40 }}>
         {pending ? "Se verifică…" : "Autentificare"}
       </button>
+      <Link href="/uita-parola" className="btn btn-ghost btn-sm" style={{ justifySelf: "center" }}>
+        Ai uitat parola?
+      </Link>
     </form>
   );
 }
