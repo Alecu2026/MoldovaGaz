@@ -1,6 +1,7 @@
 import "server-only";
 import { ObjectId } from "mongodb";
-import { ADMIN_ROLE, NO_ACCESS, cleanAccess, filOf, grantable, sameAccess, NO_CITY, type Access } from "../access";
+import { ADMIN_ROLE, NO_ACCESS, can, cleanAccess, filOf, grantable, sameAccess, NO_CITY, type Access } from "../access";
+import { canImpersonate } from "../impersonation";
 import { cleanNotify, type NotifyType } from "../notify";
 import { COLLECTIONS, col } from "../mongo";
 import { actorOf } from "../audit-actor";
@@ -16,14 +17,15 @@ import { getStore } from "./meter-dataset";
  * Cine NU e administrator dar are dreptul la «Utilizatori» (editare / ștergere) lucrează doar în limita drepturilor lui: nu atinge administratori, nu își schimbă propriile drepturi
  * și nu poate da (sau gestiona conturi cu) mai mult decât are el — vezi `grantable`.
  */
-export type UserView = { id: string; email: string; name: string; admin: boolean; disabled: boolean; access: Access; notify: NotifyType[]; createdAt: number | null; /** actorul îl poate modifica / șterge (drepturile lui se încadrează în ale actorului) */ manage: boolean; self: boolean };
+export type UserView = { id: string; email: string; name: string; admin: boolean; disabled: boolean; access: Access; notify: NotifyType[]; createdAt: number | null; /** actorul poate intra în acest cont (simulare de login) */ imp: boolean; /** actorul îl poate modifica / șterge (drepturile lui se încadrează în ale actorului) */ manage: boolean; self: boolean };
 type Err = { error: string; status: number };
 
 const EMAIL = /^[^\s@]{1,100}@[^\s@]{1,150}\.[^\s@]{2,40}$/;
 const view = (u: UserDoc, actor: SessionUser): UserView => {
   const v = viewerOf(u), self = String(u._id) === actor.id;
   const manage = actor.admin || (!v.admin && !self && grantable(actor, v.access));
-  return { id: String(u._id), email: u.email, name: u.name ?? "", disabled: !!u.disabled, createdAt: u.createdAt instanceof Date ? u.createdAt.getTime() : null, notify: notifyOf(u), admin: v.admin, access: v.admin ? NO_ACCESS : v.access, manage, self };
+  return { id: String(u._id), email: u.email, name: u.name ?? "", disabled: !!u.disabled, createdAt: u.createdAt instanceof Date ? u.createdAt.getTime() : null, notify: notifyOf(u), admin: v.admin, access: v.admin ? NO_ACCESS : v.access, manage, self,
+    imp: canImpersonate(actor, can(actor, "users", "impersonate"), { id: String(u._id), admin: v.admin, disabled: !!u.disabled, access: v.access }).ok };
 };
 /** Actorul poate umbla la contul acesta? (administratorul orice; ceilalți doar conturi limitate, ale altora, încadrate în drepturile lor) */
 const mayManage = (actor: SessionUser, target: UserDoc): boolean => { const v = viewerOf(target); return actor.admin || (!v.admin && String(target._id) !== actor.id && grantable(actor, v.access)); };
@@ -125,7 +127,7 @@ export async function updateUser(id: string, b: NewUser & { disabled?: unknown }
     if (disabled !== !!cur.disabled) await logAudit(a, { action: "user.status_change", ...who, changes: [{ field: "disabled", label: "Cont dezactivat", old: fmtAuditValue(!!cur.disabled), new: fmtAuditValue(disabled) }] });
     if (!admin && set.access) { const ch = diffAccess(wasAdmin ? null : beforeView.access, set.access as Access); if (ch.length) await logAudit(a, { action: "user.permissions_change", ...who, changes: ch }); }
   }
-  if (disabled || set.passwordHash) await (await col(COLLECTIONS.sessions)).deleteMany({ userId: id }); // dezactivat / parolă nouă ⇒ iese de pe toate dispozitivele
+  if (disabled || set.passwordHash) await (await col(COLLECTIONS.sessions)).deleteMany({ $or: [{ userId: id }, { impersonatorId: id }] }); // dezactivat / parolă nouă ⇒ iese de pe toate dispozitivele
   forgetUser(id);
   const next = await users.findOne({ _id: cur._id }, { projection: { passwordHash: 0 } });
   return next ? { user: view(next, actor) } : { error: "Contul nu există.", status: 404 };
@@ -141,7 +143,7 @@ export async function deleteUser(id: string, actor: SessionUser): Promise<{ ok: 
   if (cur.role === ADMIN_ROLE && !cur.disabled && (await adminCount(id)) === 0) return { error: "Trebuie să rămână cel puțin un administrator activ.", status: 400 };
   await logAudit(actorOf(actor), { action: "user.delete", objectId: id, objectName: cur.email, extra: [{ label: "Tip cont", value: cur.role === ADMIN_ROLE ? "administrator" : "limitat" }, { label: "Nume afișat", value: cur.name ?? cur.email }, { label: "Stare", value: cur.disabled ? "dezactivat" : "activ" }] });
   await users.deleteOne({ _id: cur._id });
-  await (await col(COLLECTIONS.sessions)).deleteMany({ userId: id });
+  await (await col(COLLECTIONS.sessions)).deleteMany({ $or: [{ userId: id }, { impersonatorId: id }] });
   forgetUser(id);
   return { ok: true };
 }

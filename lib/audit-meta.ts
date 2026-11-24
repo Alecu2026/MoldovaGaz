@@ -21,6 +21,8 @@ export const ACTIONS: Record<string, ActionMeta> = {
   "auth.login_failed": A("auth", "Autentificare eșuată", "Parolă / cont greșit", "warn"),
   "auth.login_blocked": A("auth", "Autentificare blocată (prea multe încercări)", "Blocat temporar", "crit"),
   "auth.logout": A("auth", "Ieșire din cont", "Deconectat"),
+  "auth.impersonate_start": A("auth", "Simulare de login pornită (a intrat în contul altcuiva)", "Intrat ca alt cont", "warn"),
+  "auth.impersonate_end": A("auth", "Simulare de login încheiată", "Ieșit din simulare"),
   "user.create": A("users", "Cont creat", "Cont creat", "warn"),
   "user.update": A("users", "Cont modificat", "Cont modificat"),
   "user.permissions_change": A("users", "Drepturi schimbate", "Drepturi schimbate", "warn"),
@@ -70,6 +72,7 @@ export type AuditDetails = { changes?: AuditChange[]; extra?: AuditExtra[] };
 export type AuditRow = {
   id: string; at: number; userId: string | null; userName: string; userEmail: string | null; role: "admin" | "user" | "anon";
   action: string; module: string; objectId: string | null; objectName: string | null; summary: string | null;
+  /** numele contului REAL, dacă acțiunea s-a făcut într-o simulare de login («userName» e atunci contul simulat) */ simBy: string | null;
   ok: boolean; ip: string | null; path: string | null; nChanges: number;
 };
 /** Rândul întreg (la deschidere). */
@@ -110,8 +113,9 @@ export type AuditFilterState = {
   /** AAAA-LL-ZZ (ziua în ora Moldovei) */ from: string; to: string;
   /** text liber: utilizator, e-mail, obiect, IP, pagină, rezumat */ q: string;
   /** doar rândurile cu modificări pe câmpuri */ changes: boolean;
+  /** doar acțiunile făcute într-o simulare de login */ sim: boolean;
 };
-export const EMPTY_AUDIT_FILTERS: AuditFilterState = { user: "", module: "", action: "", severity: "", status: "", from: "", to: "", q: "", changes: false };
+export const EMPTY_AUDIT_FILTERS: AuditFilterState = { user: "", module: "", action: "", severity: "", status: "", from: "", to: "", q: "", changes: false, sim: false };
 
 export function sanitizeAuditFilters(raw: Record<string, unknown>): AuditFilterState {
   const str = (v: unknown, max = 80) => (typeof v === "string" ? v.trim().slice(0, max) : "");
@@ -124,14 +128,15 @@ export function sanitizeAuditFilters(raw: Record<string, unknown>): AuditFilterS
     action: /^[a-z_.]{1,60}$/.test(str(raw.action, 60)) ? str(raw.action, 60) : "",
     severity: sev === "info" || sev === "warn" || sev === "crit" ? sev : "",
     status: st === "ok" || st === "fail" ? st : "",
-    from: day(raw.from), to: day(raw.to), q: str(raw.q), changes: raw.changes === "1" || raw.changes === true,
+    from: day(raw.from), to: day(raw.to), q: str(raw.q), changes: raw.changes === "1" || raw.changes === true, sim: raw.sim === "1" || raw.sim === true,
   };
 }
-export const countAuditFilters = (f: AuditFilterState): number => (f.user ? 1 : 0) + (f.module ? 1 : 0) + (f.action ? 1 : 0) + (f.severity ? 1 : 0) + (f.status ? 1 : 0) + (f.from || f.to ? 1 : 0) + (f.q ? 1 : 0) + (f.changes ? 1 : 0);
+export const countAuditFilters = (f: AuditFilterState): number => (f.user ? 1 : 0) + (f.module ? 1 : 0) + (f.action ? 1 : 0) + (f.severity ? 1 : 0) + (f.status ? 1 : 0) + (f.from || f.to ? 1 : 0) + (f.q ? 1 : 0) + (f.changes ? 1 : 0) + (f.sim ? 1 : 0);
 export function auditFiltersToParams(f: AuditFilterState): URLSearchParams {
   const p = new URLSearchParams();
   for (const k of ["user", "module", "action", "severity", "status", "from", "to", "q"] as const) if (f[k]) p.set(k, f[k]);
   if (f.changes) p.set("changes", "1");
+  if (f.sim) p.set("sim", "1");
   return p;
 }
 

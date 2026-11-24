@@ -1500,3 +1500,11 @@ button.badge-btn:hover {
   .aud-ob, .aud-ip { display: none !important; }
   .aud-top { grid-template-columns: minmax(0, 1fr) !important; }
 }
+
+/* ───── Simulare de login: bara plutitoare de jos ───── */
+.imp-bar { position: fixed; z-index: 90; left: 12px; right: 12px; margin-inline: auto; width: fit-content; bottom: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: min(96vw, 860px); padding: 8px 12px; border-radius: 12px; background: #7a1f1a; color: #fff; box-shadow: 0 6px 24px rgb(0 0 0 / 0.35); font-size: 13px; line-height: 1.35; }
+.imp-bar .btn { background: #fff; color: #7a1f1a; border-color: #fff; }
+.imp-dot { width: 9px; height: 9px; border-radius: 50%; background: #ffb4a8; flex: none; animation: imp-pulse 1.6s ease-in-out infinite; }
+.imp-err { flex-basis: 100%; text-align: center; color: #ffd9d4; }
+@keyframes imp-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .imp-dot { animation: none; } }

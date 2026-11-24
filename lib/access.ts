@@ -18,9 +18,9 @@
 export const ADMIN_ROLE = "super_admin";
 export const NO_CITY = "—";
 
-export type Action = "view" | "edit" | "delete" | "export" | "run";
-export const ACTIONS: Action[] = ["view", "edit", "delete", "export", "run"];
-export const ACTION_LABEL: Record<Action, string> = { view: "Vizualizare", edit: "Editare", delete: "Ștergere", export: "Descărcare", run: "Rulare" };
+export type Action = "view" | "edit" | "delete" | "export" | "run" | "impersonate";
+export const ACTIONS: Action[] = ["view", "edit", "delete", "export", "run", "impersonate"];
+export const ACTION_LABEL: Record<Action, string> = { view: "Vizualizare", edit: "Editare", delete: "Ștergere", export: "Descărcare", run: "Rulare", impersonate: "Simulare" };
 
 export type PageKey = "meters" | "installer" | "antennas" | "antennaInfo" | "control" | "integration" | "reports" | "module" | "lorawan" | "billing" | "users" | "audit";
 /** zone: „meters” = datele paginii sunt contoare filtrate după zona utilizatorului; „global” = date din toate filialele (cere «Toate filialele»); „none” = nu depinde de zonă */
@@ -49,7 +49,7 @@ export const PAGES: PageDef[] = [
   { key: "audit", label: "Jurnal de audit", path: "/audit", desc: "Cine a făcut ce, când și de unde: autentificări, conturi, drepturi, rapoarte, module, date modificate, acces refuzat. Nu se poate șterge din aplicație.", zone: "global",
     actions: { view: "Vede jurnalul de audit al tuturor utilizatorilor", export: "Exportă jurnalul (CSV)" } },
   { key: "users", label: "Utilizatori", path: "/utilizatori", desc: "Conturile aplicației și drepturile lor.", zone: "none",
-    actions: { view: "Vede conturile pe care le poate gestiona", edit: "Creează conturi și le schimbă drepturile (doar în limita drepturilor proprii)", delete: "Șterge conturi (doar din cele pe care le poate gestiona)" } },
+    actions: { view: "Vede conturile pe care le poate gestiona", edit: "Creează conturi și le schimbă drepturile (doar în limita drepturilor proprii)", delete: "Șterge conturi (doar din cele pe care le poate gestiona)", impersonate: "Simulare de login: intră în contul altui utilizator (6 ore) și vede aplicația exact ca el; doar în conturi cu drepturi încadrate în ale lui, nu în administratori (rămâne în jurnal ca «simulat de …»)" } },
 ];
 const PAGE = new Map(PAGES.map((p) => [p.key, p]));
 export const pageDef = (k: PageKey): PageDef => PAGE.get(k)!;
@@ -95,7 +95,7 @@ export function scopeKey(v: Viewer): string {
 }
 
 /** Legătura dintre acțiuni: ce trebuie să existe ca să aibă sens acțiunea. */
-const NEEDS: Record<Action, Action[]> = { view: [], edit: ["view"], delete: ["view"], export: ["view"], run: ["edit", "view"] };
+const NEEDS: Record<Action, Action[]> = { view: [], edit: ["view"], delete: ["view"], export: ["view"], run: ["edit", "view"], impersonate: ["view"] };
 
 /** Drepturile unui document de utilizator (rol + access): administrator sau limitat; ce nu se poate citi = fără acces. Citirea e îngăduitoare (nu blochează contul). */
 export function viewerFromDoc(u: { role?: string; access?: unknown }): Viewer {
@@ -192,4 +192,4 @@ export const PRESETS: Preset[] = [
 
 /** Ce poate face utilizatorul pe o pagină, ca obiect simplu (se trimite componentelor client ca să ascundă butoanele care n-ar merge oricum; serverul verifică oricum fiecare cerere). */
 export type Can = Record<Action, boolean>;
-export const canOf = (v: Viewer, page: PageKey): Can => ({ view: can(v, page, "view"), edit: can(v, page, "edit"), delete: can(v, page, "delete"), export: can(v, page, "export"), run: can(v, page, "run") });
+export const canOf = (v: Viewer, page: PageKey): Can => ({ view: can(v, page, "view"), edit: can(v, page, "edit"), delete: can(v, page, "delete"), export: can(v, page, "export"), run: can(v, page, "run"), impersonate: can(v, page, "impersonate") });

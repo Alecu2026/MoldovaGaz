@@ -22,9 +22,10 @@ type Doc = {
   _id: ObjectId; at: Date; uid: string | null; un: string; ue: string | null; ur: "admin" | "user" | "anon"; a: string; m: string;
   oid: string | null; on: string | null; ov: string | null; nv: string | null; d: AuditDetails | null; sum: string | null; nc: number;
   ok: boolean; ip: string | null; xff: string | null; ua: string | null; p: string | null; me: string | null; ms: number | null; hay: string;
+  /** simulare de login: contul REAL (id, nume, e-mail) care a făcut acțiunea «ca» `uid` */ sb: string | null; sn: string | null; se: string | null;
 };
 
-export type AuditActor = { id: string; name: string; email: string; admin: boolean };
+export type AuditActor = { id: string; name: string; email: string; admin: boolean; /** în simulare de login: contul real */ sim?: { id: string; name: string; email: string } };
 export type AuditInput = {
   action: string; objectId?: string | null; objectName?: string | null; oldValue?: string | null; newValue?: string | null;
   changes?: AuditChange[]; extra?: AuditExtra[]; ok?: boolean; ms?: number | null;
@@ -85,9 +86,10 @@ export async function logAudit(actor: AuditActor | null, input: AuditInput): Pro
       at: new Date(), uid: actor?.id ?? null, un: name.slice(0, 120), ue: (actor?.email ?? (input.anonName?.includes("@") ? input.anonName : null))?.slice(0, 200) ?? null,
       ur: actor ? (actor.admin ? "admin" : "user") : "anon", a: input.action, m: actionModule(input.action),
       oid: input.objectId ? String(input.objectId).slice(0, 120) : null, on: clip(input.objectName ?? null, 200), ov: clip(input.oldValue), nv: clip(input.newValue),
+      sb: actor?.sim?.id ?? null, sn: actor?.sim?.name?.slice(0, 120) ?? null, se: actor?.sim?.email?.slice(0, 200) ?? null,
       d: details, sum, nc: changes.length, ok: input.ok !== false, ip: m.ip, xff: m.xff, ua: m.ua, p: (input.path ?? m.path) || null, me: m.method, ms: input.ms ?? null, hay: "",
     };
-    doc.hay = [doc.un, doc.ue, doc.on, doc.oid, doc.ip, doc.p, doc.sum, actionLabel(doc.a), doc.a].filter(Boolean).join(" ").toLowerCase().slice(0, 600);
+    doc.hay = [doc.un, doc.ue, doc.sn, doc.se, doc.on, doc.oid, doc.ip, doc.p, doc.sum, actionLabel(doc.a), doc.a].filter(Boolean).join(" ").toLowerCase().slice(0, 600);
     const write = async () => { try { await (await coll()).insertOne(doc as Doc); } catch (e) { console.error("[audit] scrierea a eșuat:", (e as Error).message); } };
     try { after(write); } catch { void write(); }
   } catch (e) {
@@ -135,13 +137,14 @@ function buildFilter(f: AuditFilterState): Filter<Doc> {
   else if (f.severity === "info") and.push({ a: { $in: actionsWith("info") }, ok: true });
   if (f.from || f.to) and.push({ at: { ...(f.from ? { $gte: new Date(dayStart(f.from)) } : {}), ...(f.to ? { $lt: new Date(dayStart(nextDay(f.to))) } : {}) } });
   if (f.changes) and.push({ nc: { $gt: 0 } });
+  if (f.sim) and.push({ sb: { $ne: null } });
   for (const w of f.q.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 4)) and.push({ hay: { $regex: esc(w.slice(0, 40)) } });
   return and.length ? { $and: and } : {};
 }
 
-const PROJECT = { _id: 1, at: 1, uid: 1, un: 1, ue: 1, ur: 1, a: 1, m: 1, oid: 1, on: 1, sum: 1, ok: 1, ip: 1, p: 1, nc: 1 } as const;
-type Slim = Pick<Doc, "_id" | "at" | "uid" | "un" | "ue" | "ur" | "a" | "m" | "oid" | "on" | "sum" | "ok" | "ip" | "p" | "nc">;
-const toRow = (d: Slim): AuditRow => ({ id: String(d._id), at: d.at.getTime(), userId: d.uid, userName: d.un, userEmail: d.ue, role: d.ur, action: d.a, module: d.m, objectId: d.oid, objectName: d.on, summary: d.sum, ok: d.ok, ip: d.ip, path: d.p, nChanges: d.nc });
+const PROJECT = { _id: 1, at: 1, uid: 1, un: 1, ue: 1, ur: 1, a: 1, m: 1, oid: 1, on: 1, sum: 1, ok: 1, ip: 1, p: 1, nc: 1, sn: 1 } as const;
+type Slim = Pick<Doc, "_id" | "at" | "uid" | "un" | "ue" | "ur" | "a" | "m" | "oid" | "on" | "sum" | "ok" | "ip" | "p" | "nc" | "sn">;
+const toRow = (d: Slim): AuditRow => ({ id: String(d._id), at: d.at.getTime(), userId: d.uid, userName: d.un, userEmail: d.ue, role: d.ur, action: d.a, module: d.m, objectId: d.oid, objectName: d.on, summary: d.sum, simBy: d.sn ?? null, ok: d.ok, ip: d.ip, path: d.p, nChanges: d.nc });
 
 const encCursor = (d: Slim) => Buffer.from(`${d.at.getTime()}_${String(d._id)}`).toString("base64url");
 function decCursor(c: string | undefined): Filter<Doc> | null {
@@ -219,7 +222,7 @@ export async function auditSummary(fresh = false): Promise<AuditSummary> {
 /* ───────── export CSV ───────── */
 const inj = (s: string) => (/^[=+\-@\t\r]/.test(s) ? `'${s}` : s);
 const cell = (v: unknown): string => csvCell(inj(v === null || v === undefined ? "" : String(v)));
-const HEAD = ["Data și ora (ora Moldovei)", "Utilizator", "E-mail", "Rol", "Modul", "Acțiune", "Cod acțiune", "Obiect", "Id obiect", "Modificări (câmp: vechi → nou)", "Valoare veche", "Valoare nouă", "Rezultat", "Gravitate", "Adresă IP", "Pagină", "Cerere", "Browser", "Sistem", "Dispozitiv"];
+const HEAD = ["Data și ora (ora Moldovei)", "Utilizator", "E-mail", "Rol", "Modul", "Acțiune", "Cod acțiune", "Simulat de", "Obiect", "Id obiect", "Modificări (câmp: vechi → nou)", "Valoare veche", "Valoare nouă", "Rezultat", "Gravitate", "Adresă IP", "Pagină", "Cerere", "Browser", "Sistem", "Dispozitiv"];
 /** CSV-ul rândurilor filtrate, pe bucăți (memorie mică, oricât de mare e jurnalul), cel mult AUDIT_EXPORT_CAP rânduri. Separator «;» și BOM, ca să se deschidă corect în Excel cu setări românești. */
 export async function* exportAuditCsv(f: AuditFilterState): AsyncGenerator<string> {
   yield "﻿" + HEAD.map(cell).join(";") + "\n";
@@ -233,7 +236,7 @@ export async function* exportAuditCsv(f: AuditFilterState): AsyncGenerator<strin
     let out = "";
     for (const d of docs) {
       const ag = describeAgent(d.ua);
-      out += [fmtLocal(d.at.getTime()), d.un, d.ue, d.ur === "admin" ? "administrator" : d.ur === "user" ? "utilizator" : "necunoscut", MODULE_LABELS[d.m as keyof typeof MODULE_LABELS] ?? d.m, actionLabel(d.a), d.a, d.on, d.oid,
+      out += [fmtLocal(d.at.getTime()), d.un, d.ue, d.ur === "admin" ? "administrator" : d.ur === "user" ? "utilizator" : "necunoscut", MODULE_LABELS[d.m as keyof typeof MODULE_LABELS] ?? d.m, actionLabel(d.a), d.a, d.sn ? `${d.sn} (${d.se ?? ""})` : "", d.on, d.oid,
         (d.d?.changes ?? []).map((x) => `${x.label}: ${x.old ?? "∅"} → ${x.new ?? "∅"}`).join(" | "), d.ov, d.nv, d.ok ? "reușit" : "eșuat", actionSeverity(d.a, d.ok), d.ip, d.p, d.me, ag?.browser, ag?.os, ag?.device].map(cell).join(";") + "\n";
     }
     sent += docs.length;

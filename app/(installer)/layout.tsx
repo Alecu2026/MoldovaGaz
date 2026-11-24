@@ -1,4 +1,7 @@
 /** Ecranele pentru instalatori: ca în SCADA, fără bara de sus a aplicației (au propria bară, în pagină). */
+import { Suspense } from "react";
+import ImpersonationNotice from "@/app/components/ImpersonationNotice";
+
 export default function InstallerLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
+  return <>{children}<Suspense fallback={null}><ImpersonationNotice /></Suspense></>;
 }

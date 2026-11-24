@@ -20,8 +20,10 @@ export async function apiGuard(need: PageKey | "admin" | "any", action: Action =
   const user = await getCurrentUser();
   if (!user) return { res: NO_LOGIN() };
   const ok = need === "admin" ? user.admin : need === "any" ? hasAnyPage(user) : can(user, need, action);
-  if (!ok) void logDenied(actorOf(user), need, action); // în jurnalul de audit (cel mult o dată pe minut pentru aceeași cerere)
-  return ok ? { user } : { res: FORBIDDEN() };
+  // în simulare de login conturile nu se modifică (nici drepturi, nici parole, nici alte simulări)
+  const simBlocked = ok && !!user.impersonation && need === "users" && action !== "view";
+  if (!ok || simBlocked) void logDenied(actorOf(user), need, simBlocked ? `${action} (în simulare de login)` : action); // în jurnalul de audit (cel mult o dată pe minut pentru aceeași cerere)
+  return ok && !simBlocked ? { user } : { res: simBlocked ? Response.json({ error: "Indisponibil în simulare de login." }, { status: 403 }) : FORBIDDEN() };
 }
 
 /** Ca `apiGuard`, plus: contorul trebuie să fie în zona utilizatorului („any” = orice pagină cu contoare: Contoare sau Instalator). */

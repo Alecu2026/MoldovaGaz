@@ -11,6 +11,7 @@ async function who() {
   const user = await getCurrentUser();
   if (!user) return { res: Response.json({ error: "Autentificare necesară." }, { status: 401 }) };
   if (!user.notify.length) return { res: Response.json({ error: "Contul nu primește notificări." }, { status: 403 }) };
+  if (user.impersonation) return { res: Response.json({ error: "Indisponibil în simulare de login." }, { status: 403 }) };
   return { user };
 }
 

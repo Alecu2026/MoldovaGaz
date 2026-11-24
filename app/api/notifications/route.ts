@@ -31,6 +31,7 @@ export async function GET() {
 export async function POST(req: Request) {
   const w = await who();
   if ("res" in w) return w.res;
+  if (w.user.impersonation) return Response.json({ error: "Indisponibil în simulare de login." }, { status: 403 });
   const b = (await req.json().catch(() => null)) as { action?: unknown } | null;
   try {
     if (b?.action === "seen") { await markSeen(w.user.id); return Response.json({ ok: true }, { headers: H }); }

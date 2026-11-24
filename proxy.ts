@@ -6,10 +6,20 @@ import { NextResponse, type NextRequest } from "next/server";
  * /api nu trece pe aici: API-urile răspund cu 401 JSON (nu cu redirect).
  */
 const COOKIE = "mg_session";
+const ORIG = "mg_session_orig"; // sesiunea proprie, cât ține o simulare de login (lib/services/impersonation.ts)
 
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const hasSession = req.cookies.has(COOKIE);
+  // simularea de login a expirat (cookie-ul ei a dispărut): sesiunea proprie revine singură, fără autentificare nouă
+  const orig = req.cookies.get(ORIG)?.value;
+  if (!hasSession && orig) {
+    const res = NextResponse.redirect(req.nextUrl);
+    const https = (req.headers.get("x-forwarded-proto") ?? "").split(",")[0].trim() === "https" || req.nextUrl.protocol === "https:";
+    res.cookies.set(COOKIE, orig, { httpOnly: true, sameSite: "lax", path: "/", secure: process.env.NODE_ENV === "production" && https && !process.env.INSECURE_COOKIES, maxAge: 14 * 86_400 });
+    res.cookies.delete(ORIG);
+    return res;
+  }
   if (!hasSession && pathname !== "/login") return NextResponse.redirect(new URL("/login", req.nextUrl));
   if (hasSession && pathname === "/login") return NextResponse.redirect(new URL("/", req.nextUrl));
   return NextResponse.next();

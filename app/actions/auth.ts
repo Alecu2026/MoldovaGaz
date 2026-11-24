@@ -8,6 +8,7 @@ import { ADMIN_ROLE } from "@/lib/access";
 import { getCurrentUser } from "@/lib/dal";
 import { actorOf } from "@/lib/audit-actor";
 import { logAudit, logAuditOnce } from "@/lib/services/audit";
+import { exitImpersonation } from "@/lib/services/impersonation";
 import { SESSION_COOKIE, SESSION_DAYS, createSession, destroySession, findUserByEmail } from "@/lib/session";
 
 export type LoginState = { error?: string; email?: string } | null;
@@ -57,6 +58,8 @@ export async function logoutAction(): Promise<void> {
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
   const me = token ? await getCurrentUser().catch(() => null) : null;
+  // în simulare «Ieșire» înseamnă ieșirea din simulare (te întorci în contul tău), nu delogarea contului simulat
+  if (me?.impersonation) { const r = await exitImpersonation(); redirect(r.ok ? r.to : "/login"); }
   if (me) await logAudit(actorOf(me), { action: "auth.logout", objectName: me.email });
   if (token) await destroySession(token).catch(() => {});
   jar.delete(SESSION_COOKIE);

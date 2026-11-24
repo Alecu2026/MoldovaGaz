@@ -153,6 +153,7 @@ export default function AuditLog({ canExport }: { canExport: boolean }) {
           <label className="field"><span>De la</span><input className="input" type="date" value={f.from} max={f.to || undefined} onChange={(e) => apply({ from: e.target.value })} /></label>
           <label className="field"><span>Până la</span><input className="input" type="date" value={f.to} min={f.from || undefined} onChange={(e) => apply({ to: e.target.value })} /></label>
           <label className="chk" style={{ alignSelf: "center" }}><input type="checkbox" checked={f.changes} onChange={(e) => apply({ changes: e.target.checked })} /> Doar cu modificări pe câmpuri</label>
+          <label className="chk" style={{ alignSelf: "center" }}><input type="checkbox" checked={f.sim} onChange={(e) => apply({ sim: e.target.checked })} /> Doar în simulare de login</label>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
           <span className="cell-sub" aria-live="polite">{loading && !rows.length ? "Se încarcă…" : count ? `${nf.format(count.n)}${count.capped ? "+" : ""} evenimente${active ? " (cu filtrele alese)" : ""}${rows.length < count.n ? ` · încărcate ${nf.format(rows.length)}` : ""}` : ""}</span>
@@ -172,7 +173,7 @@ export default function AuditLog({ canExport }: { canExport: boolean }) {
               return (
                 <div key={r.id} role="listitem" className={`aud-row${open === r.id ? " sel" : ""}`} style={{ top: (start + i) * ROW_H, height: ROW_H }} tabIndex={0} onClick={() => setOpen(r.id)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(r.id); } }}>
                   <span className="aud-t"><b>{hms(r.at)}</b><span className="cell-sub">{dmy(r.at)}</span></span>
-                  <span className="aud-u"><span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{r.userName}</span><span className="cell-sub">{ROLE_LABEL[r.role]}</span></span>
+                  <span className="aud-u"><span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{r.userName}</span><span className="cell-sub" style={r.simBy ? { color: "var(--danger)" } : undefined}>{r.simBy ? `simulat de ${r.simBy}` : ROLE_LABEL[r.role]}</span></span>
                   <span className="aud-a"><span style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}><i className="aud-dot" style={{ background: SEV_COLOR[sev] }} title={SEV_LABEL[sev]} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{actionShort(r.action)}{!r.ok && <b style={{ color: "var(--danger)" }}> · eșuat</b>}</span></span><span className="cell-sub" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.summary ?? moduleLabel(r.module)}</span></span>
                   <span className="aud-ob cell-sub" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.objectName ?? "—"}</span>
                   <span className="aud-ip cell-sub mono">{r.ip ?? "—"}</span>
@@ -222,6 +223,7 @@ function Detail({ id, now, onClose, onFilter }: { id: string; now: number; onClo
               </div>
               <dl className="aud-dl">
                 <dt>Cine</dt><dd>{v.userName}{v.userEmail && v.userEmail !== v.userName ? ` · ${v.userEmail}` : ""} <span className="cell-sub">({ROLE_LABEL[v.role]})</span></dd>
+                {v.simBy && <><dt>Simulat de</dt><dd style={{ color: "var(--danger)" }}><b>{v.simBy}</b> <span className="cell-sub">— acțiunea a fost făcută de el, într-o simulare de login în contul de mai sus</span></dd></>}
                 <dt>Obiect</dt><dd>{v.objectName ?? "—"}{v.objectId ? <span className="cell-sub mono"> · {v.objectId}</span> : null}{href && <> · <Link href={href}>deschide</Link></>}</dd>
                 <dt>Adresă IP</dt><dd className="mono">{v.ip ?? "—"}{v.xff ? <span className="cell-sub"> · lanț proxy: {v.xff}</span> : null}</dd>
                 <dt>Browser</dt><dd>{ag ? `${ag.browser} · ${ag.os} · ${ag.device}` : "—"}{v.ua && <div className="cell-sub mono" style={{ whiteSpace: "normal", overflowWrap: "anywhere" }}>{v.ua}</div>}</dd>

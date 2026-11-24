@@ -9,7 +9,7 @@ import { NOTIFY_INFO, NOTIFY_TYPES, type NotifyType } from "@/lib/notify";
  * și zona (toate filialele, filiale întregi sau orașe dintr-o filială). Un cont fără nimic bifat nu vede nimic. Administratorii pot orice; ceilalți (cu dreptul «Utilizatori»)
  * pot da doar drepturi pe care le au ei înșiși.
  */
-type User = { id: string; email: string; name: string; admin: boolean; disabled: boolean; access: Access; notify: NotifyType[]; createdAt: number | null; manage: boolean; self: boolean };
+type User = { id: string; email: string; name: string; admin: boolean; disabled: boolean; access: Access; notify: NotifyType[]; createdAt: number | null; manage: boolean; self: boolean; imp: boolean };
 type Branch = { fil: string; label: string; count: number; cities: { city: string; count: number }[]; /** doar o parte din orașele filialei pot fi date (limita celui care dă drepturile) */ partial?: boolean };
 type Me = { id: string; admin: boolean; access: Access };
 type DPerms = Record<string, Set<Action>>;
@@ -72,6 +72,16 @@ export default function UsersPanel({ can }: { can: Can }) {
       setD(null); await load();
     } catch { setMsg("Nu am putut salva."); } finally { setBusy(false); }
   };
+  const simulate = async (u: User) => {
+    if (!window.confirm(`Intri în contul ${u.email}? Vei vedea aplicația exact ca el, 6 ore (sau până ieși din simulare). Tot ce faci apare în jurnalul de audit ca «simulat de» tine; în simulare nu se pot modifica conturi.`)) return;
+    setMsg(null); setBusy(true);
+    try {
+      const r = await fetch("/api/simulare", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: u.id }) });
+      const j = (await r.json().catch(() => ({}))) as { to?: string; error?: string };
+      if (!r.ok) { setErr(j.error || "Nu am putut porni simularea."); return; }
+      window.location.assign(j.to ?? "/");
+    } catch { setErr("Nu am putut porni simularea."); } finally { setBusy(false); }
+  };
   const remove = async () => {
     if (!d?.id || busy || !window.confirm(`Ștergi contul ${d.email}? Nu se poate anula.`)) return;
     setBusy(true); setMsg(null);
@@ -106,7 +116,7 @@ export default function UsersPanel({ can }: { can: Can }) {
                     <td>{u.admin ? <span className="badge ok">Administrator</span> : <span className="badge">Limitat</span>}{u.self && <div className="cell-sub">contul tău</div>}</td>
                     <td style={{ minWidth: 220 }}>{summary(u, branches)}{u.notify.length > 0 && <div className="cell-sub" style={{ whiteSpace: "normal" }}>Notificări: {u.notify.map((t) => NOTIFY_INFO[t].label).join("; ")}</div>}</td>
                     <td>{u.disabled ? <span className="badge danger">Dezactivat</span> : <span className="cell-sub">Activ</span>}</td>
-                    <td style={{ textAlign: "right" }}>{(u.manage || u.self) && <button type="button" className="btn btn-sm" onClick={() => { setD(fromUser(u)); setMsg(null); }}>{u.manage || me.admin ? "Modifică" : "Parola / numele"}</button>}</td>
+                    <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>{u.imp && <button type="button" className="btn btn-sm" style={{ marginRight: 6 }} disabled={busy} title="Simulare de login: intri în aplicație ca acest cont (6 ore)" onClick={() => void simulate(u)}>Intră în cont</button>}{(u.manage || u.self) && <button type="button" className="btn btn-sm" onClick={() => { setD(fromUser(u)); setMsg(null); }}>{u.manage || me.admin ? "Modifică" : "Parola / numele"}</button>}</td>
                   </tr>
                 ))}
               </tbody>

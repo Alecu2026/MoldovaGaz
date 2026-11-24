@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import AppNav from "@/app/components/AppNav";
 import AppShell from "@/app/components/AppShell";
 import LogoutButton from "@/app/components/LogoutButton";
+import ImpersonationNotice from "@/app/components/ImpersonationNotice";
 import NotifBell from "@/app/components/NotifBell";
 import { PAGES, can } from "@/lib/access";
 import { requireUser } from "@/lib/dal";
@@ -14,6 +15,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       who={<Suspense fallback={<div className="skeleton" style={{ width: 160, height: 28 }} />}><Who /></Suspense>}
     >
       {children}
+      <Suspense fallback={null}><ImpersonationNotice /></Suspense>
     </AppShell>
   );
 }
