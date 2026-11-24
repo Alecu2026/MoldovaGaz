@@ -15,6 +15,7 @@ const ITEMS: { href: string; label: string; sub: string; title: string }[] = [
   { href: "/module", label: "Module LoRaWAN", sub: "chirpstack", title: "Înregistrarea și activarea modulelor în ChirpStack, ca în SCADA: creare, OTAA / ABP, reînregistrare de urgență, comenzi (doar administratori)" },
   { href: "/lorawan", label: "Dispozitive LoRaWAN", sub: "lorawandb", title: "Doar datele din lorawandb (primul IP)" },
   { href: "/facturare", label: "Facturare", sub: "getmgdb", title: "Doar datele din getmgdb (al doilea IP)" },
+  { href: "/audit", label: "Jurnal de audit", sub: "audit", title: "Cine a făcut ce, când și de unde: autentificări, drepturi, rapoarte, module, date modificate, acces refuzat" },
   { href: "/utilizatori", label: "Utilizatori", sub: "acces", title: "Conturile aplicației: cine ce pagini vede și ce filiale / orașe (doar administratorii)" },
 ];
 

@@ -1,5 +1,7 @@
 import { gunzipSync } from "node:zlib";
 import { apiGuard } from "@/lib/guard";
+import { actorOf } from "@/lib/audit-actor";
+import { logAuditOnce } from "@/lib/services/audit";
 import { getSource } from "@/lib/services/source-dataset";
 import { isSourceId } from "@/lib/source-shared";
 
@@ -13,6 +15,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ source: string 
   if (!isSourceId(source)) return Response.json({ error: "Sursă necunoscută." }, { status: 404 });
   const guard = await apiGuard(source === "billing" ? "billing" : "lorawan"); // pagina «Facturare» / «Dispozitive LoRaWAN»
   if ("res" in guard) return guard.res;
+  // datele conțin și date personale (facturare): cine le descarcă se vede în jurnal, cel mult o dată la 30 de minute pe sursă
+  await logAuditOnce(`data|${guard.user.id}|${source}`, 30 * 60_000, actorOf(guard.user), { action: "data.view", req, objectName: source === "billing" ? "Facturare (getmgdb)" : "Dispozitive LoRaWAN (lorawandb)", extra: [{ label: "Sursă", value: source }] });
   try {
     const b = await getSource(source);
     const plain = new URL(req.url).searchParams.get("enc") === "json";

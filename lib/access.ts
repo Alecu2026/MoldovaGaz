@@ -22,7 +22,7 @@ export type Action = "view" | "edit" | "delete" | "export" | "run";
 export const ACTIONS: Action[] = ["view", "edit", "delete", "export", "run"];
 export const ACTION_LABEL: Record<Action, string> = { view: "Vizualizare", edit: "Editare", delete: "Ștergere", export: "Descărcare", run: "Rulare" };
 
-export type PageKey = "meters" | "installer" | "antennas" | "antennaInfo" | "control" | "integration" | "reports" | "module" | "lorawan" | "billing" | "users";
+export type PageKey = "meters" | "installer" | "antennas" | "antennaInfo" | "control" | "integration" | "reports" | "module" | "lorawan" | "billing" | "users" | "audit";
 /** zone: „meters” = datele paginii sunt contoare filtrate după zona utilizatorului; „global” = date din toate filialele (cere «Toate filialele»); „none” = nu depinde de zonă */
 export type PageDef = { key: PageKey; label: string; path: string; desc: string; zone: "meters" | "global" | "none"; actions: Partial<Record<Action, string>> };
 export const PAGES: PageDef[] = [
@@ -46,6 +46,8 @@ export const PAGES: PageDef[] = [
     actions: { view: "Vede lista dispozitivelor din lorawandb" } },
   { key: "billing", label: "Facturare (getmgdb)", path: "/facturare", desc: "Datele din getmgdb (al doilea IP).", zone: "global",
     actions: { view: "Vede lista din getmgdb (facturare)" } },
+  { key: "audit", label: "Jurnal de audit", path: "/audit", desc: "Cine a făcut ce, când și de unde: autentificări, conturi, drepturi, rapoarte, module, date modificate, acces refuzat. Nu se poate șterge din aplicație.", zone: "global",
+    actions: { view: "Vede jurnalul de audit al tuturor utilizatorilor", export: "Exportă jurnalul (CSV)" } },
   { key: "users", label: "Utilizatori", path: "/utilizatori", desc: "Conturile aplicației și drepturile lor.", zone: "none",
     actions: { view: "Vede conturile pe care le poate gestiona", edit: "Creează conturi și le schimbă drepturile (doar în limita drepturilor proprii)", delete: "Șterge conturi (doar din cele pe care le poate gestiona)" } },
 ];

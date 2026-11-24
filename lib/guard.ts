@@ -2,6 +2,8 @@ import "server-only";
 import { getCurrentUser } from "./dal";
 import { can, canSeeMeters, hasAnyPage, type Action, type PageKey } from "./access";
 import { meterAllowed } from "./services/meter-dataset";
+import { actorOf } from "./audit-actor";
+import { logDenied } from "./services/audit";
 import type { SessionUser } from "./session";
 
 /**
@@ -18,6 +20,7 @@ export async function apiGuard(need: PageKey | "admin" | "any", action: Action =
   const user = await getCurrentUser();
   if (!user) return { res: NO_LOGIN() };
   const ok = need === "admin" ? user.admin : need === "any" ? hasAnyPage(user) : can(user, need, action);
+  if (!ok) void logDenied(actorOf(user), need, action); // în jurnalul de audit (cel mult o dată pe minut pentru aceeași cerere)
   return ok ? { user } : { res: FORBIDDEN() };
 }
 
@@ -26,5 +29,7 @@ export async function apiMeterGuard(need: PageKey | "any", id: string, action: A
   const user = await getCurrentUser();
   if (!user) return { res: NO_LOGIN() };
   const ok = need === "any" ? canSeeMeters(user) : can(user, need, action);
-  return ok && (await meterAllowed(user, id)) ? { user } : { res: FORBIDDEN() };
+  const allowed = ok && (await meterAllowed(user, id));
+  if (!allowed) void logDenied(actorOf(user), need, ok ? `${action} (contor în afara zonei)` : action);
+  return allowed ? { user } : { res: FORBIDDEN() };
 }

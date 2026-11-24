@@ -1482,3 +1482,21 @@ button.badge-btn:hover {
 .nt-crit { border-left-color: var(--danger); }
 .nt-done { opacity: 0.7; border-left-color: var(--ok); }
 .nt-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ───── Jurnal de audit: listă virtualizată (rânduri de înălțime fixă) ───── */
+.aud-head, .aud-row { display: grid; grid-template-columns: 112px minmax(110px, 1.1fr) minmax(180px, 2.2fr) minmax(100px, 1.2fr) 118px; gap: 10px; align-items: center; padding: 0 12px; }
+.aud-head { font-size: 12px; color: var(--muted); font-weight: 600; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.aud-box { height: min(68vh, 640px); min-height: 280px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); position: relative; contain: strict; }
+.aud-row { position: absolute; left: 0; right: 0; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 13px; }
+.aud-row:hover, .aud-row:focus-visible { background: var(--row-hover); outline: none; }
+.aud-row.sel { background: var(--accent-soft); }
+.aud-row > span { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.aud-dot { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 50%; }
+.aud-dl { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 6px 12px; margin: 10px 0 0; }
+.aud-dl dt { color: var(--muted); font-size: 12px; }
+.aud-dl dd { margin: 0; min-width: 0; }
+@media (max-width: 900px) {
+  .aud-head, .aud-row { grid-template-columns: 76px minmax(90px, 1fr) minmax(130px, 1.6fr); }
+  .aud-ob, .aud-ip { display: none !important; }
+  .aud-top { grid-template-columns: minmax(0, 1fr) !important; }
+}

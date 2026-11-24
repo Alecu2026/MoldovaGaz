@@ -2,6 +2,8 @@ import fs from "node:fs";
 import { Readable } from "node:stream";
 import { antennaIdOk } from "@/lib/antennas";
 import { apiGuard } from "@/lib/guard";
+import { actorOf } from "@/lib/audit-actor";
+import { logAudit } from "@/lib/services/audit";
 import { antennaPhotoPath, saveAntennaPhoto } from "@/lib/services/antennas";
 
 /**
@@ -30,7 +32,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const len = Number(req.headers.get("content-length") ?? 0);
   if (len > 26_000_000) return Response.json({ error: "Poza e prea mare (cel mult 25 MB)." }, { status: 413 });
   try {
-    const r = await saveAntennaPhoto(id, Buffer.from(await req.arrayBuffer()), guard.user.email);
+    const bytes = Buffer.from(await req.arrayBuffer());
+    const r = await saveAntennaPhoto(id, bytes, guard.user.email);
+    await logAudit(actorOf(guard.user), { action: "antenna.photo", req, ok: !("error" in r), objectId: id, objectName: "error" in r ? id : r.record.name || id, extra: [{ label: "Dimensiune trimisă", value: `${Math.round(bytes.length / 1024)} KB` }, ...("error" in r ? [{ label: "Motiv", value: r.error }] : [])] });
     return "error" in r ? Response.json({ error: r.error }, { status: r.status }) : Response.json(r.record, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
     console.error("[antennas] poză eșuată:", e);

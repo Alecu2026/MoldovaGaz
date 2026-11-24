@@ -3,7 +3,10 @@ import { ObjectId } from "mongodb";
 import { ADMIN_ROLE, NO_ACCESS, cleanAccess, filOf, grantable, sameAccess, NO_CITY, type Access } from "../access";
 import { cleanNotify, type NotifyType } from "../notify";
 import { COLLECTIONS, col } from "../mongo";
+import { actorOf } from "../audit-actor";
+import { diffAccess, fmtAuditValue } from "../audit-diff";
 import { hashPassword } from "../password";
+import { logAudit } from "./audit";
 import { forgetUser, notifyOf, viewerOf, type SessionUser, type UserDoc } from "../session";
 import { getStore } from "./meter-dataset";
 
@@ -62,6 +65,7 @@ export async function createUser(b: NewUser, actor: SessionUser): Promise<{ user
   const now = new Date();
   const doc = { email, name: name || email, passwordHash: await hashPassword(password), role: admin ? ADMIN_ROLE : "user", access: admin ? undefined : access, notify: nt.notify, disabled: false, createdAt: now, updatedAt: now };
   const r = await users.insertOne(doc as never);
+  await logAudit(actorOf(actor), { action: "user.create", objectId: String(r.insertedId), objectName: email, changes: admin ? [] : diffAccess(null, access), extra: [{ label: "Tip cont", value: admin ? "administrator (drepturi complete)" : "limitat" }, { label: "Nume afișat", value: name || email }, { label: "Notificări", value: nt.notify.join(", ") || "niciuna" }] });
   return { user: view({ ...doc, _id: r.insertedId } as UserDoc, actor) };
 }
 
@@ -108,7 +112,19 @@ export async function updateUser(id: string, b: NewUser & { disabled?: unknown }
     if (!grantable(actor, c.access)) return { error: "Nu poți da drepturi mai mari decât ai tu (acțiuni sau zonă).", status: 403 };
     set.access = c.access;
   }
+  const beforeView = viewerOf(cur), beforeNotify = notifyOf(cur);
   await users.updateOne({ _id: cur._id }, { $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}) });
+  {
+    const who = { objectId: id, objectName: cur.email }, a = actorOf(actor);
+    const basic = [] as { field: string; label: string; old: string | null; new: string | null }[];
+    if (set.name !== undefined && set.name !== (cur.name ?? cur.email)) basic.push({ field: "name", label: "Nume afișat", old: cur.name ?? null, new: String(set.name) });
+    if (b.notify !== undefined && set.notify) { const was = beforeNotify.join(", ") || null, now = (set.notify as string[]).join(", ") || null; if (was !== now) basic.push({ field: "notify", label: "Notificări primite", old: was, new: now }); }
+    if (basic.length) await logAudit(a, { action: "user.update", ...who, changes: basic });
+    if (set.passwordHash) await logAudit(a, { action: "user.password_change", ...who, extra: [{ label: "Notă", value: "Valoarea parolei nu se păstrează. Contul a fost deconectat de pe toate dispozitivele." }] });
+    if (admin !== wasAdmin) await logAudit(a, { action: "user.admin_change", ...who, changes: [{ field: "admin", label: "Administrator", old: fmtAuditValue(wasAdmin), new: fmtAuditValue(admin) }] });
+    if (disabled !== !!cur.disabled) await logAudit(a, { action: "user.status_change", ...who, changes: [{ field: "disabled", label: "Cont dezactivat", old: fmtAuditValue(!!cur.disabled), new: fmtAuditValue(disabled) }] });
+    if (!admin && set.access) { const ch = diffAccess(wasAdmin ? null : beforeView.access, set.access as Access); if (ch.length) await logAudit(a, { action: "user.permissions_change", ...who, changes: ch }); }
+  }
   if (disabled || set.passwordHash) await (await col(COLLECTIONS.sessions)).deleteMany({ userId: id }); // dezactivat / parolă nouă ⇒ iese de pe toate dispozitivele
   forgetUser(id);
   const next = await users.findOne({ _id: cur._id }, { projection: { passwordHash: 0 } });
@@ -123,6 +139,7 @@ export async function deleteUser(id: string, actor: SessionUser): Promise<{ ok: 
   if (!cur) return { error: "Contul nu există.", status: 404 };
   if (!mayManage(actor, cur)) return { error: "Nu poți șterge acest cont.", status: 403 };
   if (cur.role === ADMIN_ROLE && !cur.disabled && (await adminCount(id)) === 0) return { error: "Trebuie să rămână cel puțin un administrator activ.", status: 400 };
+  await logAudit(actorOf(actor), { action: "user.delete", objectId: id, objectName: cur.email, extra: [{ label: "Tip cont", value: cur.role === ADMIN_ROLE ? "administrator" : "limitat" }, { label: "Nume afișat", value: cur.name ?? cur.email }, { label: "Stare", value: cur.disabled ? "dezactivat" : "activ" }] });
   await users.deleteOne({ _id: cur._id });
   await (await col(COLLECTIONS.sessions)).deleteMany({ userId: id });
   forgetUser(id);

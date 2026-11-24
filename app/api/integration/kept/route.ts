@@ -1,4 +1,6 @@
 import { apiGuard } from "@/lib/guard";
+import { actorOf } from "@/lib/audit-actor";
+import { logAudit } from "@/lib/services/audit";
 import { clearKept, keptDetail, keptPage, keptReasons } from "@/lib/services/kept";
 
 /**
@@ -34,7 +36,9 @@ export async function POST(req: Request) {
     const b = (await req.json().catch(() => null)) as { action?: unknown; reason?: unknown } | null;
     if (b?.action !== "clear") return Response.json({ error: "Trimite { \"action\": \"clear\" }." }, { status: 400 });
     const reason = typeof b.reason === "string" ? b.reason.slice(0, 200) : "";
-    return Response.json(await clearKept(reason), { headers: { "Cache-Control": "private, no-store" } });
+    const r = await clearKept(reason);
+    await logAudit(actorOf(guard.user), { action: "integration.kept_clear", req, objectName: reason || "toate motivele", extra: [{ label: "Motiv filtrat", value: reason || "niciunul (toate)" }, { label: "Rezultat", value: JSON.stringify(r) }] });
+    return Response.json(r, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
     console.error("[integration/kept] curățarea a eșuat:", e);
     return Response.json({ error: "Nu am putut curăța." }, { status: 500 });

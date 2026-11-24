@@ -1,4 +1,6 @@
 import { apiGuard } from "@/lib/guard";
+import { actorOf } from "@/lib/audit-actor";
+import { logAudit } from "@/lib/services/audit";
 import { localToUtc, type ReportParams } from "@/lib/report-readings";
 import { createReport, dir, listReports, previewNow } from "@/lib/services/reports";
 
@@ -38,8 +40,15 @@ export async function POST(req: Request) {
   if (typeof p === "string") return Response.json({ error: p }, { status: 400 });
   try {
     const headers = { "Cache-Control": "private, no-store" };
-    if (b.action === "preview") return Response.json({ ...(await previewNow(p)), at: p.at }, { headers });
-    return Response.json({ id: await createReport(p, guard.user.email) }, { headers });
+    const params = [{ label: "Citirea la data și ora", value: String(b.at) }, { label: "Doar contoare legate de facturare", value: p.onlyBilled ? "da" : "nu" }];
+    if (b.action === "preview") {
+      const pv = await previewNow(p);
+      await logAudit(actorOf(guard.user), { action: "report.preview", req, extra: params });
+      return Response.json({ ...pv, at: p.at }, { headers });
+    }
+    const id = await createReport(p, guard.user.email);
+    await logAudit(actorOf(guard.user), { action: "report.create", req, objectId: String(id), objectName: String(b.at), extra: params });
+    return Response.json({ id }, { headers });
   } catch (e) {
     console.error("[reports] eșuat:", e);
     return Response.json({ error: (e as Error).message || "Nu am putut genera raportul." }, { status: 500 });

@@ -1,4 +1,6 @@
 import { getCurrentUser } from "@/lib/dal";
+import { actorOf } from "@/lib/audit-actor";
+import { logAudit } from "@/lib/services/audit";
 import { listFor, markSeen, publicKey, sendTest, subCount } from "@/lib/services/notifications";
 
 /**
@@ -32,7 +34,7 @@ export async function POST(req: Request) {
   const b = (await req.json().catch(() => null)) as { action?: unknown } | null;
   try {
     if (b?.action === "seen") { await markSeen(w.user.id); return Response.json({ ok: true }, { headers: H }); }
-    if (b?.action === "test") return Response.json(await sendTest(w.user), { headers: H });
+    if (b?.action === "test") { const r = await sendTest(w.user); await logAudit(actorOf(w.user), { action: "notify.test", req, extra: [{ label: "Rezultat", value: JSON.stringify(r) }] }); return Response.json(r, { headers: H }); }
     return Response.json({ error: "Cerere invalidă." }, { status: 400 });
   } catch (e) {
     console.error("[notifications] acțiune eșuată:", e);

@@ -1,4 +1,7 @@
 import { getCurrentUser } from "@/lib/dal";
+import { actorOf } from "@/lib/audit-actor";
+import { describeAgent } from "@/lib/audit-meta";
+import { logAudit } from "@/lib/services/audit";
 import { cleanSub } from "@/lib/push";
 import { removeSub, saveSub } from "@/lib/services/notifications";
 
@@ -18,6 +21,8 @@ export async function POST(req: Request) {
   const sub = cleanSub(b?.subscription);
   if (!sub) return Response.json({ error: "Abonament invalid." }, { status: 400 });
   await saveSub(w.user.id, sub, req.headers.get("user-agent") ?? "");
+  const ag = describeAgent(req.headers.get("user-agent"));
+  await logAudit(actorOf(w.user), { action: "notify.subscribe", req, objectName: ag ? `${ag.browser} · ${ag.os} · ${ag.device}` : "dispozitiv", extra: [{ label: "Serviciu push", value: (() => { try { return new URL(sub.endpoint).host; } catch { return "—"; } })() }] });
   return Response.json({ ok: true }, { headers: H });
 }
 
@@ -27,5 +32,6 @@ export async function DELETE(req: Request) {
   const b = (await req.json().catch(() => null)) as { endpoint?: unknown } | null;
   if (typeof b?.endpoint !== "string") return Response.json({ error: "Cerere invalidă." }, { status: 400 });
   await removeSub(w.user.id, b.endpoint);
+  await logAudit(actorOf(w.user), { action: "notify.unsubscribe", req, objectName: (() => { try { return new URL(b.endpoint as string).host; } catch { return "dispozitiv"; } })() });
   return Response.json({ ok: true }, { headers: H });
 }
