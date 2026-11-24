@@ -36,6 +36,10 @@ import { HOUR as H1, DAY as D1, gatewayDown, gatewayDrop, silentByZone, silentPr
 import { deliver, planEvents, recipients, type Problem } from "../lib/alert-job";
 import { cleanNotify, eventVisible } from "../lib/notify";
 import { cleanSub, type PushSub, type Sender } from "../lib/push";
+import { ChirpStack, type FetchFn } from "../lib/lorawan/chirpstack";
+import { GAS_TYPES, backupTarget, chirpName, cleanModule, primaryTarget, v4Target, type ModuleInput } from "../lib/lorawan/config";
+import { decryptJson, encryptJson } from "../lib/lorawan/crypto";
+import { abpExtraFrame, emergencyBackup, expectedDevAddr, otaaDown, registerPrimary, type Ctx } from "../lib/lorawan/flows";
 import { allowsMeter, canPage, cleanAccess, firstPath, scopeKey, type Viewer } from "../lib/access";
 import type { Db } from "mongodb";
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -353,11 +357,11 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   const walk = (d: string): string[] => readdirSync(d).flatMap((n) => (n === "node_modules" || n === ".next" || n.startsWith(".") ? [] : statSync(join(d, n)).isDirectory() ? walk(join(d, n)) : /\.(ts|tsx)$/.test(n) ? [join(d, n)] : []));
   const files = ["app", "lib", "scripts"].flatMap(walk).filter((f) => !f.endsWith("check-engine.ts"));
   const fetches = files.flatMap((f) => (readFileSync(f, "utf8").match(/\bfetch\(/g) ?? []).map(() => f.replace(/\\/g, "/")));
-  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "app/components/GatewayLayer.tsx", "app/components/KeptBrowser.tsx", "app/components/ReportsPanel.tsx", "app/components/InstallerApp.tsx", "app/components/GatewayPopup.tsx", "app/components/GatewayCharts.tsx", "app/components/SeenBrowser.tsx", "app/components/MeterAntennas.tsx", "app/components/UsersPanel.tsx", "app/components/useInstallerStore.ts", "app/components/AntennaApp.tsx", "app/components/NotificationsPanel.tsx", "app/components/NotifBell.tsx", "app/components/notify-client.ts", "scripts/bench-integration.ts"]);
+  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "app/components/GatewayLayer.tsx", "app/components/KeptBrowser.tsx", "app/components/ReportsPanel.tsx", "app/components/InstallerApp.tsx", "app/components/GatewayPopup.tsx", "app/components/GatewayCharts.tsx", "app/components/SeenBrowser.tsx", "app/components/MeterAntennas.tsx", "app/components/UsersPanel.tsx", "app/components/useInstallerStore.ts", "app/components/AntennaApp.tsx", "app/components/NotificationsPanel.tsx", "app/components/NotifBell.tsx", "app/components/notify-client.ts", "app/components/LorawanPanel.tsx", "lib/services/lorawan.ts", "scripts/bench-integration.ts"]);
   check("read-only: fetch() doar în fișierele așteptate", fetches.every((f) => allowedFetch.has(f)), [...new Set(fetches)].join(", "));
   const mutating = files.filter((f) => /method:\s*"(PUT|DELETE|PATCH)"|\.(deleteOne|deleteMany|drop|updateMany|updateOne|insertOne|insertMany|replaceOne|bulkWrite)\(/.test(readFileSync(f, "utf8"))).map((f) => f.replace(/\\/g, "/"));
   // scrieri în baza NOASTRĂ: doar sesiuni / utilizator (login, seed) și colecția `meters` (sincronizare); niciodată în surse
-  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts", "lib/services/gateways.ts", "lib/services/counters.ts", "lib/services/kept.ts", "lib/report-job.ts", "lib/services/reports.ts", "lib/photo-job.ts", "lib/services/installer.ts", "lib/services/users.ts", "lib/services/antennas.ts", "lib/antenna-job.ts", "lib/alert-job.ts", "lib/push.ts", "lib/services/notifications.ts", "app/components/NotificationsPanel.tsx", "app/components/notify-client.ts", "app/components/ReportsPanel.tsx", "app/components/UsersPanel.tsx", "app/components/AntennaApp.tsx"]);
+  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts", "lib/services/gateways.ts", "lib/services/counters.ts", "lib/services/kept.ts", "lib/report-job.ts", "lib/services/reports.ts", "lib/photo-job.ts", "lib/services/installer.ts", "lib/services/users.ts", "lib/services/antennas.ts", "lib/antenna-job.ts", "lib/alert-job.ts", "lib/push.ts", "lib/services/lorawan.ts", "app/components/LorawanPanel.tsx", "lib/services/notifications.ts", "app/components/NotificationsPanel.tsx", "app/components/notify-client.ts", "app/components/ReportsPanel.tsx", "app/components/UsersPanel.tsx", "app/components/AntennaApp.tsx"]);
   check("read-only: scrieri în baza de date doar în sesiuni, seed:user, sync-meters, load-history și lib/source-sync", mutating.every((f) => allowedWrites.has(f)), mutating.join(", "));
   const syncSrc = readFileSync("scripts/sync-meters.ts", "utf8");
   const syncCollections = syncSrc.match(/client\.db\(\)\.collection[^\n]*/g) ?? [];
@@ -977,6 +981,91 @@ const section8 = (async () => {
   check("profil pe ore: consum în 0,001 m³ pe Uint16 și temperatură în 0,5 °C pe Int8 (rotunjire corectă)", (() => { const q = NA.hourlyProfile([P(D[0], 0, 21.3), P(D[0] + H, 1.2346, 21.3), P(D[0] + 2 * H, 1.2346, null)], D.slice(0, 1)); return q.cons[0] === 1235 && q.temp[0] === 43 && q.cons[1] === 0 && q.temp[1] === 43 ? true : q.cons[0] === 1235 && q.temp[0] === 43; })());
 })();
 
+// ───── module LoRaWAN: înregistrare / activare ca în SCADA (cu servere ChirpStack false)
+const sectionLw = (async () => {
+  check("lorawan: aplicația și profilul la serverul principal după tip și activare; S3010 (partener) ⇒ aplicația 12; fără tip cunoscut ⇒ null", primaryTarget("Comrat_Gas_Meter_DP", "S2154_00072088_2022", "OTAA")?.applicationID === "29" && primaryTarget("Comrat_Gas_Meter_DP", "S2154_1_2022", "OTAA")?.deviceProfileID.startsWith("9af1b76c") === true && primaryTarget("Jooby_Gas_Meter_DP", "S2154_1_2022", "OTAA")?.applicationID === "27" && primaryTarget("Jooby_Gas_Meter_DP", "S2154_1_2022", "ABP")?.applicationID === "23" && primaryTarget("Jooby_Gas_Meter_DP", "S2154_1_2022", "ABP")?.deviceProfileID.startsWith("236b9ff1") === true && primaryTarget("Chisinau_Gas_Meter_DP", "S2154_1_2022", "OTAA")?.applicationID === "44" && primaryTarget("Cahul_Gas_Meter_DP", "S3010_00000001_2026", "OTAA")?.applicationID === "12" && primaryTarget("Cahul_Gas_Meter_DP", "S3010_00000001_2026", "OTAA")?.deviceProfileID.startsWith("8ef5cf24") === true && primaryTarget("ACC_AXIOMA_W1_DP", "SN07539967", "OTAA")?.applicationID === "3" && primaryTarget("Defectate_Jooby_Gaz", "S2154_1_2022", "OTAA") === null);
+  check("lorawan: serverul de rezervă (alte aplicații, profil ABP) și serverul v4 (UUID-uri)", backupTarget("Comrat_Gas_Meter_DP")?.applicationID === "7" && backupTarget("Cahul_Gas_Meter_DP")?.applicationID === "14" && backupTarget("Chisinau_Gas_Meter_DP")?.applicationID === "23" && backupTarget("ACC_AXIOMA_W1_DP") === null && v4Target("Ialoveni_Gas_Meter_DP")?.applicationID === "ad02b302-c714-4e79-9830-8c4c75677308" && v4Target("Chisinau_Gas_Meter_DP") === null && GAS_TYPES.length === 13);
+  check("lorawan: numele din ChirpStack = fără prima «S» (la ACC Axioma fără «SN»)", chirpName("S2154_00071212_2022", "Jooby_Gas_Meter_DP") === "2154_00071212_2022" && chirpName("SN07539967", "ACC_AXIOMA_W1_DP") === "07539967" && expectedDevAddr("001a79881601162c") === "0001162c");
+  const okMod = cleanModule({ name: "S2154_00071212_2022", type: "Comrat_Gas_Meter_DP", activation: "OTAA", devEUI: "001A79881601162C", appKey: "A".repeat(32) });
+  const okAbp = cleanModule({ name: "S2154_00071212_2022", type: "Comrat_Gas_Meter_DP", activation: "ABP", devEUI: "001a79881601162c", devAddr: "0001162C", appSKey: "b".repeat(32), nwkSKey: "c".repeat(32), devAaddr: "A0001162C" });
+  check("lorawan: validarea înregistrării (devEUI 16 hex, chei 32 hex, devADDR 8 hex; câmpurile cerute depind de activare; litere mici)", "mod" in okMod && okMod.mod.devEUI === "001a79881601162c" && okMod.mod.appKey === "a".repeat(32) && "mod" in okAbp && okAbp.mod.devAddr === "0001162c" && okAbp.mod.devAaddr === "A0001162C" && ["error" in cleanModule({ name: "S2154_1_2022", type: "Comrat_Gas_Meter_DP", activation: "OTAA", devEUI: "123" }), "error" in cleanModule({ name: "S2154_00071212_2022", type: "Comrat_Gas_Meter_DP", activation: "OTAA", devEUI: "001a79881601162c" }), "error" in cleanModule({ name: "S2154_00071212_2022", type: "Altceva", activation: "OTAA", devEUI: "001a79881601162c", appKey: "a".repeat(32) }), "error" in cleanModule({ name: "S2154_00071212_2022", type: "Comrat_Gas_Meter_DP", activation: "ABP", devEUI: "001a79881601162c", devAddr: "0001162c" }), "error" in cleanModule(null)].every(Boolean));
+  const blob = encryptJson({ appKey: "a".repeat(32) }, "un-secret-destul-de-lung-1234567");
+  let bad1 = false, bad2 = false; try { decryptJson(blob, "alt-secret-destul-de-lung-1234567"); } catch { bad1 = true; } try { decryptJson(blob.slice(0, -3) + "AAA", "un-secret-destul-de-lung-1234567"); } catch { bad2 = true; }
+  check("lorawan: cheile se păstrează criptat (AES-GCM): se recitesc cu secretul bun, nu cu altul, nu dacă au fost alterate; textul criptat nu conține cheia", decryptJson<{ appKey: string }>(blob, "un-secret-destul-de-lung-1234567").appKey === "a".repeat(32) && bad1 && bad2 && !blob.includes("a".repeat(32)) && encryptJson({ x: 1 }, "un-secret-destul-de-lung-1234567") !== encryptJson({ x: 1 }, "un-secret-destul-de-lung-1234567"));
+
+  // ChirpStack fals (v3 / v4): ține dispozitivele, cheile, activările și cozile în memorie și își notează apelurile
+  type Sim = { devices: Map<string, Record<string, unknown>>; keys: Map<string, unknown>; act: Map<string, string>; queue: Map<string, unknown[]>; calls: string[]; bodies: Record<string, unknown>; conflict: boolean; logins: number; failActivate?: boolean };
+  const mkSim = (): Sim => ({ devices: new Map(), keys: new Map(), act: new Map(), queue: new Map(), calls: [], bodies: {}, conflict: false, logins: 0 });
+  const mkFetch = (s: Sim, v: 3 | 4): FetchFn => (async (url: string | URL | Request, init?: RequestInit) => {
+    const u = new URL(String(url)), method = init?.method ?? "GET", p = u.pathname; const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+    const send = (st: number, b: unknown = {}) => new Response(JSON.stringify(b), { status: st, headers: { "Content-Type": "application/json" } });
+    if (p === "/api/internal/login") { s.logins++; return body.password === "parola" ? send(200, { jwt: "jwt-" + s.logins }) : send(401); }
+    const auth = new Headers(init?.headers).get("Grpc-Metadata-Authorization");
+    if (!auth) return send(401);
+    s.calls.push(method + " " + p);
+    const mm = /^\/api\/devices(?:\/([0-9a-f]{16}))?(?:\/(keys|activation|activate|queue))?$/.exec(p);
+    if (!mm) return send(404);
+    const eui = mm[1], sub = mm[2];
+    if (!eui && method === "POST") { s.bodies.device = body; const d = body.device; const k = (d.devEUI ?? d.devEui) as string; if (s.conflict || s.devices.has(k)) return send(409, { message: "object already exists" }); s.devices.set(k, d); return send(200); }
+    if (eui && !sub) { if (method === "GET") return s.devices.has(eui) ? send(200, { device: s.devices.get(eui) }) : send(404, { error: "object does not exist" }); if (method === "DELETE") { const had = s.devices.delete(eui) || s.conflict; s.conflict = false; return had ? send(200) : send(404); } }
+    if (sub === "keys") { if (method === "GET") return s.keys.has(eui) ? send(200, { deviceKeys: s.keys.get(eui) }) : send(404); s.bodies.keys = body.deviceKeys; s.keys.set(eui, body.deviceKeys); return send(200); }
+    if (sub === "activation") return s.act.has(eui) ? send(200, { deviceActivation: { devAddr: s.act.get(eui), devEUI: eui } }) : send(404);
+    if (sub === "activate") { if (s.failActivate) return send(500); s.bodies.activation = body.deviceActivation; s.act.set(eui, body.deviceActivation.devAddr); return send(200); }
+    if (sub === "queue") { const q = s.queue.get(eui) ?? []; if (method === "GET") return send(200, { totalCount: q.length, deviceQueueItems: q }); if (method === "DELETE") { s.queue.set(eui, []); return send(200); } s.bodies.queue = body.deviceQueueItem; q.push(body.deviceQueueItem); s.queue.set(eui, q); return send(200); }
+    void v; return send(404);
+  }) as FetchFn;
+  const world = () => { const s3 = mkSim(), sb = mkSim(), s4 = mkSim(); const published: { url: string; topic: string; payload: unknown }[] = [], fwd: { url: string; body: unknown }[] = []; const logs: string[] = [];
+    const ctx = (o: { dry?: boolean; allowDelete?: boolean } = {}): Ctx => ({ s: { primary: new ChirpStack("http://p", 3, { creds: { email: "api@x", password: "parola" } }, mkFetch(s3, 3)), backup: new ChirpStack("http://b", 3, { creds: { email: "api@x", password: "parola" } }, mkFetch(sb, 3)), v4: new ChirpStack("http://v4", 4, { token: "tok" }, mkFetch(s4, 4)), mqttV4: "mqtt://v4", nodered: ["https://nr1", "https://nr2"], noderedCreds: { email: "api@x", password: "parola" } }, dry: o.dry ?? false, allowDelete: o.allowDelete ?? false, log: (m) => logs.push(m), publish: async (url, topic, payload) => { published.push({ url, topic, payload }); }, forward: async (url, body) => { fwd.push({ url, body }); return true; } });
+    return { s3, sb, s4, published, fwd, logs, ctx }; };
+  const otaa: ModuleInput = { name: "S2154_00071212_2022", type: "Comrat_Gas_Meter_DP", activation: "OTAA", devEUI: "001a79881601162c", appKey: "a".repeat(32) };
+  const abp: ModuleInput = { name: "S2154_00071212_2022", type: "Comrat_Gas_Meter_DP", activation: "ABP", devEUI: "001a79881601162c", devAddr: "0001162c", appSKey: "b".repeat(32), nwkSKey: "c".repeat(32), devAaddr: "A0001162C" };
+  // a) modul OTAA nou: creat + cheie
+  { const w = world(); const r = await registerPrimary(otaa, w.ctx());
+    const d = w.s3.bodies.device as { device?: unknown } & Record<string, unknown>; const dev = (d.device ?? d) as Record<string, unknown>;
+    check("lorawan înregistrare OTAA nou: dispozitivul se creează (aplicația 29, nume fără «S», skipFCntCheck) și cheia se scrie (nwkKey = APPKEY); login o singură dată", r.ok && r.result === "registered" && w.s3.calls.join(" | ") === "GET /api/devices/001a79881601162c | POST /api/devices | GET /api/devices/001a79881601162c/keys | POST /api/devices/001a79881601162c/keys" && dev.applicationID === "29" && dev.name === "2154_00071212_2022" && dev.description === "2154_00071212_2022" && dev.skipFCntCheck === true && String(dev.deviceProfileID).startsWith("9af1b76c") && (w.s3.bodies.keys as { nwkKey: string; appKey: string }).nwkKey === "a".repeat(32) && (w.s3.bodies.keys as { appKey: string }).appKey === "" && w.s3.logins === 1, w.s3.calls.join(" | ")); }
+  // b) există deja, cu cheie: nicio scriere
+  { const w = world(); w.s3.devices.set(otaa.devEUI, { applicationID: "29" }); w.s3.keys.set(otaa.devEUI, {}); const r = await registerPrimary(otaa, w.ctx());
+    check("lorawan înregistrare: modul existent cu cheie ⇒ doar citiri, înregistrat (nicio scriere)", r.ok && w.s3.calls.every((c) => c.startsWith("GET")) && r.applicationID === "29"); }
+  // c) există, fără cheie: doar cheia
+  { const w = world(); w.s3.devices.set(otaa.devEUI, { applicationID: "29" }); const r = await registerPrimary(otaa, w.ctx());
+    check("lorawan înregistrare: modul existent fără cheie ⇒ se scrie doar cheia", r.ok && w.s3.calls.filter((c) => c.startsWith("POST")).join() === "POST /api/devices/001a79881601162c/keys"); }
+  // d) simulare: doar citiri
+  { const w = world(); const r = await registerPrimary(otaa, w.ctx({ dry: true }));
+    check("lorawan simulare: doar citiri, nimic scris, rezultat «dry» cu descrierea pașilor", r.ok && r.result === "dry" && w.s3.calls.every((c) => c.startsWith("GET")) && w.logs.some((l) => l.includes("(simulare)"))); }
+  // e) conflict: cere confirmare; cu confirmare șterge și recreează
+  { const w = world(); w.s3.conflict = true; const r1 = await registerPrimary(otaa, w.ctx());
+    const del1 = w.s3.calls.some((c) => c.startsWith("DELETE"));
+    const w2 = world(); w2.s3.conflict = true; const r2 = await registerPrimary(otaa, w2.ctx({ allowDelete: true }));
+    check("lorawan conflict (409): fără confirmare ⇒ «conflict», nimic șters; cu confirmare ⇒ șterge dispozitivul vechi, îl recreează și scrie cheia", !r1.ok && r1.result === "conflict" && r1.needsConfirm === "delete" && !del1 && r2.ok && w2.s3.calls.filter((c) => c.startsWith("DELETE") || c.startsWith("POST")).join(" | ") === "POST /api/devices | DELETE /api/devices/001a79881601162c | POST /api/devices | POST /api/devices/001a79881601162c/keys", w2.s3.calls.join(" | ")); }
+  // f) ABP: activare; ABP inexistent ⇒ eșec (ca în SCADA)
+  { const w = world(); w.s3.devices.set(abp.devEUI, { applicationID: "29" }); const r = await registerPrimary(abp, w.ctx()); const a = w.s3.bodies.activation as Record<string, unknown>;
+    const w2 = world(); const r2 = await registerPrimary(abp, w2.ctx());
+    check("lorawan ABP: activare cu devAddr și chei (fCntUp 0, nwkSEncKey = sNwkSIntKey = fNwkSIntKey = NWKSKEY); dispozitiv ABP inexistent ⇒ eșec, nu se creează", r.ok && a.devAddr === "0001162c" && a.appSKey === "b".repeat(32) && a.nwkSEncKey === "c".repeat(32) && a.sNwkSIntKey === "c".repeat(32) && a.fNwkSIntKey === "c".repeat(32) && a.fCntUp === 0 && !r2.ok && !w2.s3.calls.some((c) => c.startsWith("POST"))); }
+  // g) urgență (rezervă)
+  { const w = world(); const r = await emergencyBackup(abp, 4, w.ctx()); const a = w.sb.bodies.activation as Record<string, unknown>; const dev = (w.sb.bodies.device as { device?: Record<string, unknown> }).device ?? (w.sb.bodies.device as Record<string, unknown>);
+    check("lorawan urgență: dispozitiv nou pe rezervă (aplicația 7, profil ABP), activare cu devAADDR fără «A» (0001162C), «true-reactivated_4», contor 5; datele pleacă la Node-RED; serverul principal neatins", r.ok && r.emergency === "true-reactivated_4" && r.emcCount === 5 && dev.applicationID === "7" && String(dev.deviceProfileID).startsWith("066bc2af") && a.devAddr === "0001162C" && w.s3.calls.length === 0 && w.fwd.length === 2 && (w.fwd[0].body as { email: string; metadata: { ss_devEUI: string } }).metadata.ss_devEUI === abp.devEUI); }
+  { const w = world(); w.sb.devices.set(abp.devEUI, {}); w.sb.act.set(abp.devEUI, "0001162c"); const r = await emergencyBackup(abp, 4, w.ctx());
+    const w2 = world(); w2.sb.devices.set(abp.devEUI, {}); w2.sb.act.set(abp.devEUI, "00ffffff"); const r2 = await emergencyBackup(abp, 4, w2.ctx());
+    const w3 = world(); const r3 = await emergencyBackup({ ...abp, devAaddr: "0001162C" }, 0, w3.ctx());
+    const w4 = world(); w4.sb.failActivate = true; const r4 = await emergencyBackup(abp, 0, w4.ctx());
+    check("lorawan urgență: adresa corectă (00 + ultimele 6 cifre din devEUI) ⇒ «true-activated-key-ok» fără scrieri; adresă greșită ⇒ reactivare; devAADDR invalid sau activare eșuată ⇒ «false-can_not_activate»", r.emergency === "true-activated-key-ok" && !w.sb.calls.some((c) => c.startsWith("POST")) && r2.emergency === "true-reactivated_4" && r2.emcCount === 5 && w2.sb.act.get(abp.devEUI) === "0001162C" && r3.emergency === "false-can_not_activate" && !r3.ok && r4.emergency === "false-can_not_activate" && !r4.ok); }
+  // h) comandă către modul
+  { const w = world(); w.s3.devices.set(otaa.devEUI, { applicationID: "29" }); w.s3.act.set(otaa.devEUI, "0001162c"); const r = await otaaDown(otaa, "to_abp", w.ctx());
+    const w1 = world(); w1.s3.devices.set(otaa.devEUI, { applicationID: "29" }); w1.s3.act.set(otaa.devEUI, "0001162c"); w1.s3.queue.set(otaa.devEUI, [{}]); const r1 = await otaaDown(otaa, "to_abp", w1.ctx());
+    const w3 = world(); w3.s3.devices.set(otaa.devEUI, { applicationID: "29" }); w3.s3.act.set(otaa.devEUI, "0001162c"); w3.s3.queue.set(otaa.devEUI, [{}, {}, {}]); const r3 = await otaaDown(otaa, "soft_restart", w3.ctx());
+    const w4 = world(); const r4 = await otaaDown(otaa, "to_abp", w4.ctx());
+    check("lorawan comandă: coadă goală ⇒ comanda «trecere pe ABP» (AwIJAVw=); coadă cu 1 element ⇒ nu se trimite (total_queue=1); coadă cu 3 ⇒ se golește și se trimite; modul neînregistrat ⇒ «not-activated»", r.ok && r.step === "mqtt_sent" && (w.s3.bodies.queue as { data: string; confirmed: boolean }).data === "AwIJAVw=" && (w.s3.bodies.queue as { confirmed: boolean }).confirmed === false && r1.step === "total_queue=1" && !w1.s3.calls.some((c) => c.startsWith("POST")) && r3.step === "mqtt_sent" && (w3.s3.bodies.queue as { data: string }).data === "GQBM" && w3.s3.calls.includes("DELETE /api/devices/001a79881601162c/queue") && !r4.ok && r4.step === "not-activated"); }
+  // i) extraframe v4
+  { const w = world(); w.s4.devices.set(abp.devEUI, {}); w.s4.act.set(abp.devEUI, "0001162c"); const r = await abpExtraFrame(abp, w.ctx()); const a = w.s4.bodies.activation as Record<string, unknown>;
+    const w2 = world(); const r2 = await abpExtraFrame(abp, w2.ctx()); const d2 = (w2.s4.bodies.device as { device?: Record<string, unknown> }).device ?? {};
+    check("lorawan ABP extraframe (v4): activează cu devAADDR fără «A», apoi trimite prin MQTT comanda de repornire (application/<app>/device/<devEUI>/command/down, GQBM); dispozitivul lipsă se creează (joinEui 0000…, skipFcntCheck); activarea lipsește ⇒ eșec", r.ok && a.devAddr === "0001162C" && w.published.length === 1 && w.published[0].topic === "application/ce9eabf7-5ac5-4c20-930b-0a3674efa315/device/001a79881601162c/command/down" && (w.published[0].payload as { data: string; confirmed: boolean }).data === "GQBM" && d2.joinEui === "0000000000000000" && d2.skipFcntCheck === true && d2.devEui === abp.devEUI && !r2.ok); }
+  // j) autentificare: 401 ⇒ reautentificare o dată
+  { const s = mkSim(); const cs = new ChirpStack("http://p", 3, { creds: { email: "api@x", password: "parola" } }, mkFetch(s, 3)); await cs.getDevice(otaa.devEUI); await cs.getDevice(otaa.devEUI);
+    const bad = new ChirpStack("http://p", 3, { creds: { email: "api@x", password: "gresita" } }, mkFetch(mkSim(), 3)); const rb = await bad.getDevice(otaa.devEUI);
+    const offline = new ChirpStack("http://p", 3, { creds: { email: "a", password: "b" } }, (async () => { throw new Error("ECONNREFUSED"); }) as FetchFn); const ro = await offline.getDevice(otaa.devEUI);
+    check("lorawan client: login o singură dată pentru mai multe apeluri; parolă greșită ⇒ 401 fără excepție; server căzut ⇒ status 0 fără excepție", s.logins === 1 && rb.status === 401 && !rb.ok && ro.status === 0 && !ro.ok); }
+})();
+
 // ───── notificări despre probleme
 const sectionNotify = (async () => {
   const NOW = Date.UTC(2026, 10, 24, 12);
@@ -1073,7 +1162,7 @@ const sectionNotify = (async () => {
   check("acces: validare — cerere greșită respinsă", "error" in cleanAccess(null) && "error" in cleanAccess({ pages: "meters", branches: [], cities: [] }) && "error" in cleanAccess({ pages: [], branches: [1], cities: [] }));
   // paginile de administrare și API-urile lor cer „admin”; contoarele cer zona
   const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
-  const adminRoutes = ["app/api/control/suspects/route.ts", "app/api/integration/check/route.ts", "app/api/integration/counters/route.ts", "app/api/integration/devices/route.ts", "app/api/integration/kept/route.ts", "app/api/integration/reprocess/route.ts", "app/api/integration/stats/route.ts", "app/api/reports/route.ts", "app/api/reports/[id]/route.ts", "app/api/sources/[source]/dataset/route.ts", "app/api/users/route.ts", "app/api/users/[id]/route.ts"];
+  const adminRoutes = ["app/api/control/suspects/route.ts", "app/api/integration/check/route.ts", "app/api/integration/counters/route.ts", "app/api/integration/devices/route.ts", "app/api/integration/kept/route.ts", "app/api/integration/reprocess/route.ts", "app/api/integration/stats/route.ts", "app/api/reports/route.ts", "app/api/reports/[id]/route.ts", "app/api/sources/[source]/dataset/route.ts", "app/api/lorawan/route.ts", "app/api/users/route.ts", "app/api/users/[id]/route.ts"];
   check("acces: API-urile de administrare cer rolul de administrator", adminRoutes.every((f) => read(f).includes('apiGuard("admin")') && !read(f).includes("getCurrentUser")), adminRoutes.filter((f) => !read(f).includes('apiGuard("admin")')).join(", "));
   const meterRoutes = ["app/api/meters/[id]/route.ts", "app/api/meters/[id]/history/route.ts", "app/api/meters/[id]/photo/route.ts", "app/api/installer/meters/[id]/route.ts", "app/api/installer/meters/[id]/photo/route.ts"];
   check("acces: API-urile unui contor verifică zona utilizatorului (apiMeterGuard)", meterRoutes.every((f) => read(f).includes("apiMeterGuard(") && !read(f).includes("getCurrentUser")), meterRoutes.filter((f) => !read(f).includes("apiMeterGuard(")).join(", "));
@@ -1083,7 +1172,7 @@ const sectionNotify = (async () => {
   check("acces: lista de contoare, instalatorul și antenele folosesc verificarea de acces, nu doar autentificarea", noAuth.every((f) => (read(f).includes("apiGuard(") || read(f).includes("apiMeterGuard(")) && !read(f).includes("getCurrentUser")), noAuth.filter((f) => !(read(f).includes("apiGuard(") || read(f).includes("apiMeterGuard("))).join(", "));
 }
 
-section7.then(() => section8).then(() => sectionNotify).then(() => {
+section7.then(() => section8).then(() => sectionNotify).then(() => sectionLw).then(() => {
   console.log(bad ? `\n${bad} EȘECURI` : "\nToate verificările au trecut.");
   process.exit(bad ? 1 : 0);
 });
