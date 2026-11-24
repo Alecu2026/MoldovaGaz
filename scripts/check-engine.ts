@@ -846,8 +846,8 @@ const section8 = (async () => {
   // istoricul propriu de citiri
   const tel = (t: number, v: string, tT: number | null, tv = "23,5") => ({ Volume_m3_Total: { t, v }, ...(tT === null ? {} : { temp: { t: tT, v: tv } }) });
   const r1 = readingOf({ tel: tel(1_000_000_000, "1234.5", 1_000_000_000 + 2 * H) });
-  check("citire: volum + temperatura din același mesaj (la cel mult 6 h), cu virgulă zecimală", r1?.v === 1234.5 && r1.tp === 23.5 && r1.t === 1_000_000_000);
-  check("citire: temperatură veche de peste 6 h ⇒ null; volum negativ / lipsă ⇒ fără citire", readingOf({ tel: tel(1_000_000_000, "5", 1_000_000_000 - 7 * H) })?.tp === null && readingOf({ tel: tel(1_000_000_000, "-3", null) }) === null && readingOf({ tel: {} }) === null);
+  check("citire: volum + temperatura măsurată de contor (la cel mult 48 h de citire, înainte sau după), cu virgulă zecimală", r1?.v === 1234.5 && r1.tp === 23.5 && r1.t === 1_000_000_000);
+  check("citire: temperatură de acum 30 h se atașează, de peste 48 h ⇒ null; volum negativ / lipsă ⇒ fără citire", readingOf({ tel: tel(1_000_000_000, "5", 1_000_000_000 - 30 * H, "21") })?.tp === 21 && readingOf({ tel: tel(1_000_000_000, "5", 1_000_000_000 - 50 * H) })?.tp === null && readingOf({ tel: tel(1_000_000_000, "-3", null) }) === null && readingOf({ tel: {} }) === null);
   const stored = new Map<string, number>();
   const opsSeen: { insertOne?: { document: { _id: string; lt: number } }; updateOne?: { filter: { _id: string; lt: { $lt: number } }; update: { $push: Record<string, { $slice: number }>; $set: { lt: number } } } }[] = [];
   const usedC = new Set<string>();

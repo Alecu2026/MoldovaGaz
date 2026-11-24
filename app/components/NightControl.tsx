@@ -170,7 +170,7 @@ export default function NightControl() {
       <section className="stats auto" aria-label="Rezumat" aria-live="polite">
         <div className="stat"><div className="k">Contoare potrivite</div><div className="v" style={{ color: res && res.matched > 0 ? "var(--danger)" : undefined }}>{res ? nf.format(res.matched) : "—"}</div><div className="s">{res ? `se afișează ${nf.format(res.shown)}` : busy ? "se calculează…" : " "}</div></div>
         <div className="stat"><div className="k">Contoare analizate</div><div className="v">{res ? nf.format(res.meters) : "—"}</div><div className="s">cu cel puțin o noapte calculată</div></div>
-        <div className="stat"><div className="k">Cu temperatură</div><div className="v">{res ? nf.format(res.withTemp) : "—"}</div><div className="s">au citiri de temperatură</div></div>
+        <div className="stat"><div className="k">Cu temperatură</div><div className="v">{res ? nf.format(res.withTemp) : "—"}</div><div className="s">au temperatură măsurată de contor (ultima, la cel mult 48 h de citire)</div></div>
         <div className="stat"><div className="k">Perioada</div><div className="v" style={{ fontSize: 16 }}>{res?.days ? `${dm(res.days[0])} – ${dm(res.days[1])}` : "—"}</div><div className="s">{res?.analyzedAt ? `calculat ${dmt(res.analyzedAt)}` : " "}</div></div>
       </section>
 

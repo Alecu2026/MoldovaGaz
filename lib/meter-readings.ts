@@ -11,8 +11,12 @@ import type { MeterDoc } from "./meter-sync";
  */
 export const READINGS_COLLECTION = process.env.READINGS_COLLECTION || "meter_readings";
 export const MAX_READINGS = 400;
-/** temperatura se ia în seamă doar dacă e din același mesaj (la cel mult 6 ore de citirea de volum) */
-const TEMP_MAX_AGE_MS = 6 * 3_600_000;
+/**
+ * Contorul trimite temperatura RAR (la 1–3 zile, în cadrele de stare), iar volumul la 4–6 ore: la o citire se atașează ultima temperatură măsurată de contor, dacă e la cel mult
+ * 48 de ore de citire. (La 6 ore, cât era înainte, aproape nicio citire nu prindea o temperatură: „Consum nemăsurat” vedea ~700 de contoare cu temperatură din ~43.000.)
+ * Consecință: ziua și noaptea aceleiași perioade folosesc aceeași măsurătoare, deci condiția „temperatura rămâne ca ziua” nu diferențiază contoarele cu măsurători rare.
+ */
+const TEMP_MAX_AGE_MS = 48 * 3_600_000;
 
 type ReadingDoc = { _id: string; lt: number; t: number[]; v: number[]; tp: (number | null)[] };
 export type AppendStats = { candidates: number; created: number; appended: number; unchanged: number };
