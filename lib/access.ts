@@ -22,7 +22,7 @@ export type Action = "view" | "edit" | "delete" | "export" | "run";
 export const ACTIONS: Action[] = ["view", "edit", "delete", "export", "run"];
 export const ACTION_LABEL: Record<Action, string> = { view: "Vizualizare", edit: "Editare", delete: "Ștergere", export: "Descărcare", run: "Rulare" };
 
-export type PageKey = "meters" | "installer" | "antennas" | "control" | "integration" | "reports" | "module" | "lorawan" | "billing" | "users";
+export type PageKey = "meters" | "installer" | "antennas" | "antennaInfo" | "control" | "integration" | "reports" | "module" | "lorawan" | "billing" | "users";
 /** zone: „meters” = datele paginii sunt contoare filtrate după zona utilizatorului; „global” = date din toate filialele (cere «Toate filialele»); „none” = nu depinde de zonă */
 export type PageDef = { key: PageKey; label: string; path: string; desc: string; zone: "meters" | "global" | "none"; actions: Partial<Record<Action, string>> };
 export const PAGES: PageDef[] = [
@@ -32,6 +32,8 @@ export const PAGES: PageDef[] = [
     actions: { view: "Vede lista contoarelor și datele de montaj", edit: "Salvează date de montaj, locația și poza contorului" } },
   { key: "antennas", label: "Instalator antene", path: "/antene", desc: "Ecranul antenelor (gateway): tabel, poză, locație, instalator, hărți.", zone: "none",
     actions: { view: "Vede antenele, harta și mesajele pe zi", edit: "Salvează datele antenei, locația și poza" } },
+  { key: "antennaInfo", label: "Antene: date și hartă", path: "/date-antene", desc: "Pagină separată cu datele fiecărei antene (activitate, contoare auzite, semnal, client, instalator) și harta lor.", zone: "global",
+    actions: { view: "Vede datele fiecărei antene, contoarele auzite de ea și harta" } },
   { key: "control", label: "Consum nemăsurat", path: "/control", desc: "Contoare care noaptea nu înregistrează consum (indiciu de consum nemăsurat).", zone: "global",
     actions: { view: "Vede lista contoarelor suspecte și le filtrează după praguri" } },
   { key: "integration", label: "Integrare API", path: "/integration", desc: "Mesajele primite direct de la LoRaWAN / antene: stare, ritm, mesaje păstrate, verificare.", zone: "global",

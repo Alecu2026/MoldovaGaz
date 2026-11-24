@@ -22,6 +22,9 @@ export type AntennaRow = {
   hasPhoto: boolean;
   /** creată la noi (formularul «Antenă nouă» din Module LoRaWAN), nu adusă din SCADA / din rețea */
   created?: boolean;
+  /** din SCADA: de câte ori a fost cea mai bună receptoare pentru un modul de GAZ (CounterGasModules) și când a crescut ultima dată; null = nu știm */
+  gas?: number | null;
+  gasAt?: number | null;
 };
 export type AntennaRecord = AntennaRow & { updatedAt: number | null; by: string | null; photoAt: number | null };
 export type AntennaList = { rows: AntennaRow[]; now: number };
@@ -167,3 +170,24 @@ export function chirpstackFields(a: Pick<NewAntenna, "id" | "name" | "descriptio
   ];
 }
 export const chirpstackText = (a: Parameters<typeof chirpstackFields>[0]): string => chirpstackFields(a).map((f) => `${f.label}: ${f.value}`).join("\n");
+
+/* ───────── pagina «Antene: date și hartă» ───────── */
+
+/** Legătura antenei cu contoarele noastre de gaz: auzite acum (contoare prin integrare sau gaz în ultimele 7 zile în SCADA), în ultima lună, demult, niciodată, sau necunoscut (fără date SCADA și fără mesaje la noi). */
+export type GasLink = "recent" | "month" | "older" | "never" | "unknown";
+export const LINK_LABEL: Record<GasLink, string> = { recent: "aude gaz acum", month: "gaz în ultima lună", older: "gaz demult (peste 30 de zile)", never: "niciodată gaz", unknown: "necunoscut" };
+export function gasLink(r: { devices: number; gas: number | null; gasAt: number | null }, now: number): GasLink {
+  if (r.devices > 0) return "recent";
+  if (r.gas === null) return "unknown";
+  if (r.gas <= 0 || !r.gasAt) return "never";
+  const age = now - r.gasAt;
+  return age <= 7 * 86_400_000 ? "recent" : age <= 30 * 86_400_000 ? "month" : "older";
+}
+/** are legătură cu contoarele noastre (acum sau în ultima lună)? */
+export const ours = (l: GasLink): boolean => l === "recent" || l === "month";
+
+export type OverviewRow = AntennaRow & {
+  /** contoare (ale noastre) auzite prin integrare, câte o aud ca prima, câte doar ea; RSSI / SNR mediu */
+  devices: number; primary: number; exclusive: number; rssi: number | null; snr: number | null;
+  link: GasLink;
+};

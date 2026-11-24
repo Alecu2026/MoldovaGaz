@@ -18,7 +18,7 @@ export const ANT_NEW = "antenna_new";
 const MAX_PHOTO_BYTES = 25_000_000;
 const ONLINE_MS = 3_600_000, SLOW_MS = 24 * 3_600_000;
 
-type Scada = { _id: string; dev?: string; nm?: string; cm?: string; cl?: string; sim?: string; ip?: string; inst?: string; la?: number | null; lo?: number | null; instd?: boolean; mob?: boolean; lat?: number | null };
+type Scada = { _id: string; dev?: string; nm?: string; cm?: string; cl?: string; sim?: string; ip?: string; inst?: string; la?: number | null; lo?: number | null; instd?: boolean; mob?: boolean; lat?: number | null; gm?: number | null; gmAt?: number | null };
 type Gw = { _id: string; name?: string; la?: number | null; lo?: number | null; n?: number; last?: number };
 type Created = { _id: string; name: string; desc: string; la: number | null; lo: number | null; alt: number; cl: string; cm: string; createdAt: Date; by: string };
 type Edit = AntennaPatch & { _id: string; updatedAt?: Date; by?: string; photoAt?: Date };
@@ -56,6 +56,7 @@ async function build() {
       latitude: pick(e?.Gateways_latitude, s?.la, w?.la, c?.la), longitude: pick(e?.Gateways_longitude, s?.lo, w?.lo, c?.lo),
       Instalta: e?.Instalta ?? s?.instd ?? false, Antena_mobila: e?.Antena_mobila ?? s?.mob ?? false,
       hasPhoto: await has(antennaPhotoPath(id)),
+      gas: s?.gm ?? null, gasAt: s?.gmAt ?? null,
       ...(c ? { created: true } : {}),
     };
   }));

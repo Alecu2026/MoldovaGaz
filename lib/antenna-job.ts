@@ -6,7 +6,8 @@ import { decodeImage, photoDir, processImage } from "./photos";
 import { tb, tbLatest } from "./thingsboard";
 
 /**
- * Antenele din SCADA (dispozitivele de tip `gatewayType` / `gatewayType1`), aduse în colecția noastră `antennas` — DOAR CITIRE din SCADA:
+ * Antenele din SCADA (dispozitivele de tip `gatewayType` / `gatewayType1`), aduse în colecția noastră `antennas` — DOAR CITIRE din SCADA (cu `ANTENNA_TB_URL` / `ANTENNA_TB_USER` / `ANTENNA_TB_PASS`
+ * în mediu, antenele se citesc de pe serverul SCADA al antenelor, `gw.scada.md`, cu un cont de citire; vezi scripts/pull-antennas.ts):
  *  1. lista dispozitivelor (2 cereri GET), apoi atributele lor curente într-o cerere pe lot de 100 (POST entitiesQuery/find = căutare, nu scrie nimic): comentarii, client, SIM, IP,
  *     instalator, locație, Instalta / Antena_mobila, lastActivityTime. Fără poze: sunt grele (în medie 4 MB / antenă).
  *  2. pozele (atributul `image`, câte o antenă pe cerere), micșorate și scrise ca fișiere în `<PHOTO_DIR>/antennas/…` — DOAR dacă `ANTENNA_PHOTO_PULL=1` și doar pentru antenele fără poză.
@@ -38,7 +39,7 @@ export async function pullAntennas(db: Db, opts: { photos?: boolean; log?: (m: s
   const result: PullResult = { devices: devs.length, upserted: 0, photos: 0, none: 0, errors: 0 };
   for (let i = 0; i < devs.length; i += 100) {
     const chunk = devs.slice(i, i + 100);
-    const ents = await tbLatest(chunk.map((d) => d.id.id), { ts: [], server: SERVER, client: [] });
+    const ents = await tbLatest(chunk.map((d) => d.id.id), { ts: ["CounterGasModules"], server: SERVER, client: [] });
     const byId = new Map(ents.map((e) => [e.entityId.id, e.latest]));
     const ops = [];
     for (const d of chunk) {
@@ -48,9 +49,12 @@ export async function pullAntennas(db: Db, opts: { photos?: boolean; log?: (m: s
       const v = (k: string): string => { const x = a[k]?.value; return x === undefined || x === null ? "" : String(x).trim(); };
       const geo = coord(num(a.Gateways_latitude?.value), num(a.Gateways_longitude?.value)) ?? coord(num(a.latitude?.value), num(a.longitude?.value));
       const lat = num(a.lastActivityTime?.value);
+      // CounterGasModules = de câte ori a fost antena cea mai bună receptoare pentru un modul de GAZ (lanțul «Gateways_Lorawan» din SCADA); ts = ultima dată când a crescut
+      const gmv = byId.get(d.id.id)?.TIME_SERIES?.CounterGasModules;
+      const gm = num(gmv?.value);
       ops.push({ updateOne: { filter: { _id: id }, update: { $set: {
         dev: d.id.id, type: d.type, nm: v("Gateways_name_A"), cm: v("Comments"), cl: v("Client"), sim: v("NrTel_SIM"), ip: v("ip_address"), inst: v("NumeInstalator"),
-        la: geo ? geo[0] : null, lo: geo ? geo[1] : null, instd: v("Instalta") === "true", mob: v("Antena_mobila") === "true", lat: lat !== null && lat > 1e11 ? Math.round(lat) : null, upd: new Date(),
+        la: geo ? geo[0] : null, lo: geo ? geo[1] : null, instd: v("Instalta") === "true", mob: v("Antena_mobila") === "true", lat: lat !== null && lat > 1e11 ? Math.round(lat) : null, gm: gm !== null ? Math.round(gm) : null, gmAt: gm !== null && gm > 0 && gmv?.ts ? gmv.ts : null, upd: new Date(),
       } }, upsert: true } });
     }
     if (ops.length) { await coll.bulkWrite(ops as never); result.upserted += ops.length; }
