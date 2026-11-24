@@ -22,6 +22,7 @@ import { writeSource } from "../lib/source-sync";
 import * as NA from "../lib/night-analysis";
 import { RESTART_GAP, counterOf, lostOf, newStream, observe, summarize } from "../lib/integration-counter";
 import { distanceKm as kmDist } from "../lib/geo";
+import { cleanPatch, parseQr } from "../lib/installer";
 import { decodeImage, photoPath, processImage, validId } from "../lib/photos";
 import { MAX_TRIES, pendingIds } from "../lib/photo-job";
 import { collapse, csvCell, fmtLocal, fmtUtc, mergePoints, meterKeys, monthRange, periodName, previousMonth, readingLine, thisMonthSoFar } from "../lib/report-readings";
@@ -346,11 +347,11 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   const walk = (d: string): string[] => readdirSync(d).flatMap((n) => (n === "node_modules" || n === ".next" || n.startsWith(".") ? [] : statSync(join(d, n)).isDirectory() ? walk(join(d, n)) : /\.(ts|tsx)$/.test(n) ? [join(d, n)] : []));
   const files = ["app", "lib", "scripts"].flatMap(walk).filter((f) => !f.endsWith("check-engine.ts"));
   const fetches = files.flatMap((f) => (readFileSync(f, "utf8").match(/\bfetch\(/g) ?? []).map(() => f.replace(/\\/g, "/")));
-  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "app/components/GatewayLayer.tsx", "app/components/KeptBrowser.tsx", "app/components/ReportsPanel.tsx", "app/components/GatewayPopup.tsx", "app/components/GatewayCharts.tsx", "app/components/SeenBrowser.tsx", "app/components/MeterAntennas.tsx", "scripts/bench-integration.ts"]);
+  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "app/components/GatewayLayer.tsx", "app/components/KeptBrowser.tsx", "app/components/ReportsPanel.tsx", "app/components/InstallerApp.tsx", "app/components/GatewayPopup.tsx", "app/components/GatewayCharts.tsx", "app/components/SeenBrowser.tsx", "app/components/MeterAntennas.tsx", "scripts/bench-integration.ts"]);
   check("read-only: fetch() doar în fișierele așteptate", fetches.every((f) => allowedFetch.has(f)), [...new Set(fetches)].join(", "));
   const mutating = files.filter((f) => /method:\s*"(PUT|DELETE|PATCH)"|\.(deleteOne|deleteMany|drop|updateMany|updateOne|insertOne|insertMany|replaceOne|bulkWrite)\(/.test(readFileSync(f, "utf8"))).map((f) => f.replace(/\\/g, "/"));
   // scrieri în baza NOASTRĂ: doar sesiuni / utilizator (login, seed) și colecția `meters` (sincronizare); niciodată în surse
-  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts", "lib/services/gateways.ts", "lib/services/counters.ts", "lib/services/kept.ts", "lib/report-job.ts", "lib/services/reports.ts", "lib/photo-job.ts", "app/components/ReportsPanel.tsx"]);
+  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts", "lib/services/gateways.ts", "lib/services/counters.ts", "lib/services/kept.ts", "lib/report-job.ts", "lib/services/reports.ts", "lib/photo-job.ts", "lib/services/installer.ts", "app/components/ReportsPanel.tsx"]);
   check("read-only: scrieri în baza de date doar în sesiuni, seed:user, sync-meters, load-history și lib/source-sync", mutating.every((f) => allowedWrites.has(f)), mutating.join(", "));
   const syncSrc = readFileSync("scripts/sync-meters.ts", "utf8");
   const syncCollections = syncSrc.match(/client\.db\(\)\.collection[^\n]*/g) ?? [];
@@ -873,6 +874,15 @@ const section8 = (async () => {
     const st = new Map([["ok", { st: "ok" as const, at: new Date(NOW - 99 * D), mx: 1600 }], ["ok-small", { st: "ok" as const, at: new Date(NOW - 5 * D), mx: 1000 }], ["ok-old", { st: "ok" as const, at: new Date(NOW - 5 * D) }], ["none-new", { st: "none" as const, at: new Date(NOW - 2 * D) }], ["none-old", { st: "none" as const, at: new Date(NOW - 8 * D) }], ["err-new", { st: "err" as const, at: new Date(NOW - 60_000), n: 1 }], ["err-old", { st: "err" as const, at: new Date(NOW - 3_600_000), n: 2 }], ["err-max", { st: "err" as const, at: new Date(NOW - 3_600_000), n: MAX_TRIES }]]);
     const all = ["new", "ok", "ok-small", "ok-old", "none-new", "none-old", "err-new", "err-old", "err-max"];
     check("poze: se reiau doar contoarele fără stare, cele păstrate la o rezoluție mai mică decât cea cerută, cele fără poză de peste 7 zile și cele cu eroare mai veche de 10 min (sub 5 încercări); --refresh le ia pe toate", pendingIds(all, st, NOW, false, 1600).join() === "new,ok-small,ok-old,none-old,err-old" && pendingIds(all, st, NOW, false, 1000).join() === "new,ok-old,none-old,err-old" && pendingIds(all, st, NOW, true, 1600).length === all.length);
+  }
+  // ecranul instalatorului (dashboardul ChisinauGaz_Instalator_App din SCADA, datele se salvează doar la noi)
+  {
+    check("instalator: codul QR → numele dispozitivului, ca în SCADA (S3010 / S3020 după „:30”, LoRaWAN cu „S2154.…” oricum ar fi scris)", parseQr(":3010.60027989.2610:") === "S3010_60027989_2610" && parseQr(":3020.50000007.2510:") === "S3020_50000007_2510" && parseQr("LW:D0:0018B250554C5331:001A79881601162C:029E0088:S2154.00071212.2022:C1750") === "S2154_00071212_2022" && parseQr("2514.00071212.2022!N0000005065250!LW:D0:0018B250554C5331:001A79881601162C:029E0088:S2154.00071212.2022:C1750") === "S2154_00071212_2022" && parseQr("  :3010.60027989.2610:  ") === "S3010_60027989_2610");
+    check("instalator: cod QR care nu conține un nume valid ⇒ null (mesajul „Device not found in QR Code”)", parseQr("") === null && parseQr("hello") === null && parseQr(":3010.6002.2610:") === null && parseQr("https://example.com/x") === null && parseQr(null as unknown as string) === null);
+    const ok = cleanPatch({ ContorNr: " 4624641 ", Instalation_Litres: "12,5", ModuleWriteInitial: true, Comments: "ok", evil: "x", image: "AAAA", _id: "z" });
+    check("instalator: se păstrează doar câmpurile cunoscute, curățate (număr cu virgulă, text fără spații la capete); image / _id / câmpuri străine sunt ignorate", "patch" in ok && JSON.stringify(ok.patch) === JSON.stringify({ ContorNr: "4624641", Instalation_Litres: 12.5, ModuleWriteInitial: true, Comments: "ok" }));
+    const bad = [{ Instalation_Litres: "abc" }, { Instalation_Litres: -1 }, { latitude: 91 }, { longitude: "x" }, { ContorNr: "x".repeat(41) }, { Comments: "x".repeat(2001) }, {}, null, "text", { image: "AAAA" }];
+    check("instalator: valori invalide sau cerere goală ⇒ eroare, nimic nu se salvează", bad.every((b) => "error" in cleanPatch(b)) && "patch" in cleanPatch({ latitude: 47.01, longitude: "28,86" }) && "patch" in cleanPatch({ Instalation_Litres: "" }) && (cleanPatch({ Instalation_Litres: "" }) as { patch: { Instalation_Litres: number | null } }).patch.Instalation_Litres === null);
   }
   // raportul de citiri către facturare
   { const oct = monthRange(2026, 10);

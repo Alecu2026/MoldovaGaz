@@ -144,6 +144,15 @@ Pagina **Rapoarte**: alegi perioada (luna aceasta, luna trecută sau un interval
 - **Reluabil și blând cu SCADA:** se poate opri oricând (pm2 stop / Ctrl+C) și continuă de unde a rămas; `PHOTO_CONCURRENCY` cereri deodată (3), `PHOTO_PAUSE_MS` între ele (150); se oprește singur dacă pe disc rămân sub `PHOTO_MIN_FREE_GB` (3) GB sau dacă SCADA nu răspunde 5 minute la rând.
 - **Loc și mărime:** `PHOTO_DIR` (implicit `photos/` lângă aplicație; poate fi un alt disc), `PHOTO_MAX_PX` (1600, ca să se poată mări la zoom). Estimat ~7 GB pentru toate contoarele (la 1000 px erau ~3,5 GB); pozele păstrate la o rezoluție mai mică decât cea cerută se refac singure, o dată. Pozele se pot reface oricând din SCADA.
 
+## Ecranul instalatorului (/instalator)
+
+Varianta noastră a dashboardului **ChisinauGaz_Instalator_App** din SCADA, ca instalatorii să găsească același ecran (aceleași 5 widgeturi, câmpuri, etichete, butoane și mesaje, în engleză / rusă, cu tema ThingsBoard): **Device admin table** (căutare, sortare, alegere de coloane, paginare, butoanele ScanQR / Foto / Location), **Select Device** (`FilterDevices`, păstrat per utilizator), **Meter Update** (`SerialMeter`, `Install_Litres`, `latitude` / `longitude`, `image`, `Module Calibration`, `Comments`, Undo / Update), **Instalation Photo** (click = popup cu zoom) și **Installation foto Update**.
+
+- **Datele se salvează DOAR la noi**, nu în SCADA (rămâne strict citire): colecția `installer_data` (un document per contor, cu cine și când a salvat) și poza ca fișier în `<PHOTO_DIR>/installer/…` (micșorată, fără locația din poză). Poza instalatorului are prioritate față de cea extrasă din SCADA în `/api/meters/<id>/photo`.
+- **Telefon:** camera (poza și scanarea QR cu `BarcodeDetector` / `jsQR`) și GPS-ul merg doar pe HTTPS; `Permissions-Policy` din [next.config.ts](next.config.ts) permite acum `camera` și `geolocation` doar pentru aplicația însăși. Ca în SCADA, după scanarea unui cod valid contorul se alege și locația se salvează automat.
+- **Codul QR:** se recunoaște ca în SCADA (`:30…:` pentru S3010 / S3020, sau `S2154.00071212.2022` din codul LoRaWAN); punctele devin `_` (nume SCADA `S2154_00071212_2022`).
+- **Coloane:** `Volume_Liters` și `inactivityTimeout` se citesc acum la sincronizare (apar după următoarea rulare orară); `couterPulse` vine din atributele de client.
+
 ## Limite și date personale
 
 - Facturarea conține **date personale** (nume consumator, adresă). Ele ajung în browserul utilizatorilor autentificați (căutare instant) și în IndexedDB-ul lor; se șterg la „Ieșire”. Exportul CSV **nu** le include. Dă acces doar persoanelor autorizate.

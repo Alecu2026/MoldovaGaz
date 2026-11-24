@@ -19,6 +19,7 @@
     "history:load": "tsx scripts/load-history.ts"
   },
   "dependencies": {
+    "jsqr": "^1.4.0",
     "leaflet": "^1.9.4",
     "mongodb": "^7.9.1",
     "next": "16.4.6",

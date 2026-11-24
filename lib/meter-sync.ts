@@ -19,12 +19,12 @@ export type Bill = Record<string, string | number | null>;
 export const TS_KEYS = [
   "Volume_m3_Total", "Volume_m3_Total_ts", "rssi", "loRaSNR", "Frequency", "Concentrator", "battery", "dailyConsumption", "weeklyConsumption",
   "monthlyConsumption", "yearlyConsumption", "fPort", "fCnt", "temp", "offline", "magnet", "buttonPressed", "batteryTooLowVoltage", "ieType",
-  "applicationName", "decodeTime", "Magnet_Value",
+  "applicationName", "decodeTime", "Magnet_Value", "Volume_Liters", // Volume_Liters: coloană în ecranul instalatorului (/instalator)
 ];
 export const SERVER_KEYS = [
   "FIL", "OTDELEN", "KOD_AB", "active", "lastActivityTime", "inactivityAlarmTime", "locationModule", "latitude", "longitude", "Aragaz", "Cazan",
   "Instalation_Litres", "ModuleInitialValue", "ContorNr", "ContPersonal", "OrderNr", "activation", "lorawan_registered", "emc_activation_count",
-  "dev_SN", "devEUI", "METCITIRE:", "CONTROLOR", "UPDATED_DATE", "Incalzire", "Data_Calibrarii",
+  "dev_SN", "devEUI", "METCITIRE:", "CONTROLOR", "UPDATED_DATE", "Incalzire", "Data_Calibrarii", "inactivityTimeout",
 ];
 export const CLIENT_KEYS = ["fCnt", "model", "version", "remCapacity", "applicationName", "Volume_m3", "couterPulse", "integrationName"];
 
