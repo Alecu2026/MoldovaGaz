@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ObjectId, type Db, type Document } from "mongodb";
 import { READINGS_COLLECTION } from "./meter-readings";
-import { fmtLocal, headerLine, meterFilter, periodName, reportBatches, type Names, type ReportMode, type ReportParams, type ReportRow } from "./report-readings";
+import { atName, fmtLocal, headerLine, meterFilter, reportBatches, type Names, type ReportParams, type ReportRow } from "./report-readings";
 
 /**
  * Generarea raportului de citiri (lib/report-readings.ts) într-un fișier CSV pe un loc comun, din care îl preia sistemul de facturare (Oracle).
@@ -21,7 +21,7 @@ export type ReportResult = { id: string; file: string | null; rows: number; mete
 
 export const rowOf = (d: Document): ReportRow => ({
   id: String(d._id), kind: d.kind === "scheduled" ? "scheduled" : "manual", by: String(d.by ?? ""), createdAt: d.createdAt instanceof Date ? d.createdAt.getTime() : 0,
-  finishedAt: d.finishedAt instanceof Date ? d.finishedAt.getTime() : null, from: Number(d.from) || 0, to: Number(d.to) || 0, mode: (d.mode as ReportMode) ?? "all", onlyBilled: d.onlyBilled !== false,
+  finishedAt: d.finishedAt instanceof Date ? d.finishedAt.getTime() : null, at: Number(d.at) || Number(d.to) || 0, onlyBilled: d.onlyBilled !== false,
   status: d.status === "done" ? "done" : d.status === "error" ? "error" : "running", scanned: Number(d.scanned) || 0, total: Number(d.total) || 0, meters: Number(d.meters) || 0,
   rows: Number(d.rows) || 0, bytes: Number(d.bytes) || 0, file: typeof d.file === "string" ? d.file : null, sha256: typeof d.sha256 === "string" ? d.sha256 : null, error: typeof d.error === "string" ? d.error : null,
 });
@@ -35,16 +35,16 @@ export async function startReport(db: Db, p: ReportParams, kind: "manual" | "sch
   const stale = new Date(Date.now() - STALE_MS);
   await coll.updateMany({ status: "running", createdAt: { $lte: stale } }, { $set: { status: "error", error: "întrerupt (procesul s-a oprit înainte de final)", finishedAt: new Date() } });
   if (await coll.findOne({ status: "running" })) throw new Error("Un raport se generează deja. Așteaptă să se termine.");
-  if (!(p.to > p.from)) throw new Error("Perioada e goală.");
+  if (!(p.at > 0)) throw new Error("Alege data și ora raportului.");
   const names = collectionNames();
   const total = await db.collection(names.meters).countDocuments(meterFilter(p.onlyBilled));
   const _id = new ObjectId();
-  await coll.insertOne({ _id, kind, by, createdAt: new Date(), from: p.from, to: p.to, mode: p.mode, onlyBilled: p.onlyBilled, status: "running", scanned: 0, total, meters: 0, rows: 0, bytes: 0 });
+  await coll.insertOne({ _id, kind, by, createdAt: new Date(), at: p.at, onlyBilled: p.onlyBilled, status: "running", scanned: 0, total, meters: 0, rows: 0, bytes: 0 });
   const id = String(_id);
   const done = (async (): Promise<ReportResult> => {
     const dir = reportDir();
     const stamp = fmtLocal(Date.now()).split("-").join("").split(":").join("").split(" ").join("-");
-    const name = `citiri_${periodName(p.from, p.to)}_${stamp}.csv`;
+    const name = `citiri_${atName(p.at)}_${stamp}.csv`;
     const part = path.join(dir, `${name}.part`);
     const final = path.join(dir, name);
     let out: fs.WriteStream | null = null;

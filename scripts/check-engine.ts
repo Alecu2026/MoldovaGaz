@@ -25,7 +25,7 @@ import { distanceKm as kmDist } from "../lib/geo";
 import { activity, cleanPatch, parseQr, qrNotInDb, queryInstaller } from "../lib/installer";
 import { decodeImage, photoPath, processImage, validId } from "../lib/photos";
 import { MAX_TRIES, pendingIds } from "../lib/photo-job";
-import { collapse, csvCell, fmtLocal, fmtUtc, mergePoints, meterKeys, monthRange, periodName, previousMonth, readingLine, thisMonthSoFar } from "../lib/report-readings";
+import { atName, csvCell, fmtDmy, fmtLocal, fmtUtc, latestAt, localToUtc, mergePoints, monthStartAt, radioOf, readingLine, reportBatches } from "../lib/report-readings";
 import { DAY as GDAY, buildStats, dayRange, foldDays, type DayAgg, type GwSum } from "../lib/gateway-stats";
 import { eventToMsg, gatewaysOf, looksLikeEvent, looksLikeUplink, nameKey, uplinkToMsg } from "../lib/integration-uplink";
 import { MAX_BATCH, isStaleFcnt, isStaleUplink, ingestIsNewer, mergeDerive, mergeMsgs, normTs, parseMessage, type MeterDocIng } from "../lib/integration";
@@ -888,18 +888,36 @@ const section8 = (async () => {
     const bad = [{ Instalation_Litres: "abc" }, { Instalation_Litres: -1 }, { latitude: 91 }, { longitude: "x" }, { ContorNr: "x".repeat(41) }, { Comments: "x".repeat(2001) }, {}, null, "text", { image: "AAAA" }];
     check("instalator: valori invalide sau cerere goală ⇒ eroare, nimic nu se salvează", bad.every((b) => "error" in cleanPatch(b)) && "patch" in cleanPatch({ latitude: 47.01, longitude: "28,86" }) && "patch" in cleanPatch({ Instalation_Litres: "" }) && (cleanPatch({ Instalation_Litres: "" }) as { patch: { Instalation_Litres: number | null } }).patch.Instalation_Litres === null);
   }
-  // raportul de citiri către facturare
-  { const oct = monthRange(2026, 10);
-    check("raport: luna în ora locală (octombrie 2026 începe la UTC+3 și se termină la UTC+2, după trecerea la ora de iarnă)", oct.from === Date.UTC(2026, 8, 30, 21) && oct.to === Date.UTC(2026, 9, 31, 22) && periodName(oct.from, oct.to) === "2026-10-01_2026-10-31");
-    check("raport: luna precedentă (și peste schimbarea anului) și luna curentă până acum", previousMonth(Date.UTC(2026, 10, 24, 5)).from === oct.from && previousMonth(Date.UTC(2026, 10, 24, 5)).to === oct.to && previousMonth(Date.UTC(2027, 0, 15)).from === Date.UTC(2026, 10, 30, 22) && previousMonth(Date.UTC(2027, 0, 15)).to === Date.UTC(2026, 11, 31, 22) && thisMonthSoFar(Date.UTC(2026, 10, 24, 5)).from === oct.to && thisMonthSoFar(Date.UTC(2026, 10, 24, 5)).to === Date.UTC(2026, 10, 24, 5) + 1);
-    check("raport: ora citirii în ora Moldovei și în UTC", fmtLocal(oct.to) === "2026-11-01 00:00:00" && fmtUtc(oct.to) === "2026-10-31 22:00:00" && fmtLocal(Date.UTC(2026, 6, 1, 0, 0, 0)) === "2026-07-01 03:00:00");
+  // raportul de citiri către facturare: ultima citire până la momentul ales, trei câmpuri
+  {
+    const dec1 = localToUtc(2026, 12, 1, 7, 0), jul1 = localToUtc(2026, 7, 1, 7, 0);
+    check("raport: data și ora aleasă în ora Moldovei → UTC (iarna UTC+2, vara UTC+3) și numele fișierului", dec1 === Date.UTC(2026, 11, 1, 5) && jul1 === Date.UTC(2026, 6, 1, 4) && atName(dec1) === "2026-12-01_0700" && localToUtc(2026, 10, 25, 3, 30) > 0);
+    check("raport: formate — ora Moldovei ZZ/LL/AAAA HH:MM:SS, și AAAA-LL-ZZ", fmtDmy(dec1) === "01/12/2026 07:00:00" && fmtLocal(dec1) === "2026-12-01 07:00:00" && fmtUtc(dec1) === "2026-12-01 05:00:00" && fmtDmy(Date.UTC(2026, 6, 1, 0, 0, 0)) === "01/07/2026 03:00:00");
+    check("raport: momentul raportului lunar = ziua 1 a lunii curente la ora dată (peste schimbarea de oră și de an)", monthStartAt(Date.UTC(2026, 10, 24, 5), 7) === Date.UTC(2026, 10, 1, 5) && monthStartAt(Date.UTC(2026, 11, 5, 12), 7) === dec1 && monthStartAt(Date.UTC(2026, 6, 20, 12), 7) === jul1 && monthStartAt(Date.UTC(2027, 0, 1, 4), 7) === Date.UTC(2027, 0, 1, 5));
     const A = Date.UTC(2026, 9, 30, 10), B = Date.UTC(2026, 9, 30, 20), C = Date.UTC(2026, 9, 30, 22, 30), D = Date.UTC(2026, 9, 31, 5);
-    const mp = mergePoints([[B, 6], [A, 5], [D, -1], [Date.UTC(2026, 10, 5), 9]], [[A + 300, 5], [C, 7], [Date.UTC(2026, 8, 1), 1], [D + 1000, Number.NaN]], oct.from, oct.to);
-    check("raport: citirile din cele două surse se combină, se taie la perioadă, fără dubluri (aceeași secundă), fără valori negative / invalide, în ordine", JSON.stringify(mp) === JSON.stringify([[A, 5], [B, 6], [C, 7]]));
-    const pts: [number, number][] = [[A, 5], [B, 6], [C, 7], [D, 8]];
-    check("raport: toate / una pe zi (ultima din ziua locală) / doar ultima", collapse(pts, "all").length === 4 && JSON.stringify(collapse(pts, "daily")) === JSON.stringify([[B, 6], [D, 8]]) && JSON.stringify(collapse(pts, "last")) === JSON.stringify([[D, 8]]) && collapse([], "last").length === 0);
-    const keys = meterKeys({ _id: "x", s: { n: "S2154_1", e: "abc" }, bill: { NUM_RADIO: "00039410", ACCT_ID: 2572, SP_ID: "47" }, attrs: { ContorNr: "4624641" } });
-    check("raport: cheile contorului pentru facturare (număr radio, cont, SPID, serie, nume, devEUI, filială) și linia CSV cu indicația cu 3 zecimale", keys.join("|") === "00039410|2572|47|4624641|S2154_1|abc|" && readingLine(["1", "a;b", "c"].map(csvCell), oct.to, 12.3456) === '1;"a;b";c;2026-11-01 00:00:00;2026-10-31 22:00:00;12.346\n' && csvCell('x"y') === '"x""y"' && csvCell("simplu") === "simplu");
+    const mp = mergePoints([[B, 6], [A, 5], [D, -1], [Date.UTC(2026, 10, 5), 9]], [[A + 300, 5], [C, 7], [Date.UTC(2026, 8, 1), 1], [D + 1000, Number.NaN]], 0, Date.UTC(2026, 10, 1));
+    check("raport: citirile din cele două surse se combină, fără dubluri (aceeași secundă), fără valori negative / invalide, în ordine", JSON.stringify(mp) === JSON.stringify([[Date.UTC(2026, 8, 1), 1], [A, 5], [B, 6], [C, 7]]), JSON.stringify(mp));
+    const pts: [number, number][] = [[B, 6], [A, 5], [D, 8], [C, 7]];
+    check("raport: cea mai recentă citire până la momentul ales (inclusiv), în orice ordine; nimic înainte de prima citire", JSON.stringify(latestAt(pts, C)) === JSON.stringify([C, 7]) && JSON.stringify(latestAt(pts, C - 1)) === JSON.stringify([B, 6]) && JSON.stringify(latestAt(pts, D + 1e9)) === JSON.stringify([D, 8]) && latestAt(pts, A - 1) === null && latestAt([], 5) === null && latestAt([[A, -1], [B, Number.NaN]], D) === null);
+    check("raport: seria radiomodulului din facturare (NUM_RADIO), altfel din numele dispozitivului; linia CSV: serie ; indicația cu 3 zecimale ; data reală a citirii", radioOf({ _id: "x", bill: { NUM_RADIO: " 00039410 " }, s: { n: "S2154_00070948_2022" } }) === "00039410" && radioOf({ _id: "x", s: { n: "S2154_00070948_2022" } }) === "00070948" && radioOf({ _id: "x", s: { n: "ceva" } }) === "" && readingLine("00039410", dec1, 12.3456) === "00039410;12.346;01/12/2026 07:00:00\n" && csvCell('x"y') === '"x""y"' && csvCell("simplu") === "simplu");
+    // generatorul, cu o bază de date falsă: o linie pe contor, ultima citire până la momentul ales
+    const T = (d: number, h: number) => Date.UTC(2026, 10, d, h);
+    const meters = [
+      { _id: "m1", s: { n: "S2154_00000001_2022", v: 120, t: T(30, 10) }, bill: { NUM_RADIO: "00000001" } },
+      { _id: "m2", s: { n: "S2154_00000002_2022", v: 55, t: T(20, 8) }, bill: { NUM_RADIO: "00000002" } },
+      { _id: "m3", s: { n: "S2154_00000003_2022", v: 9, t: T(30, 9) }, bill: { NUM_RADIO: "00000003" } },
+      { _id: "m4", s: { n: "S2154_00000004_2022", v: 1, t: T(10, 1) }, bill: {} },
+      { _id: "m5", s: { n: "ceva", v: 1, t: T(10, 1) }, bill: {} },
+    ];
+    const readings = [{ _id: "m1", t: [T(29, 6), T(30, 5), T(30, 9)], v: [100, 110, 115] }, { _id: "m2", t: [T(15, 6)], v: [50] }];
+    const fake = { collection: (n: string) => ({
+      find: () => (n === "m" ? { sort: () => ({ batchSize: () => ({ async *[Symbol.asyncIterator]() { for (const d of meters) yield d; } }) }) } : { toArray: async () => (n === "r" ? readings : []) }),
+    }) } as unknown as Db;
+    const at = T(30, 6); // 30.11 la 06:00 UTC
+    let out = "";
+    for await (const b of reportBatches(fake, { at, onlyBilled: false }, { meters: "m", readings: "r", history: "h" })) out += b.text;
+    const lines = out.trim().split("\n");
+    check("raport: o linie pe contor, cu ultima citire până la momentul ales (nu cele ulterioare), seria radiomodulului și data reală; contor fără citire sau fără serie nu apare", lines.length === 3 && lines[0] === `00000001;110.000;${fmtDmy(T(30, 5))}` && lines[1] === `00000002;55.000;${fmtDmy(T(20, 8))}` && lines[2] === `00000004;1.000;${fmtDmy(T(10, 1))}`, out);
   }
   const stored = new Map<string, number>();
   const opsSeen: { insertOne?: { document: { _id: string; lt: number } }; updateOne?: { filter: { _id: string; lt: { $lt: number } }; update: { $push: Record<string, { $slice: number }>; $set: { lt: number } } } }[] = [];

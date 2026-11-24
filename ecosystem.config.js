@@ -4,7 +4,7 @@
  * Trei aplicații:
  *  1. aplicația Next (un SINGUR proces, fork — intenționat: lista de contoare din memorie e per proces; în cluster ar fi mai multe copii);
  *  2. „<nume>-sync”: o dată pe oră (minutul 0) rulează scripts/sync-meters.ts (lista și valorile din SCADA + getmgdb → colecția `meters`; scrie doar contoarele modificate);
- *  2b. „<nume>-report”: pe 1 ale lunii la 07:00 rulează scripts/monthly-report.ts (raportul de citiri al lunii precedente, CSV în REPORT_OUT_DIR, pentru facturare);
+ *  2b. „<nume>-report”: pe 1 ale lunii la 07:00 rulează scripts/monthly-report.ts (raportul cu ultima citire a fiecărui contor la 1 ale lunii ora 07:00, CSV în REPORT_OUT_DIR, pentru facturare);
  *  2c. „<nume>-photos”: scripts/pull-photos.ts extrage din SCADA pozele contoarelor (atributul `image`), le micșorează și le scrie în PHOTO_DIR; pornește doar cu PHOTO_PULL=1 (în fiecare zi la 22:00, reluabil);
  *  3. „<nume>-autodeploy”: o dată pe minut verifică GitHub-ul (deploy/auto-deploy.sh) și, dacă există commit nou pe branch, face deploy
  *     (git pull, npm ci doar dacă s-au schimbat dependențele, build, reload; la build eșuat revine la commit-ul anterior).

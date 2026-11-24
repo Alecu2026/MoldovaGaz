@@ -1,37 +1,21 @@
 import { apiGuard } from "@/lib/guard";
-import { localMidnight } from "@/lib/night-analysis";
-import { previousMonth, thisMonthSoFar, type ReportMode, type ReportParams } from "@/lib/report-readings";
+import { localToUtc, type ReportParams } from "@/lib/report-readings";
 import { createReport, dir, listReports, previewNow } from "@/lib/services/reports";
 
 /**
  * Raportul de citiri către facturare, doar pentru utilizatori autentificați.
  *   GET  /api/reports                                   → rapoartele generate + locul unde se scriu
- *   POST /api/reports { action: "preview" | "start", period: "this" | "prev" | "custom", from?, to?, mode?, onlyBilled? }
- *        from / to (pentru "custom") = AAAA-LL-ZZ, ambele zile incluse, în ora Moldovei.
+ *   POST /api/reports { action: "preview" | "start", at: "AAAA-LL-ZZTHH:MM", onlyBilled? }
+ *        at = data și ora aleasă (ora Moldovei): în raport intră, pentru fiecare contor, ultima citire făcută până atunci. Nu poate fi în viitor.
  */
-const DAY = 86_400_000;
-
-function ymd(v: unknown): { y: number; m: number; d: number } | null {
-  const a = String(v ?? "").split("-").map(Number);
-  if (a.length !== 3 || a.some((x) => !Number.isInteger(x))) return null;
-  const [y, m, d] = a;
-  return y >= 2000 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= 31 ? { y, m, d } : null;
-}
-
 function params(b: Record<string, unknown>): ReportParams | string {
-  const now = Date.now();
-  let r: { from: number; to: number };
-  if (b.period === "prev") r = previousMonth(now);
-  else if (b.period === "this") r = thisMonthSoFar(now);
-  else if (b.period === "custom") {
-    const a = ymd(b.from), z = ymd(b.to);
-    if (!a || !z) return "Alege ambele date (de la / până la).";
-    r = { from: localMidnight(a.y, a.m, a.d), to: localMidnight(z.y, z.m, z.d + 1) };
-  } else return "Alege perioada.";
-  if (!(r.to > r.from)) return "Perioada e goală sau „până la” e înaintea lui „de la”.";
-  if (r.to - r.from > 400 * DAY) return "Perioada poate avea cel mult 400 de zile.";
-  const mode: ReportMode = b.mode === "daily" ? "daily" : b.mode === "last" ? "last" : "all";
-  return { ...r, mode, onlyBilled: b.onlyBilled !== false };
+  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})$/.exec(String(b.at ?? ""));
+  if (!m) return "Alege data și ora raportului.";
+  const [y, mo, d, h, mi] = m.slice(1).map(Number);
+  if (y < 2000 || y > 2100 || mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59) return "Data sau ora nu sunt valide.";
+  const at = localToUtc(y, mo, d, h, mi);
+  if (at > Date.now() + 5 * 60_000) return "Data și ora nu pot fi în viitor.";
+  return { at, onlyBilled: b.onlyBilled !== false };
 }
 
 export async function GET() {
@@ -54,7 +38,7 @@ export async function POST(req: Request) {
   if (typeof p === "string") return Response.json({ error: p }, { status: 400 });
   try {
     const headers = { "Cache-Control": "private, no-store" };
-    if (b.action === "preview") return Response.json({ ...(await previewNow(p)), from: p.from, to: p.to }, { headers });
+    if (b.action === "preview") return Response.json({ ...(await previewNow(p)), at: p.at }, { headers });
     return Response.json({ id: await createReport(p, guard.user.email) }, { headers });
   } catch (e) {
     console.error("[reports] eșuat:", e);
