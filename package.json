@@ -13,6 +13,7 @@
     "sync:sources": "tsx scripts/sync-sources.ts",
     "analyze:nights": "tsx scripts/analyze-nights.ts",
     "report:monthly": "tsx scripts/monthly-report.ts",
+    "photos:pull": "tsx scripts/pull-photos.ts",
     "bench:integration": "tsx scripts/bench-integration.ts",
     "history:fetch": "tsx scripts/fetch-history.ts",
     "history:load": "tsx scripts/load-history.ts"
@@ -22,7 +23,8 @@
     "mongodb": "^7.9.1",
     "next": "16.4.6",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "4.3.3",

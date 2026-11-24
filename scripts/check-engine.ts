@@ -22,6 +22,8 @@ import { writeSource } from "../lib/source-sync";
 import * as NA from "../lib/night-analysis";
 import { RESTART_GAP, counterOf, lostOf, newStream, observe, summarize } from "../lib/integration-counter";
 import { distanceKm as kmDist } from "../lib/geo";
+import { decodeImage, photoPath, processImage, validId } from "../lib/photos";
+import { MAX_TRIES, pendingIds } from "../lib/photo-job";
 import { collapse, csvCell, fmtLocal, fmtUtc, mergePoints, meterKeys, monthRange, periodName, previousMonth, readingLine, thisMonthSoFar } from "../lib/report-readings";
 import { DAY as GDAY, buildStats, dayRange, foldDays, type DayAgg, type GwSum } from "../lib/gateway-stats";
 import { eventToMsg, gatewaysOf, looksLikeEvent, looksLikeUplink, nameKey, uplinkToMsg } from "../lib/integration-uplink";
@@ -348,7 +350,7 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   check("read-only: fetch() doar în fișierele așteptate", fetches.every((f) => allowedFetch.has(f)), [...new Set(fetches)].join(", "));
   const mutating = files.filter((f) => /method:\s*"(PUT|DELETE|PATCH)"|\.(deleteOne|deleteMany|drop|updateMany|updateOne|insertOne|insertMany|replaceOne|bulkWrite)\(/.test(readFileSync(f, "utf8"))).map((f) => f.replace(/\\/g, "/"));
   // scrieri în baza NOASTRĂ: doar sesiuni / utilizator (login, seed) și colecția `meters` (sincronizare); niciodată în surse
-  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts", "lib/services/gateways.ts", "lib/services/counters.ts", "lib/services/kept.ts", "lib/report-job.ts", "lib/services/reports.ts", "app/components/ReportsPanel.tsx"]);
+  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts", "lib/services/gateways.ts", "lib/services/counters.ts", "lib/services/kept.ts", "lib/report-job.ts", "lib/services/reports.ts", "lib/photo-job.ts", "app/components/ReportsPanel.tsx"]);
   check("read-only: scrieri în baza de date doar în sesiuni, seed:user, sync-meters, load-history și lib/source-sync", mutating.every((f) => allowedWrites.has(f)), mutating.join(", "));
   const syncSrc = readFileSync("scripts/sync-meters.ts", "utf8");
   const syncCollections = syncSrc.match(/client\.db\(\)\.collection[^\n]*/g) ?? [];
@@ -852,6 +854,25 @@ const section8 = (async () => {
   { const T = 1_800_000_000_000;
     const vv = (tsT: number | null, tsV = "10.000") => readingOf({ tel: { Volume_m3_Total: { t: T, v: "10.000" }, ...(tsT === null ? {} : { Volume_m3_Total_ts: { t: tsT, v: tsV } }) } })?.t;
     check("citire: ora = momentul CITIRII (Volume_m3_Total_ts) când are aceeași valoare și e plauzibilă; altfel momentul sosirii", vv(T - 45 * 60_000) === T - 45 * 60_000 && vv(T - 45 * 60_000, "10,000") === T - 45 * 60_000 && vv(T - 45 * 60_000, "9.000") === T && vv(T + 3 * H) === T && vv(T - 8 * 24 * H) === T && vv(null) === T);
+  }
+  // pozele contoarelor
+  {
+    const id = "de219e81-9c2d-11ed-9f20-9d903c1d67f8";
+    const okGet = (p: string) => { try { assertReadOnly("GET", p); return true; } catch { return false; } };
+    check("poze: se poate citi DOAR atributul image al unui dispozitiv (nu alte atribute, nu scrieri)", okGet(`/api/plugins/telemetry/DEVICE/${id}/values/attributes?keys=image`) && !okGet(`/api/plugins/telemetry/DEVICE/${id}/values/attributes?keys=image,devEUI`) && !okGet(`/api/plugins/telemetry/DEVICE/${id}/values/attributes?keys=APPKEY`) && !okGet(`/api/plugins/telemetry/DEVICE/${id}/values/attributes`) && !(() => { try { assertReadOnly("POST", `/api/plugins/telemetry/DEVICE/${id}/values/attributes?keys=image`); return true; } catch { return false; } })());
+    check("poze: id-ul din calea fișierului e strict un UUID (fără ../ sau separatori)", validId(id) && !validId("../etc/passwd") && !validId(id + "/x") && !validId("") && !validId(id.toUpperCase()) && photoPath(id, false, "/p").split("\\").join("/") === `/p/de/${id}.jpg` && photoPath(id, true, "/p").split("\\").join("/") === `/p/de/${id}_t.jpg` && (() => { try { photoPath("../x"); return false; } catch { return true; } })());
+    const sharpMod = (await import("sharp")).default;
+    const raw = await sharpMod({ create: { width: 3000, height: 2000, channels: 3, background: { r: 200, g: 120, b: 40 } } }).withMetadata({ orientation: 6 }).jpeg({ quality: 95 }).toBuffer();
+    const uri = "data:image/jpeg;base64," + raw.toString("base64");
+    const dec = decodeImage(uri);
+    check("poze: decodare din data URI (și base64 simplu); text invalid, prea scurt sau care nu e imagine ⇒ null", dec !== null && dec.equals(raw) && decodeImage(raw.toString("base64"))?.equals(raw) === true && decodeImage("data:image/jpeg;base64,AAAA") === null && decodeImage(null) === null && decodeImage(42) === null && decodeImage("data:image/jpeg;base64," + Buffer.alloc(5000, 7).toString("base64")) === null && decodeImage("x".repeat(3000)) === null);
+    const pr = await processImage(raw, 1000);
+    const m = await sharpMod(pr.full).metadata(), tm = await sharpMod(pr.thumb).metadata();
+    check("poze: micșorată la cel mult 1000 px pe latura lungă, orientarea din EXIF aplicată (portret), fără metadate (fără locație), miniatură 240 px, mult mai mică decât originalul", pr.w === m.width && pr.h === m.height && Math.max(m.width ?? 0, m.height ?? 0) === 1000 && (m.height ?? 0) > (m.width ?? 0) && !m.exif && !m.orientation && Math.max(tm.width ?? 0, tm.height ?? 0) === 240 && pr.full.length < raw.length && pr.thumb.length < pr.full.length);
+    const NOW = 1_800_000_000_000, D = 86_400_000;
+    const st = new Map([["ok", { st: "ok" as const, at: new Date(NOW - 99 * D) }], ["none-new", { st: "none" as const, at: new Date(NOW - 2 * D) }], ["none-old", { st: "none" as const, at: new Date(NOW - 8 * D) }], ["err-new", { st: "err" as const, at: new Date(NOW - 60_000), n: 1 }], ["err-old", { st: "err" as const, at: new Date(NOW - 3_600_000), n: 2 }], ["err-max", { st: "err" as const, at: new Date(NOW - 3_600_000), n: MAX_TRIES }]]);
+    const all = ["new", "ok", "none-new", "none-old", "err-new", "err-old", "err-max"];
+    check("poze: se reiau doar contoarele fără stare, cele fără poză de peste 7 zile și cele cu eroare mai veche de 10 min (sub 5 încercări); --refresh le ia pe toate", pendingIds(all, st, NOW).join() === "new,none-old,err-old" && pendingIds(all, st, NOW, true).length === all.length);
   }
   // raportul de citiri către facturare
   { const oct = monthRange(2026, 10);

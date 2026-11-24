@@ -31,6 +31,10 @@ start_or_reload() {
   if ! pm2 describe "$NAME-report" >/dev/null 2>&1; then
     pm2 start ecosystem.config.js --only "$NAME-report" --update-env
   fi
+  # extragerea pozelor din SCADA: tot separat și doar dacă nu există; fără PHOTO_PULL=1 în .env.local nu face nimic
+  if ! pm2 describe "$NAME-photos" >/dev/null 2>&1; then
+    pm2 start ecosystem.config.js --only "$NAME-photos" --update-env
+  fi
   pm2 save >/dev/null
 }
 

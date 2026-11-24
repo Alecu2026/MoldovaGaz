@@ -135,6 +135,15 @@ Pagina **Rapoarte**: alegi perioada (luna aceasta, luna trecută sau un interval
 - **Automat**: aplicația pm2 `<nume>-report` rulează pe **1 ale lunii la 07:00** (ora serverului) și generează raportul lunii precedente (toate citirile, doar contoare legate de facturare; schimbabil cu `REPORT_MODE` / `REPORT_ONLY_BILLED`). Dacă serverul a fost oprit la 07:00, la pornire completează în zilele 1–5; nu generează de două ori aceeași lună. Manual: `npm run report:monthly -- --force`.
 - **Sursa citirilor**: istoricul propriu de citiri (`meter_readings`) și arhiva veche de volum (`meter_history`), combinate, fără dubluri, în ordine. Ora citirii e cea la care contorul a măsurat volumul (`Volume_m3_Total_ts`), nu momentul sosirii în sistem.
 
+## Pozele contoarelor
+
+În SCADA fiecare contor poate avea atributul `image` (poza de la montaj, JPEG ca text base64, 1,5–3,5 MB). Nu le păstrăm așa: [scripts/pull-photos.ts](scripts/pull-photos.ts) ([lib/photo-job.ts](lib/photo-job.ts)) le citește din SCADA (**doar citire**, un contor pe cerere, doar cheia `image`), le decodează, le micșorează cu `sharp` (cel mult 1000 px pe latura lungă, orientarea din EXIF aplicată, **fără metadate, deci fără locația din poză**) și le scrie ca fișiere pe disc: `<PHOTO_DIR>/<primele 2 caractere ale id-ului>/<id>.jpg` și `<id>_t.jpg` (miniatură de 240 px). Originalele nu se păstrează (~150 GB). În Mongo, colecția `meter_photos` ține doar starea fiecărui contor (`ok` / `none` / `err`).
+
+- **Afișare:** în detaliile fiecărui contor poza apare sus (click = poza întreagă într-o filă nouă); fără poză, nu ocupă loc. Ruta: `GET /api/meters/<id>/photo` (`?size=thumb` = miniatura), doar autentificat.
+- **Pornire:** aplicația pm2 `<nume>-photos` (zilnic la 22:00 și o dată la creare) pornește **doar cu `PHOTO_PULL=1`** în `.env.local`; sau manual `npm run photos:pull -- --now [--limit 200] [--refresh]`. Prima rulare le ia pe toate; apoi doar contoarele noi, cele fără poză (reverificate o dată la 7 zile) și cele cu eroare (după 10 min, de cel mult 5 ori).
+- **Reluabil și blând cu SCADA:** se poate opri oricând (pm2 stop / Ctrl+C) și continuă de unde a rămas; `PHOTO_CONCURRENCY` cereri deodată (3), `PHOTO_PAUSE_MS` între ele (150); se oprește singur dacă pe disc rămân sub `PHOTO_MIN_FREE_GB` (3) GB sau dacă SCADA nu răspunde 5 minute la rând.
+- **Loc și mărime:** `PHOTO_DIR` (implicit `photos/` lângă aplicație; poate fi un alt disc), `PHOTO_MAX_PX` (1000). Estimat ~6–7 GB pentru toate contoarele; pozele se pot reface oricând din SCADA.
+
 ## Limite și date personale
 
 - Facturarea conține **date personale** (nume consumator, adresă). Ele ajung în browserul utilizatorilor autentificați (căutare instant) și în IndexedDB-ul lor; se șterg la „Ieșire”. Exportul CSV **nu** le include. Dă acces doar persoanelor autorizate.

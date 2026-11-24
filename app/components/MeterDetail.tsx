@@ -67,6 +67,20 @@ function consumption(points: [number, number][], by: "day" | "hour", sinceMs: nu
   return { bars, total, anomalies };
 }
 
+/** Poza contorului (din SCADA, micșorată pe server); dacă nu există, nu ocupă loc. Click = poza întreagă într-o filă nouă. */
+function Photo({ id }: { id: string }) {
+  const [bad, setBad] = useState<string | null>(null);
+  if (bad === id) return null;
+  return (
+    <section style={{ padding: 0, borderBottom: "none" }}>
+      <a href={`/api/meters/${id}/photo`} target="_blank" rel="noopener noreferrer" title="Deschide poza întreagă" style={{ display: "block", background: "var(--surface-2)", borderRadius: 10, overflow: "hidden", textAlign: "center" }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={`/api/meters/${id}/photo`} alt="Poza contorului" loading="lazy" onError={() => setBad(id)} style={{ maxWidth: "100%", maxHeight: 320, objectFit: "contain", display: "block", margin: "0 auto" }} />
+      </a>
+    </section>
+  );
+}
+
 /** Panou lateral cu tot ce se știe despre un contor: facturare, atribute, ultima telemetrie și istoricul Volume (m3) din SCADA. */
 export default function MeterDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const [data, setData] = useState<{ id: string; item: Detail | null; error: string | null } | null>(null);
@@ -163,6 +177,8 @@ export default function MeterDetail({ id, onClose }: { id: string; onClose: () =
             Închide
           </button>
         </header>
+
+        <Photo id={id} />
 
         {loading && (
           <section aria-busy="true">

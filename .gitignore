@@ -48,3 +48,6 @@ next-env.d.ts
 
 # rapoartele de citiri generate pe server
 /reports/
+
+# pozele contoarelor extrase din SCADA
+/photos/
