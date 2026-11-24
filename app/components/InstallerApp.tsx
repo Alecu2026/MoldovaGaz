@@ -10,7 +10,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { logoutAction } from "@/app/actions/auth";
-import { LIST_COLUMNS, MSG, activity, qrNotInDb, type InstallerList, type InstallerRecord, type InstallerRow } from "@/lib/installer";
+import { LIST_COLUMNS, MSG, PAGE_SIZES, activity, qrNotInDb, type InstallerList, type InstallerRecord, type InstallerRow } from "@/lib/installer";
 import { ICON, type IconName } from "./tbicons";
 import { clearMeterCaches } from "./useMeterStore";
 
@@ -29,6 +29,7 @@ const Ico = ({ n, s = 24 }: { n: IconName; s?: number }) => <svg viewBox="0 0 24
 const Btn = ({ n, label, onClick, disabled, className = "" }: { n: IconName; label: string; onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void; disabled?: boolean; className?: string }) => (
   <button type="button" className={`tbx-iconbtn ${className}`} onClick={onClick} disabled={disabled} aria-label={label} title={label}><Ico n={n} /></button>
 );
+const ROW_H = 50, OVERSCAN = 12, WINDOW_MIN = 120;
 const p2 = (n: number) => String(n).padStart(2, "0");
 const fdt = (ms: number | null) => { if (!ms) return ""; const d = new Date(ms); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`; };
 const fnum = (v: number | null) => (v === null ? "" : String(v));
@@ -176,8 +177,18 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
   const loading = !list || list.key !== key;
   const cols = useMemo(() => LIST_COLUMNS.filter((c) => !hidden.includes(c.key)), [hidden]);
   const toggleCol = (k: string) => setHidden((h) => { const n = h.includes(k) ? h.filter((x) => x !== k) : [...h, k]; try { localStorage.setItem(COL_KEY, JSON.stringify(n)); } catch { /* fără stocare locală */ } return n; });
-  const from = total === 0 ? 0 : page * size + 1, to = Math.min(total, (page + 1) * size);
-  const lastPage = Math.max(0, Math.ceil(total / size) - 1);
+  // size 0 = «All»: toate rândurile pe o singură pagină
+  const from = total === 0 ? 0 : size ? page * size + 1 : 1, to = size ? Math.min(total, (page + 1) * size) : total;
+  const lastPage = size ? Math.max(0, Math.ceil(total / size) - 1) : 0;
+  // liste mari (200 / 500 / 1000 / toate): se desenează doar rândurile din fereastra vizibilă (50 px fiecare), restul sunt spații goale — telefonul nu îngheață
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [scrollRow, setScrollRow] = useState(0);
+  const [viewRows, setViewRows] = useState(16);
+  const syncScroll = useCallback(() => { const w = wrapRef.current; if (!w) return; setScrollRow(Math.floor(w.scrollTop / ROW_H)); setViewRows(Math.ceil(w.clientHeight / ROW_H) + 1); }, []);
+  const listKey = list?.key;
+  useEffect(() => { const w = wrapRef.current; if (w) w.scrollTop = 0; const t = setTimeout(syncScroll, 0); return () => clearTimeout(t); }, [listKey, syncScroll]);
+  const windowed = rows.length > WINDOW_MIN;
+  const w0 = windowed ? Math.max(0, scrollRow - OVERSCAN) : 0, w1 = windowed ? Math.min(rows.length, scrollRow + viewRows + OVERSCAN) : rows.length;
   const photoUrl = cur?.hasPhoto ? `/api/meters/${cur.id}/photo?v=${pv}` : null;
   const draft = filterDraft ?? filter;
   const filterDirty = filterDraft !== null && filterDraft !== filter;
@@ -267,7 +278,7 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
             </div>
             <Btn n={full === "table" ? "fullscreen_exit" : "fullscreen"} label={full === "table" ? "Exit fullscreen" : "Fullscreen"} onClick={() => setFull(full === "table" ? null : "table")} />
           </header>
-          <div className="tbx-table-wrap">
+          <div className="tbx-table-wrap" ref={wrapRef} onScroll={windowed ? syncScroll : undefined}>
             <table className="tbx-table">
               <thead><tr>
                 {cols.map((c) => (
@@ -278,7 +289,8 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
                 <th className="tbx-sticky-a" aria-label="Actions" />
               </tr></thead>
               <tbody>
-                {rows.map((r) => (
+                {windowed && w0 > 0 && <tr aria-hidden="true"><td colSpan={cols.length + 1} style={{ height: w0 * ROW_H, padding: 0, border: 0 }} /></tr>}
+                {rows.slice(w0, w1).map((r) => (
                   <tr key={r.id} className={sel === r.id ? "sel" : ""} onClick={() => setSel(r.id)}>
                     {cols.map((c) => <td key={c.key} className={c.num ? "num" : ""}>{cell(r, c.key)}</td>)}
                     <td className="tbx-sticky-a" onClick={(e) => e.stopPropagation()}>
@@ -287,6 +299,7 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
                     </td>
                   </tr>
                 ))}
+                {windowed && w1 < rows.length && <tr aria-hidden="true"><td colSpan={cols.length + 1} style={{ height: (rows.length - w1) * ROW_H, padding: 0, border: 0 }} /></tr>}
                 {!loading && rows.length === 0 && !list?.err && <tr><td colSpan={cols.length + 1} className="tbx-empty">No entities found</td></tr>}
                 {list?.err && <tr><td colSpan={cols.length + 1} className="tbx-empty" role="alert">{list.err}</td></tr>}
               </tbody>
@@ -294,7 +307,7 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
           </div>
           <footer className="tbx-pager">
             <span className="tbx-ps">Items per page:</span>
-            <select className="tbx-ps" value={size} onChange={(e) => { setSize(Number(e.target.value)); setPage(0); }} aria-label="Items per page">{[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}</select>
+            <select className="tbx-ps" value={size} onChange={(e) => { setSize(Number(e.target.value)); setPage(0); }} aria-label="Items per page">{PAGE_SIZES.map((n) => <option key={n} value={n}>{n === 0 ? "All" : n}</option>)}</select>
             <span className="tbx-range">{from} – {to} of {total}</span>
             <Btn n="first_page" label="First page" onClick={() => setPage(0)} disabled={page === 0} />
             <Btn n="chevron_left" label="Previous page" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} />

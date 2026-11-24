@@ -4,7 +4,7 @@ import path from "node:path";
 import { getDb, COLLECTIONS } from "../mongo";
 import type { Viewer } from "../access";
 import { allowedIds, meterAllowed } from "./meter-dataset";
-import { cleanPatch, type InstallerList, type InstallerRecord, type InstallerRow, type Patch } from "../installer";
+import { ALL_ROWS_MAX, cleanPatch, type InstallerList, type InstallerRecord, type InstallerRow, type Patch } from "../installer";
 import { decodeImage, photoDir, photoPath, processImage, validId } from "../photos";
 
 /**
@@ -63,7 +63,8 @@ export async function listMeters(v: Viewer, o: { q: string; page: number; size: 
   const key = SORTS[o.sort] ?? "tb.name";
   const [total, docs] = await Promise.all([
     q || ids ? meters.countDocuments(filter) : meters.estimatedDocumentCount(),
-    meters.find(filter, { projection: PROJ }).sort({ [key]: o.dir, _id: 1 }).skip(Math.max(0, o.page) * o.size).limit(o.size).toArray(),
+    // size 0 = toate (cu o limită de siguranță); altfel o pagină
+    meters.find(filter, { projection: PROJ }).sort({ [key]: o.dir, _id: 1 }).skip(o.size ? Math.max(0, o.page) * o.size : 0).limit(o.size || ALL_ROWS_MAX).toArray(),
   ]);
   const data = new Map((await db.collection<DataDoc>(DATA_COLLECTION).find({ _id: { $in: docs.map((d) => String(d._id)) } }).toArray()).map((d) => [d._id, d]));
   return { total, rows: docs.map((m) => rowOf(m, data.get(String(m._id)))) };

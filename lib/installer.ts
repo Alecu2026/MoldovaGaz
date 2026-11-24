@@ -27,6 +27,10 @@ export type InstallerRow = {
 };
 export type InstallerList = { total: number; rows: InstallerRow[] };
 
+/** „Items per page”: ca în SCADA (10 / 25 / 50 / 100) plus 200 / 500 / 1000 și «All» (0 = toate contoarele din zona utilizatorului). */
+export const PAGE_SIZES = [10, 25, 50, 100, 200, 500, 1000, 0] as const;
+export const ALL_ROWS_MAX = 100_000;
+
 /** Coloanele tabelului, cu antetele din SCADA („Nume Entitate” = numele contorului, tradus în română de ThingsBoard). */
 export const LIST_COLUMNS: { key: string; label: string; num?: boolean }[] = [
   { key: "name", label: "Nume Entitate" },

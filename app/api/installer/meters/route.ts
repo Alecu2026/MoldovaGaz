@@ -1,5 +1,5 @@
 import { apiGuard } from "@/lib/guard";
-import { parseQr } from "@/lib/installer";
+import { PAGE_SIZES, parseQr } from "@/lib/installer";
 import { countMeters, findByName, listMeters } from "@/lib/services/installer";
 
 /**
@@ -18,7 +18,8 @@ export async function GET(req: Request) {
       const name = parseQr(code);
       return Response.json({ name, found: name ? await findByName(name, user) : null, total: await countMeters(user) }, { headers: { "Cache-Control": "private, no-store" } });
     }
-    const size = [10, 25, 50, 100].includes(Number(u.get("size"))) ? Number(u.get("size")) : 10;
+    const asked = u.get("size") === "0" ? 0 : Number(u.get("size"));
+    const size = (PAGE_SIZES as readonly number[]).includes(asked) ? asked : 10;
     const page = Math.max(0, Math.min(100_000, Math.floor(Number(u.get("page")) || 0)));
     return Response.json(await listMeters(user, { q: u.get("q") ?? "", page, size, sort: u.get("sort") ?? "name", dir: u.get("dir") === "desc" ? -1 : 1 }), { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
