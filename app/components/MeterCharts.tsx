@@ -23,9 +23,9 @@ const WDAYS = ["Lun", "Mar", "Mie", "Joi", "Vin", "Sâm", "Dum"];
 const pct = (a: number, b: number) => (b > 0 ? `${nf1.format((a / b) * 100)}%` : "—");
 const compact = (v: number) => (v >= 10_000 ? `${nf1.format(v / 1000)}K` : nf.format(Math.round(v)));
 
-type Props = { store: MeterStore; filters: Filters; patch: (p: Partial<Filters>) => void; all: Agg; flt: Agg; ctx: AggCtx; pending: boolean };
+type Props = { store: MeterStore; filters: Filters; patch: (p: Partial<Filters>) => void; all: Agg; flt: Agg; ctx: AggCtx; pending: boolean; onOpenMeter?: (id: string) => void };
 
-export default function MeterCharts({ store, filters, patch, all, flt, ctx, pending }: Props) {
+export default function MeterCharts({ store, filters, patch, all, flt, ctx, pending, onOpenMeter }: Props) {
   const d = store.dict;
   const tableOf = (items: { label: string; value: number; ghost: number }[]) => ({ head: ["", "Filtrate", "Total"], rows: items.map((i) => [i.label, i.value, i.ghost]) });
   const barsTable = (bars: Bar[]) => tableOf(bars);
@@ -295,7 +295,7 @@ export default function MeterCharts({ store, filters, patch, all, flt, ctx, pend
         </ChartCard>
       </div>
 
-      <GatewayCharts />
+      <GatewayCharts onOpenMeter={onOpenMeter} />
     </div>
   );
 }

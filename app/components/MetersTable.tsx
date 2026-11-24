@@ -299,7 +299,7 @@ export default function MetersTable({ userId, warm, head, initialFilters, initia
       ) : (
         <section className="chartsbox" id="panel-view" role="tabpanel" aria-labelledby="tab-charts" aria-label="Grafice">
           {store && ctx && allAgg && fltAgg ? (
-            <MeterCharts store={store} filters={filters} patch={patch} all={allAgg} flt={fltAgg} ctx={ctx} pending={pending} />
+            <MeterCharts store={store} filters={filters} patch={patch} all={allAgg} flt={fltAgg} ctx={ctx} pending={pending} onOpenMeter={setOpenId} />
           ) : (
             <div className="empty">
               <h2>{status === "error" ? "Nu am putut încărca lista" : "Se încarcă lista…"}</h2>

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { DAY, dayOf, type Stats } from "@/lib/gateway-stats";
 import { BarList, ColumnChart, nf, nf1, type Bar, type BarItem } from "./charts/primitives";
+import GatewayPopup from "./GatewayPopup";
 
 /**
  * Grafice pe ANTENE (gateway-uri LoRaWAN), cu filtre proprii (separate de cele ale contoarelor): perioadă (azi / 7 / 30 / 90 de zile sau interval ales), stare, căutare după nume,
@@ -26,7 +27,7 @@ const when = (ms: number) => {
   return `${p2(d.getDate())}.${p2(d.getMonth() + 1)} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
 };
 
-export default function GatewayCharts() {
+export default function GatewayCharts({ onOpenMeter }: { onOpenMeter?: (id: string) => void }) {
   const [period, setPeriod] = useState<Period>("7d");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -37,6 +38,7 @@ export default function GatewayCharts() {
   const [sort, setSort] = useState("devices");
   const [metric, setMetric] = useState<Metric>("n");
   const [gw, setGw] = useState("");
+  const [popup, setPopup] = useState<string | null>(null);
   const [now] = useState(() => Date.now());
   const [res, setRes] = useState<{ key: string; data: Stats | null } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -72,7 +74,7 @@ export default function GatewayCharts() {
   const byDevices: BarItem[] = [...rows].filter((r) => r.devicesIn > 0).sort((a, b) => b.devicesIn - a.devicesIn).map((r) => ({ key: r.id, label: r.name, value: r.devicesIn, ghost: 0, sub: `${nf.format(r.messages)} mesaje · ${STATE_LABEL[r.state]}`, tone: STATE_TONE[r.state] }));
   const bySignal: BarItem[] = [...rows].filter((r) => r.rssiIn !== null).sort((a, b) => (b.rssiIn as number) - (a.rssiIn as number)).map((r) => ({ key: r.id, label: r.name, value: Math.max(1, 140 + (r.rssiIn as number)), ghost: 0, show: `${r.rssiIn} dBm`, sub: `SNR ${r.snrIn ?? "—"}`, tone: (r.rssiIn as number) >= -105 ? "good" : (r.rssiIn as number) >= -115 ? "warning" : "critical" }));
   const noData = !!st && st.days.every((d) => d.n === 0);
-  const pick = (k: string) => setGw((g) => (g === k ? "" : k));
+  const pick = (k: string) => setPopup(k);
 
   return (
     <section className="card" aria-label="Antene" style={{ marginTop: 12 }}>
@@ -133,7 +135,7 @@ export default function GatewayCharts() {
 
       <div className="grid" style={{ marginTop: 12 }}>
         <section className="card" aria-label="Contoare auzite pe antenă">
-          <header className="card-h"><div><h3>Contoare auzite, pe antenă</h3><p>în perioadă; click = seria antenei</p></div></header>
+          <header className="card-h"><div><h3>Contoare auzite, pe antenă</h3><p>în perioadă; click = detaliile antenei</p></div></header>
           <BarList unit="contoare" items={byDevices} selected={gw ? [gw] : []} onToggle={pick} top={12} ariaLabel="Contoare auzite pe antenă" />
         </section>
         <section className="card" aria-label="Semnal pe antenă">
@@ -149,8 +151,8 @@ export default function GatewayCharts() {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.id} aria-selected={gw === r.id} onClick={() => pick(r.id)} style={{ cursor: "pointer", background: gw === r.id ? "var(--row-hover)" : undefined }}>
-                <td><b>{r.name}</b>{r.la === null && <span className="cell-sub"> · fără poziție</span>}</td>
+              <tr key={r.id} aria-selected={gw === r.id} onClick={() => pick(r.id)} title="Click: detaliile antenei și contoarele ei" style={{ cursor: "pointer", background: gw === r.id ? "var(--row-hover)" : undefined }}>
+                <td><button type="button" className="link-btn" onClick={(e) => { e.stopPropagation(); pick(r.id); }}><b>{r.name}</b></button>{r.la === null && <span className="cell-sub"> · fără poziție</span>}</td>
                 <td><span className={`badge ${r.state === "on" ? "ok" : r.state === "slow" ? "warn" : "danger"}`}>{STATE_LABEL[r.state]}</span></td>
                 <td className="num mono">{nf.format(r.devicesIn)}</td>
                 <td className="num mono">{nf.format(r.messages)}</td>
@@ -167,6 +169,9 @@ export default function GatewayCharts() {
           </tbody>
         </table>
       </div>
+      {popup && (
+        <GatewayPopup id={popup} onClose={() => setPopup(null)} onOpenMeter={(id) => { setPopup(null); onOpenMeter?.(id); }} onSeries={(id) => { setGw(id); setPopup(null); }} />
+      )}
     </section>
   );
 }

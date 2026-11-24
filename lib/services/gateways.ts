@@ -186,6 +186,8 @@ export type GwDetail = {
   nearest: GwDevice | null; farthest: GwDevice | null; strongest: GwDevice | null; weakest: GwDevice | null;
   /** contoarele cu coordonate, cele mai apropiate primele (pentru liniile de pe hartă) */
   devices: GwDevice[];
+  /** TOATE contoarele auzite de antenă (și cele fără coordonate), cele mai recente întâi, cel mult 3000 (pentru popup-ul din Grafice) */
+  list: GwDevice[];
 };
 
 export async function gatewayDetail(id: string): Promise<GwDetail | null> {
@@ -218,6 +220,7 @@ export async function gatewayDetail(id: string): Promise<GwDetail | null> {
     nearest: byKm[0] ?? null, farthest: byKm.length ? byKm[byKm.length - 1] : null,
     strongest: withRssi[0] ?? null, weakest: withRssi.length ? withRssi[withRssi.length - 1] : null,
     devices: byKm.slice(0, 800),
+    list: [...devices].sort((a, b) => b.last - a.last).slice(0, 3000),
   };
 }
 

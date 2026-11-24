@@ -1223,3 +1223,10 @@ button.badge-btn:hover {
 .wbody > .kept-wrap { flex: 1 1 auto; min-height: 140px; display: flex; flex-direction: column; }
 .wdrag, .wclose { color: var(--muted); }
 .wdrag:hover, .wdrag:focus-visible, .wclose:hover, .wclose:focus-visible { color: var(--text); }
+
+/* popup-ul unei antene (din Grafice) */
+.gwpop-back { position: fixed; inset: 0; z-index: 1600; background: rgb(0 0 0 / 0.45); display: grid; place-items: center; padding: 20px; }
+.gwpop { width: min(1240px, 100%); max-height: calc(100dvh - 40px); overflow: auto; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 14px; box-shadow: var(--shadow); padding: 14px 16px; display: grid; gap: 12px; }
+.gwpop-cols { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.gw-minimap { height: 300px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface-2); }
+@media (max-width: 900px) { .gwpop-cols { grid-template-columns: 1fr; } }
