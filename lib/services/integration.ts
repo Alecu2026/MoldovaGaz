@@ -63,21 +63,30 @@ const pushEv = (s: State, e: Ev) => {
 
 /* ───────── identificarea contorului: id din UUID, sau după nume / devEUI ───────── */
 type Resolver = { byName: (n: string) => string | null; byEui: (e: string) => string | null; byKey: (k: string) => string | null };
-async function resolver(): Promise<Resolver> {
-  const s = st();
-  const store = await getStore();
-  if (!s.maps || s.maps.gen !== store.gen || s.maps.n !== store.cols.id.length) {
-    const names = new Map<string, string>(), euis = new Map<string, string>(), keys = new Map<string, string | null>();
-    const c = store.cols;
-    for (let i = 0; i < c.id.length; i++) {
-      if (c.nm[i]) names.set(c.nm[i], c.id[i]);
-      if (c.eu[i]) euis.set(c.eu[i], c.id[i]);
-      const k = nameKey(c.nm[i]);
-      if (k) keys.set(k, keys.has(k) ? null : c.id[i]); // același model_serie_an la mai multe dispozitive ⇒ ambiguu, nu se folosește
-    }
-    s.maps = { gen: store.gen, n: c.id.length, names, euis, keys };
+type ResMaps = { names: Map<string, string>; euis: Map<string, string>; keys: Map<string, string | null> };
+const rg = globalThis as unknown as { __integRes?: { at: number; maps: ResMaps | null; loading: Promise<void> | null } };
+const RES_TTL_MS = 60_000;
+/** Nume / devEUI / „model_serie_an” → id, citite DOAR cu câmpurile necesare (≈1 s la 75.000 de contoare), reîmprospătate la un minut; doar prima dată se așteaptă. */
+async function loadResMaps(): Promise<ResMaps> {
+  const names = new Map<string, string>(), euis = new Map<string, string>(), keys = new Map<string, string | null>();
+  const coll = await col<Document>(COLLECTIONS.meters);
+  for await (const d of coll.find({}, { projection: { "s.n": 1, "s.e": 1 } }).batchSize(5000)) {
+    const id = String(d._id), n = typeof d.s?.n === "string" ? d.s.n : "", e = typeof d.s?.e === "string" ? d.s.e : "";
+    if (n) names.set(n, id);
+    if (e) euis.set(e, id);
+    const k = nameKey(n);
+    if (k) keys.set(k, keys.has(k) ? null : id); // același model_serie_an la mai multe dispozitive ⇒ ambiguu, nu se folosește
   }
-  const m = s.maps;
+  return { names, euis, keys };
+}
+async function resolver(): Promise<Resolver> {
+  const r = (rg.__integRes ??= { at: 0, maps: null, loading: null });
+  if ((!r.maps || Date.now() - r.at > RES_TTL_MS) && !r.loading) {
+    r.loading = loadResMaps().then((m) => { r.maps = m; r.at = Date.now(); }).finally(() => { r.loading = null; });
+    r.loading.catch(() => undefined);
+  }
+  if (!r.maps) await r.loading;
+  const m = r.maps as ResMaps;
   return { byName: (n) => m.names.get(n) ?? null, byEui: (e) => m.euis.get(e) ?? null, byKey: (k) => m.keys.get(k) ?? null };
 }
 

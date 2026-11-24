@@ -6,13 +6,17 @@
  *  - numărul se caută la rădăcina mesajului (apoi în `object` sau `data`), în câmpul `msg_counter` (sau `counter`, `cnt`, `seq`, `sequence`, `message_counter`, `msg_cnt`, `counter_id`; majusculele, „_” și „-” nu contează);
  *  - un număr mai mare decât ultimul + 1 înseamnă că s-a SĂRIT peste numerele dintre ele: se notează ca „lipsă” (cu ora la care s-a observat);
  *  - un număr care sosește mai târziu și acoperă o lipsă o închide („sosit târziu”: mesajele au venit în altă ordine, nu s-au pierdut);
- *  - un număr deja primit e „duplicat” (ex. expeditorul a reîncercat după un 503): nu e pierdere.
+ *  - un număr deja primit e „duplicat” (ex. expeditorul a reîncercat după un 503): nu e pierdere;
+ *  - dacă expeditorul și-a șters contorul și o ia de la capăt (numărul scade cu mai mult de RESTART_GAP față de ce se știa, sau cade sub primul număr văzut), seria
+ *    se REPORNEȘTE automat; seria veche se păstrează ca rezumat în `prev` (ultimele 5).
  */
 /** Numele câmpului se compară fără majuscule și fără „_” / „-”: msg_counter = msgCounter = MSG-COUNTER. */
 export const COUNTER_FIELDS = ["msg_counter", "counter", "cnt", "seq", "sequence", "message_counter", "msg_cnt", "counter_id"] as const;
 const FIELD_KEYS = new Set(COUNTER_FIELDS.map((f) => f.toLowerCase().replace(/[_-]/g, "")));
 const STREAM_FIELDS = ["stream", "source", "sender"] as const;
 export const MAX_RANGES = 1000;
+/** cât de mult poate scădea un număr (față de maxim / primul văzut) ca să fie încă „sosit târziu”; mai mult = expeditorul a luat-o de la capăt */
+export const RESTART_GAP = 1000;
 
 /** [de la, până la (inclusiv), momentul în care s-a observat saltul] */
 export type Gap = [number, number, number];
@@ -23,7 +27,10 @@ export type CStream = {
   /** golurile încă deschise (cele mai vechi se șterg peste MAX_RANGES, dar rămân în `dropped`) */
   missing: Gap[]; dropped: number;
   firstAt: number; lastAt: number;
+  /** seriile anterioare (oprite prin repornirea contorului expeditorului), cele mai noi ultimele */
+  prev?: PrevRun[];
 };
+export type PrevRun = { first: number; max: number; received: number; lost: number; startedAt: number; endedAt: number };
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
 
@@ -53,9 +60,20 @@ export function newStream(id: string, field: string, c: number, now: number): CS
   return { id, field, first: c, max: c, received: 1, dup: 0, late: 0, missing: [], dropped: 0, firstAt: now, lastAt: now };
 }
 
-export type Outcome = "gap" | "next" | "late" | "dup";
+export type Outcome = "gap" | "next" | "late" | "dup" | "restart";
 /** Înregistrează numărul `c` în flux. */
 export function observe(s: CStream, c: number, now: number): Outcome {
+  // sub primul număr văzut: aproape de el = sosit înaintea lui (urmărirea a pornit în mijlocul seriei); departe = seria a fost repornită
+  if (c < s.first) {
+    if (s.first - c > RESTART_GAP) return "restart";
+    s.lastAt = now;
+    if (c < s.first - 1) s.missing.unshift([c + 1, s.first - 1, now]);
+    s.first = c;
+    s.received++;
+    s.late++;
+    return "late";
+  }
+  if (c <= s.max && s.max - c > RESTART_GAP && !s.missing.some((g) => c >= g[0] && c <= g[1])) return "restart"; // mult în urmă și nu umple niciun gol ⇒ serie nouă
   s.lastAt = now;
   if (c > s.max) {
     let out: Outcome = "next";
@@ -87,6 +105,9 @@ export function observe(s: CStream, c: number, now: number): Outcome {
   s.dup++;
   return "dup";
 }
+
+/** Rezumatul unei serii, pentru istoric. */
+export const summarize = (s: CStream): PrevRun => ({ first: s.first, max: s.max, received: s.received, lost: lostOf(s), startedAt: s.firstAt, endedAt: s.lastAt });
 
 /** Câte numere lipsesc acum (golurile deschise + cele șterse din listă). */
 export const lostOf = (s: CStream): number => s.missing.reduce((a, g) => a + (g[1] - g[0] + 1), 0) + s.dropped;

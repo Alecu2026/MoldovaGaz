@@ -40,10 +40,10 @@ module.exports = {
       exec_mode: "fork",
       instances: 1,
       watch: false, // în producție fișierele nu se urmăresc: deploy-ul face reload controlat
-      node_args: "--max-old-space-size=1536",
+      node_args: "--max-old-space-size=3072", // lista de contoare + profilurile de noapte + codificările ocupă ~1,3 GB; la 1,5 GB colectorul de memorie bloca aplicația
       env: { NODE_ENV: "production", PORT },
       autorestart: true,
-      max_memory_restart: "1800M",
+      max_memory_restart: "3500M",
       min_uptime: "10s",
       max_restarts: 20,
       restart_delay: 3000,

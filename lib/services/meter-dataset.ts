@@ -22,6 +22,7 @@ import { OTHER_TYPE, TYPE_SLOTS, emptyDict, safeTs, type ColsWire, type DatasetW
  * browserul reia mai des descărcarea completă în loc de delta.
  */
 const STAMP_TTL_MS = 500;
+const MIN_MERGE_MS = 2000; // cu trafic continuu, lista nu se reîmprospătează mai des de o dată la 2 s (altfel fiecare cerere recitea mii de documente)
 const OVERLAP_MS = 120_000; // documentele scrise „în paralel” cu citirea precedentă nu se pierd (la hash egal, rândul rămâne neschimbat)
 const MERGE_EVERY_MS = 60_000; // plasă de siguranță: o interogare de delta pe minut chiar dacă amprenta nu s-a mișcat
 const gzipAsync = promisify(gzip);
@@ -162,6 +163,7 @@ async function deltaMerge(st: Store, stamp: Stamp): Promise<boolean> {
 /** Starea curentă a listei, sincronizată cu baza de date (vezi comentariul de sus). */
 export async function getStore(): Promise<Store> {
   for (let attempt = 0; ; attempt++) {
+    if (g.__mtStore && Date.now() - g.__mtStore.mergedAt < MIN_MERGE_MS) return g.__mtStore;
     const stamp = await getStamp();
     const cur = g.__mtStore;
     if (cur && cur.stamp.total === stamp.total && cur.stamp.max === stamp.max && Date.now() - cur.mergedAt < MERGE_EVERY_MS) return cur;

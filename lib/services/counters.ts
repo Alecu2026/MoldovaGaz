@@ -1,6 +1,6 @@
 import "server-only";
 import type { Document } from "mongodb";
-import { counterOf, lostOf, newStream, observe, type CStream } from "../integration-counter";
+import { counterOf, lostOf, newStream, observe, summarize, type CStream, type PrevRun } from "../integration-counter";
 import { col } from "../mongo";
 
 /**
@@ -33,7 +33,12 @@ export async function trackCounters(items: unknown[], now: number): Promise<void
   for (const f of found) { // fără await aici: tot lotul se înregistrează într-o singură bucată, în ordinea sosirii
     const cur = map.get(f.stream);
     if (!cur) map.set(f.stream, newStream(f.stream, f.field, f.value, now));
-    else observe(cur, f.value, now);
+    else if (observe(cur, f.value, now) === "restart") {
+      // expeditorul și-a șters contorul și o ia de la capăt: seria veche rămâne ca rezumat, seria nouă începe de la acest număr
+      const fresh = newStream(f.stream, f.field, f.value, now);
+      fresh.prev = [...(cur.prev ?? []), summarize(cur)].slice(-5);
+      map.set(f.stream, fresh);
+    }
     touched.add(f.stream);
   }
   const s = st();
@@ -58,6 +63,8 @@ export async function trackCounters(items: unknown[], now: number): Promise<void
 export type CounterRow = {
   id: string; field: string; first: number; last: number; expected: number; received: number; lost: number; dup: number; late: number;
   gaps: { from: number; to: number; size: number; at: number }[]; hiddenGaps: number; firstAt: number; lastAt: number;
+  /** seriile anterioare (repornite automat când numărul a scăzut) */
+  prev: PrevRun[];
 };
 
 export async function counterReport(): Promise<{ streams: CounterRow[] }> {
@@ -66,7 +73,7 @@ export async function counterReport(): Promise<{ streams: CounterRow[] }> {
     const gaps = s.missing.slice(-100).reverse().map(([from, to, at]) => ({ from, to, size: to - from + 1, at }));
     return {
       id: s.id, field: s.field, first: s.first, last: s.max, expected: s.max - s.first + 1, received: s.received, lost: lostOf(s), dup: s.dup, late: s.late,
-      gaps, hiddenGaps: Math.max(0, s.missing.length - gaps.length) + (s.dropped ? 1 : 0), firstAt: s.firstAt, lastAt: s.lastAt,
+      gaps, hiddenGaps: Math.max(0, s.missing.length - gaps.length) + (s.dropped ? 1 : 0), firstAt: s.firstAt, lastAt: s.lastAt, prev: s.prev ?? [],
     };
   });
   rows.sort((a, b) => b.lastAt - a.lastAt);

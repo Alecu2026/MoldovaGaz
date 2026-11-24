@@ -228,7 +228,13 @@ export default function IntegrationPanel() {
                         </table>
                       </div>
                     )}
-                    {c.hiddenGaps > 0 && <p className="cell-sub">Mai sunt goluri mai vechi, necuprinse în listă (totalul „lipsesc acum” le include).</p>}
+                    {c.prev.length > 0 && (
+                <p className="cell-sub" style={{ whiteSpace: "normal" }}>
+                  Seria s-a repornit automat (numărul a scăzut: expeditorul și-a șters contorul). Serii anterioare:{" "}
+                  {c.prev.map((p, k) => <span key={k} className="mono">{k > 0 ? " · " : ""}{nf.format(p.first)}–{nf.format(p.max)} ({p.lost === 0 ? "fără lipsuri" : `lipseau ${nf.format(p.lost)}`}, până la {clock(p.endedAt)})</span>)}
+                </p>
+              )}
+              {c.hiddenGaps > 0 && <p className="cell-sub">Mai sunt goluri mai vechi, necuprinse în listă (totalul „lipsesc acum” le include).</p>}
                   </div>
                 ))
               )}

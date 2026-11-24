@@ -20,7 +20,7 @@ import { NO_SFILTERS, activeCount, binsToDays, describeFilters, dictCounts, filt
 import { sourceToCsv } from "../lib/source-csv";
 import { writeSource } from "../lib/source-sync";
 import * as NA from "../lib/night-analysis";
-import { counterOf, lostOf, newStream, observe } from "../lib/integration-counter";
+import { RESTART_GAP, counterOf, lostOf, newStream, observe, summarize } from "../lib/integration-counter";
 import { distanceKm as kmDist } from "../lib/geo";
 import { DAY as GDAY, buildStats, dayRange, foldDays, type DayAgg, type GwSum } from "../lib/gateway-stats";
 import { eventToMsg, gatewaysOf, looksLikeEvent, looksLikeUplink, nameKey, uplinkToMsg } from "../lib/integration-uplink";
@@ -537,6 +537,12 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   check("counter: 105 după 102 ⇒ gol 103–104; 110 după 106 ⇒ gol 107–109", seqOut[2] === "gap" && seqOut[6] === "gap" && cs.max === 110 && JSON.stringify(cs.missing.map((g) => [g[0], g[1]])) === "[[104,104],[107,109]]");
   check("counter: 103 sosit târziu închide golul, al doilea 103 e duplicat", seqOut[3] === "late" && seqOut[4] === "dup" && cs.late === 1 && cs.dup === 1 && lostOf(cs) === 4);
   check("counter: unice primite + lipsă = câte trebuiau (100..110)", cs.received + lostOf(cs) === cs.max - cs.first + 1);
+  { const r = newStream("r", "msg_counter", 6708, 1);
+    for (const n of [6709, 6710, 6713, 9000, 33147]) observe(r, n, 2);
+    check("counter: contorul expeditorului scade la 0 (a șters contorul) ⇒ «restart»; seria veche se poate rezuma; nimic nu se modifică la «restart»", observe(r, 0, 3) === "restart" && observe(r, 5, 3) === "restart" && r.max === 33147 && r.received === 6 && summarize(r).first === 6708 && summarize(r).max === 33147 && summarize(r).lost > 0 && r.lastAt === 2);
+    check("counter: sosit puțin înaintea primului număr văzut (urmărirea a pornit în mijloc) ⇒ «târziu» și începutul se extinde; un duplicat apropiat rămâne duplicat", (() => { const q = newStream("q", "c", 500, 1); observe(q, 503, 2); const o = observe(q, 498, 3); const dup = observe(q, 503, 4); return o === "late" && q.first === 498 && q.late === 1 && JSON.stringify(q.missing.map((g) => [g[0], g[1]])) === "[[499,499],[501,502]]" && dup === "dup"; })());
+    check("counter: un număr mult în urmă, dar care umple un gol, e «târziu», nu repornire", (() => { const q = newStream("q", "c", 1, 1); observe(q, 2, 2); observe(q, 3000, 3); const o = observe(q, 1500, 4); return o === "late" && RESTART_GAP === 1000; })());
+  }
   const mid = newStream("x", "counter", 1, 1); [2, 3, 4, 5, 6, 7, 8, 9, 10].forEach((n) => observe(mid, n, 2)); observe(mid, 20, 3);
   const o5 = observe(mid, 15, 4);
   check("counter: număr sosit în mijlocul unui gol îl împarte în două", o5 === "late" && JSON.stringify(mid.missing.map((g) => [g[0], g[1]])) === "[[11,14],[16,19]]" && lostOf(mid) === 8);
