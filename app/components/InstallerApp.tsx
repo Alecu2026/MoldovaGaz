@@ -10,9 +10,10 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { logoutAction } from "@/app/actions/auth";
-import { LIST_COLUMNS, MSG, PAGE_SIZES, activity, qrNotInDb, type InstallerList, type InstallerRecord, type InstallerRow } from "@/lib/installer";
+import { LIST_COLUMNS, MSG, PAGE_SIZES, activity, queryInstaller, qrNotInDb, type InstallerList, type InstallerRecord, type InstallerRow } from "@/lib/installer";
 import { ICON, type IconName } from "./tbicons";
 import { clearMeterCaches } from "./useMeterStore";
+import { useInstallerStore, withEdits } from "./useInstallerStore";
 
 // ce nu se vede de la început (scaner QR, cameră, poză mărită, hartă) se încarcă abia când e nevoie: pagina pornește mai repede, mai ales pe telefon
 const QrScanner = dynamic(() => import("./QrScanner"), { ssr: false });
@@ -56,27 +57,12 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
   const [colMenu, setColMenu] = useState(false);
   const [rowMenu, setRowMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [menu, setMenu] = useState(false);
-  // prima pagină a listei vine odată cu pagina (aceeași cheie ca a cererii pe care ar fi făcut-o): prima pictare are deja date
-  const initKey = `${(initial?.filter ?? "").trim()}|0|10|name|asc|0`;
-  const [list, setList] = useState<{ key: string; data: InstallerList | null; err: string | null } | null>(initial?.list ? { key: initKey, data: initial.list, err: null } : null);
-  const listNow = useRef(list);
-  useEffect(() => { listNow.current = list; });
-  const [reload, setReload] = useState(0);
+  // lista întreagă stă în browser (ca în pagina Contoare): căutarea, sortarea și paginarea sunt locale, instante; până se descarcă, prima pagină vine odată cu pagina
+  const store = useInstallerStore();
+  const refresh = store.refresh;
   const [now] = useState(() => Date.now());
   const eff = q.trim() || filter.trim();
-  const key = `${eff}|${page}|${size}|${sort.key}|${sort.dir}|${reload}`;
   useEffect(() => { const t = setTimeout(() => { try { const v = JSON.parse(localStorage.getItem(COL_KEY) ?? "[]") as string[]; if (Array.isArray(v)) setHidden(v); } catch { /* fără stocare locală */ } }, 0); return () => clearTimeout(t); }, []);
-
-  useEffect(() => {
-    if (listNow.current?.key === key && listNow.current.data) return; // lista pentru această cheie e deja în pagină (cea de la început)
-    const ac = new AbortController();
-    const t = setTimeout(() => {
-      void fetch(`/api/installer/meters?q=${encodeURIComponent(eff)}&page=${page}&size=${size}&sort=${sort.key}&dir=${sort.dir}`, { signal: ac.signal, cache: "no-store" })
-        .then(async (r) => { if (r.status === 401) { window.location.replace("/login"); return; } if (!r.ok) throw new Error(String(r.status)); setList({ key, data: (await r.json()) as InstallerList, err: null }); })
-        .catch((e: Error) => { if (e.name !== "AbortError") setList({ key, data: null, err: "Nu am putut citi lista." }); });
-    }, q ? 250 : 0);
-    return () => { clearTimeout(t); ac.abort(); };
-  }, [key, eff, page, size, sort.key, sort.dir, q]);
 
   /* ───────── contorul ales (formularul + poza + harta) ───────── */
   const [sel, setSel] = useState<string | null>(null);
@@ -125,18 +111,18 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
     if (!navigator.geolocation) { toast(MSG.geoUnsupported, false, 4000); return; }
     toast(MSG.gpsAccess, true, 2000);
     navigator.geolocation.getCurrentPosition(
-      (pos) => { void post(id, { latitude: pos.coords.latitude, longitude: pos.coords.longitude }).then((r) => { keep(r); setReload((n) => n + 1); toast(withTimeseries ? MSG.locationUpdatedTs : MSG.locationUpdated); }).catch((e: Error) => toast(MSG.locationSaveFailed + e.message, false, 4000)); },
+      (pos) => { void post(id, { latitude: pos.coords.latitude, longitude: pos.coords.longitude }).then((r) => { keep(r); refresh(); toast(withTimeseries ? MSG.locationUpdatedTs : MSG.locationUpdated); }).catch((e: Error) => toast(MSG.locationSaveFailed + e.message, false, 4000)); },
       (e) => toast(e.code === 1 ? MSG.geoDenied : e.code === 2 ? MSG.geoUnavailable : e.code === 3 ? MSG.geoTimeout : MSG.geoDefault, false, 4000),
       { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 },
     );
-  }, [post, toast, keep]);
+  }, [post, toast, keep, refresh]);
 
   const uploadPhoto = useCallback(async (id: string, blob: Blob) => {
     const r = await fetch(`/api/installer/meters/${id}/photo`, { method: "POST", headers: { "Content-Type": blob.type || "image/jpeg" }, body: blob });
     const j = (await r.json().catch(() => ({}))) as InstallerRecord & { error?: string };
     if (!r.ok) throw new Error(j.error ?? "Eroare la salvarea atributului.");
-    keep(j); setPv((n) => n + 1); setReload((n) => n + 1);
-  }, [keep]);
+    keep(j); setPv((n) => n + 1); refresh();
+  }, [keep, refresh]);
 
   const onDropFile = async (file: File | undefined) => {
     const id = sel; if (!file || !id) return;
@@ -166,26 +152,38 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
     setBusy(true);
     try {
       adopt(await post(cur.id, { ContorNr: f.ContorNr, Instalation_Litres: f.lit, Aragaz: f.Aragaz, Cazan: f.Cazan, Incalzire: f.Incalzire, ModuleWriteInitial: f.mod, locationModule: f.loc, Comments: f.com }));
-      toast(MSG.updated); setReload((n) => n + 1);
+      toast(MSG.updated); refresh();
     } catch (x) { toast(`${MSG.updateFailed}: ${(x as Error).message}`, false, 4000); }
     setBusy(false);
   };
   const undo = () => { if (cur) { setForm(toForm(cur)); setTouched({}); } };
 
-  const total = list?.data?.total ?? 0;
-  const rows: InstallerRow[] = list?.data?.rows ?? [];
-  const loading = !list || list.key !== key;
+  const vw = useMemo(() => (store.ds ? withEdits(store.ds, store.edits) : null), [store.ds, store.edits]);
+  const order = useMemo(() => (vw ? queryInstaller(vw, eff, sort.key, sort.dir) : null), [vw, eff, sort.key, sort.dir]);
+  // până se descarcă lista întreagă: prima pagină trimisă de server (doar pentru vederea de la început)
+  const seed = !order && !!initial?.list && page === 0 && size === 10 && sort.key === "name" && sort.dir === "asc" && eff === (initial.filter ?? "").trim() ? initial.list : null;
+  const total = order ? order.length : seed?.total ?? 0;
+  const lastPage = size ? Math.max(0, Math.ceil(total / size) - 1) : 0;
+  const pg = Math.min(page, lastPage); // după o filtrare mai strânsă pagina nu rămâne în gol
+  const rows: InstallerRow[] = useMemo(() => {
+    if (!order || !vw) return seed?.rows ?? [];
+    const a = size ? pg * size : 0, b = size ? Math.min(order.length, a + size) : order.length;
+    const out: InstallerRow[] = [];
+    for (let k = a; k < b; k++) { const i = order[k]; out.push({ id: vw.id[i], name: vw.nm[i], lastActivityTime: vw.ia[i], Volume_m3_Total: vw.vol[i], Instalation_Litres: vw.il[i], Volume_Liters: vw.vl[i], ModuleInitialValue: vw.mi[i] }); }
+    return out;
+  }, [order, vw, seed, pg, size]);
+  const loading = !order && !seed;
+  const listErr = !order && !seed && store.error ? "Nu am putut citi lista." : null;
   const cols = useMemo(() => LIST_COLUMNS.filter((c) => !hidden.includes(c.key)), [hidden]);
   const toggleCol = (k: string) => setHidden((h) => { const n = h.includes(k) ? h.filter((x) => x !== k) : [...h, k]; try { localStorage.setItem(COL_KEY, JSON.stringify(n)); } catch { /* fără stocare locală */ } return n; });
   // size 0 = «All»: toate rândurile pe o singură pagină
-  const from = total === 0 ? 0 : size ? page * size + 1 : 1, to = size ? Math.min(total, (page + 1) * size) : total;
-  const lastPage = size ? Math.max(0, Math.ceil(total / size) - 1) : 0;
+  const from = total === 0 ? 0 : size ? pg * size + 1 : 1, to = size ? Math.min(total, (pg + 1) * size) : total;
   // liste mari (200 / 500 / 1000 / toate): se desenează doar rândurile din fereastra vizibilă (50 px fiecare), restul sunt spații goale — telefonul nu îngheață
   const wrapRef = useRef<HTMLDivElement>(null);
   const [scrollRow, setScrollRow] = useState(0);
   const [viewRows, setViewRows] = useState(16);
   const syncScroll = useCallback(() => { const w = wrapRef.current; if (!w) return; setScrollRow(Math.floor(w.scrollTop / ROW_H)); setViewRows(Math.ceil(w.clientHeight / ROW_H) + 1); }, []);
-  const listKey = list?.key;
+  const listKey = `${eff}|${pg}|${size}|${sort.key}|${sort.dir}|${order ? 1 : 0}`;
   useEffect(() => { const w = wrapRef.current; if (w) w.scrollTop = 0; const t = setTimeout(syncScroll, 0); return () => clearTimeout(t); }, [listKey, syncScroll]);
   const windowed = rows.length > WINDOW_MIN;
   const w0 = windowed ? Math.max(0, scrollRow - OVERSCAN) : 0, w1 = windowed ? Math.min(rows.length, scrollRow + viewRows + OVERSCAN) : rows.length;
@@ -300,8 +298,8 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
                   </tr>
                 ))}
                 {windowed && w1 < rows.length && <tr aria-hidden="true"><td colSpan={cols.length + 1} style={{ height: (rows.length - w1) * ROW_H, padding: 0, border: 0 }} /></tr>}
-                {!loading && rows.length === 0 && !list?.err && <tr><td colSpan={cols.length + 1} className="tbx-empty">No entities found</td></tr>}
-                {list?.err && <tr><td colSpan={cols.length + 1} className="tbx-empty" role="alert">{list.err}</td></tr>}
+                {!loading && rows.length === 0 && !listErr && <tr><td colSpan={cols.length + 1} className="tbx-empty">No entities found</td></tr>}
+                {listErr && <tr><td colSpan={cols.length + 1} className="tbx-empty" role="alert">{listErr}</td></tr>}
               </tbody>
             </table>
           </div>
@@ -309,9 +307,9 @@ export default function InstallerApp({ canHome = false, initial }: { /** are acc
             <span className="tbx-ps">Items per page:</span>
             <select className="tbx-ps" value={size} onChange={(e) => { setSize(Number(e.target.value)); setPage(0); }} aria-label="Items per page">{PAGE_SIZES.map((n) => <option key={n} value={n}>{n === 0 ? "All" : n}</option>)}</select>
             <span className="tbx-range">{from} – {to} of {total}</span>
-            <Btn n="first_page" label="First page" onClick={() => setPage(0)} disabled={page === 0} />
-            <Btn n="chevron_left" label="Previous page" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} />
-            <Btn n="chevron_right" label="Next page" onClick={() => setPage((p) => p + 1)} disabled={to >= total} />
+            <Btn n="first_page" label="First page" onClick={() => setPage(0)} disabled={pg === 0} />
+            <Btn n="chevron_left" label="Previous page" onClick={() => setPage(Math.max(0, pg - 1))} disabled={pg === 0} />
+            <Btn n="chevron_right" label="Next page" onClick={() => setPage(pg + 1)} disabled={to >= total} />
             <Btn n="last_page" label="Last page" onClick={() => setPage(lastPage)} disabled={to >= total} />
           </footer>
         </section>

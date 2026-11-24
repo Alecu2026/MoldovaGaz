@@ -22,7 +22,7 @@ import { writeSource } from "../lib/source-sync";
 import * as NA from "../lib/night-analysis";
 import { RESTART_GAP, counterOf, lostOf, newStream, observe, summarize } from "../lib/integration-counter";
 import { distanceKm as kmDist } from "../lib/geo";
-import { activity, cleanPatch, parseQr, qrNotInDb } from "../lib/installer";
+import { activity, cleanPatch, parseQr, qrNotInDb, queryInstaller } from "../lib/installer";
 import { decodeImage, photoPath, processImage, validId } from "../lib/photos";
 import { MAX_TRIES, pendingIds } from "../lib/photo-job";
 import { collapse, csvCell, fmtLocal, fmtUtc, mergePoints, meterKeys, monthRange, periodName, previousMonth, readingLine, thisMonthSoFar } from "../lib/report-readings";
@@ -348,7 +348,7 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   const walk = (d: string): string[] => readdirSync(d).flatMap((n) => (n === "node_modules" || n === ".next" || n.startsWith(".") ? [] : statSync(join(d, n)).isDirectory() ? walk(join(d, n)) : /\.(ts|tsx)$/.test(n) ? [join(d, n)] : []));
   const files = ["app", "lib", "scripts"].flatMap(walk).filter((f) => !f.endsWith("check-engine.ts"));
   const fetches = files.flatMap((f) => (readFileSync(f, "utf8").match(/\bfetch\(/g) ?? []).map(() => f.replace(/\\/g, "/")));
-  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "app/components/GatewayLayer.tsx", "app/components/KeptBrowser.tsx", "app/components/ReportsPanel.tsx", "app/components/InstallerApp.tsx", "app/components/GatewayPopup.tsx", "app/components/GatewayCharts.tsx", "app/components/SeenBrowser.tsx", "app/components/MeterAntennas.tsx", "app/components/UsersPanel.tsx", "scripts/bench-integration.ts"]);
+  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "app/components/GatewayLayer.tsx", "app/components/KeptBrowser.tsx", "app/components/ReportsPanel.tsx", "app/components/InstallerApp.tsx", "app/components/GatewayPopup.tsx", "app/components/GatewayCharts.tsx", "app/components/SeenBrowser.tsx", "app/components/MeterAntennas.tsx", "app/components/UsersPanel.tsx", "app/components/useInstallerStore.ts", "scripts/bench-integration.ts"]);
   check("read-only: fetch() doar în fișierele așteptate", fetches.every((f) => allowedFetch.has(f)), [...new Set(fetches)].join(", "));
   const mutating = files.filter((f) => /method:\s*"(PUT|DELETE|PATCH)"|\.(deleteOne|deleteMany|drop|updateMany|updateOne|insertOne|insertMany|replaceOne|bulkWrite)\(/.test(readFileSync(f, "utf8"))).map((f) => f.replace(/\\/g, "/"));
   // scrieri în baza NOASTRĂ: doar sesiuni / utilizator (login, seed) și colecția `meters` (sincronizare); niciodată în surse
@@ -954,6 +954,16 @@ const section8 = (async () => {
   check("profil pe ore: consum în 0,001 m³ pe Uint16 și temperatură în 0,5 °C pe Int8 (rotunjire corectă)", (() => { const q = NA.hourlyProfile([P(D[0], 0, 21.3), P(D[0] + H, 1.2346, 21.3), P(D[0] + 2 * H, 1.2346, null)], D.slice(0, 1)); return q.cons[0] === 1235 && q.temp[0] === 43 && q.cons[1] === 0 && q.temp[1] === 43 ? true : q.cons[0] === 1235 && q.temp[0] === 43; })());
 })();
 
+// ───── lista instalatorului în browser: căutare / sortare locale
+{
+  const d = { nm: ["S2154_00000003_2022", "S2154_00000001_2022", "S4254_00000002_2025", "S2154_00000010_2022"], cn: ["", "AB-77", "", "ab-12"], ia: [300, null, 100, 200], vol: [5, 9, null, 1], il: [null, 10, 20, 5], vl: [1, 2, 3, 4], mi: [0, 0, 0, 0] };
+  const names = (o: Int32Array) => Array.from(o, (i) => d.nm[i].slice(6, 14)).join(",");
+  check("lista instalatorului: fără căutare, după nume crescător / descrescător", names(queryInstaller(d, "", "name", "asc")) === "00000001,00000003,00000010,00000002" && names(queryInstaller(d, "", "name", "desc")) === "00000002,00000010,00000003,00000001");
+  check("lista instalatorului: căutare în nume și în ContorNr, fără diferență între litere mari / mici", names(queryInstaller(d, "S4254", "name", "asc")) === "00000002" && names(queryInstaller(d, "ab-", "name", "asc")) === "00000001,00000010" && names(queryInstaller(d, "  00000003 ", "name", "asc")) === "00000003" && queryInstaller(d, "zzz", "name", "asc").length === 0);
+  check("lista instalatorului: sortare numerică, lipsurile la sfârșit în ambele sensuri", names(queryInstaller(d, "", "Volume_m3_Total", "asc")) === "00000010,00000003,00000001,00000002" && names(queryInstaller(d, "", "Volume_m3_Total", "desc")) === "00000001,00000003,00000010,00000002" && names(queryInstaller(d, "", "Instalation_Litres", "asc")) === "00000010,00000001,00000002,00000003");
+  check("lista instalatorului: «active» / «ActiveTime» / «lastActivityTime» se sortează după ultima activitate", names(queryInstaller(d, "", "ActiveTime", "desc")) === "00000003,00000010,00000002,00000001" && names(queryInstaller(d, "", "lastActivityTime", "asc")) === "00000002,00000010,00000003,00000001");
+}
+
 // ───── acces: utilizatori limitați la filiale / orașe
 {
   const lim = (access: Partial<Viewer["access"]>): Viewer => ({ admin: false, access: { pages: [], branches: [], cities: [], ...access } });
@@ -978,7 +988,7 @@ const section8 = (async () => {
   check("acces: API-urile unui contor verifică zona utilizatorului (apiMeterGuard)", meterRoutes.every((f) => read(f).includes("apiMeterGuard(") && !read(f).includes("getCurrentUser")), meterRoutes.filter((f) => !read(f).includes("apiMeterGuard(")).join(", "));
   const pages = ["app/(app)/control/page.tsx", "app/(app)/integration/page.tsx", "app/(app)/rapoarte/page.tsx", "app/(app)/utilizatori/page.tsx", "app/components/SourcePage.tsx"];
   check("acces: paginile de administrare cer administrator (requirePage)", pages.every((f) => read(f).includes('requirePage("admin")')), pages.filter((f) => !read(f).includes('requirePage("admin")')).join(", "));
-  const noAuth = ["app/api/meters/dataset/route.ts", "app/api/meters/delta/route.ts", "app/api/installer/meters/route.ts", "app/api/installer/prefs/route.ts", "app/api/integration/gateways/route.ts"];
+  const noAuth = ["app/api/meters/dataset/route.ts", "app/api/meters/delta/route.ts", "app/api/installer/meters/route.ts", "app/api/installer/prefs/route.ts", "app/api/installer/dataset/route.ts", "app/api/installer/edits/route.ts", "app/api/integration/gateways/route.ts"];
   check("acces: lista de contoare, instalatorul și antenele folosesc verificarea de acces, nu doar autentificarea", noAuth.every((f) => (read(f).includes("apiGuard(") || read(f).includes("apiMeterGuard(")) && !read(f).includes("getCurrentUser")), noAuth.filter((f) => !(read(f).includes("apiGuard(") || read(f).includes("apiMeterGuard("))).join(", "));
 }
 

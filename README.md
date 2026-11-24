@@ -154,6 +154,8 @@ Copia aplicației din SCADA pe care o folosesc instalatorii (dashboardul **<Fili
 - **Datele se salvează DOAR la noi**, nu în SCADA (rămâne strict citire): colecția `installer_data` (un document per contor, cu cine și când a salvat) și poza ca fișier în `<PHOTO_DIR>/installer/…` (micșorată, fără locația din poză); poza instalatorului are prioritate față de cea din SCADA în `/api/meters/<id>/photo`. `Permissions-Policy` din [next.config.ts](next.config.ts) permite camera și GPS-ul doar aplicației însăși.
 - «Localitate»: la Orhei lista din SCADA (Orhei, Soldanesti, Rezina, Telenesti); la celelalte filiale, valorile folosite la cel puțin 20 de contoare ale filialei. `Volume_Liters` și `inactivityTimeout` se citesc acum la sincronizare (apar după următoarea rulare orară).
 
+- **Tabelul e instant, ca pagina Contoare:** lista contoarelor (doar zona utilizatorului) stă în memoria serverului, coloanar și mică (`lib/services/installer-store.ts`), se descarcă o dată în browser (`/api/installer/dataset`, ETag ⇒ 304 la redeschidere) și căutarea (nume / ContorNr), sortarea și paginarea (10 … 1000 / All, cu rânduri desenate doar cât se văd) sunt locale. Se pune la zi singură cu rândurile schimbate (`?since=`) și după fiecare salvare; ce introduc instalatorii (`/api/installer/edits`) suprascrie valorile din SCADA în tabel.
+
 ## Utilizatori și drepturi (/utilizatori)
 
 - **Administrator** = contul cu rolul `super_admin` (se creează cu `npm run seed:user -- email parola "Nume" super_admin`): vede tot și are pagina **Utilizatori**, unde creează conturi, schimbă parole, dezactivează / șterge. Nu-și poate scoate singur drepturile și mereu rămâne cel puțin un administrator activ.

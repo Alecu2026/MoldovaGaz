@@ -152,3 +152,23 @@ export function cleanPatch(body: unknown): { patch: Patch } | { error: string } 
   if (!Object.keys(patch).length) return { error: "Nimic de salvat." };
   return { patch };
 }
+
+/* ───────── lista ecranului instalatorului, în browser (căutare / sortare / paginare locale) ───────── */
+
+/** Lista coloanară de la server (`full` = lista întreagă a zonei; altfel doar rândurile schimbate). */
+export type InstWire = { v: 1; gen: string; head: number; full: boolean; id: string[]; nm: string[]; cn: string[]; ia: (number | null)[]; vol: (number | null)[]; il: (number | null)[]; vl: (number | null)[]; mi: (number | null)[] };
+/** Ce a introdus instalatorul la noi (suprascrie valorile din SCADA în tabel): `l` = Instalation_Litres (null = golit), `c` = ContorNr. */
+export type InstEdits = Record<string, { l?: number | null; c?: string }>;
+
+/** Rândurile (indici în listă) care trec de căutare (nume sau ContorNr, fără diferență între litere mari / mici), în ordinea cerută; lipsurile ajung la sfârșit în ambele sensuri. */
+export function queryInstaller(d: { nm: string[]; cn: string[]; ia: (number | null)[]; vol: (number | null)[]; il: (number | null)[]; vl: (number | null)[]; mi: (number | null)[] }, q: string, sortKey: string, dir: "asc" | "desc"): Int32Array {
+  const n = d.nm.length;
+  const needle = q.trim().toLowerCase();
+  const keep: number[] = [];
+  for (let i = 0; i < n; i++) if (!needle || d.nm[i].toLowerCase().includes(needle) || d.cn[i].toLowerCase().includes(needle)) keep.push(i);
+  const sgn = dir === "asc" ? 1 : -1;
+  const numCol = ({ ActiveTime: d.ia, active: d.ia, lastActivityTime: d.ia, Volume_m3_Total: d.vol, Instalation_Litres: d.il, Volume_Liters: d.vl, ModuleInitialValue: d.mi } as Record<string, (number | null)[] | undefined>)[sortKey];
+  if (numCol) keep.sort((a, b) => { const x = numCol[a], y = numCol[b]; if (x === null || x === undefined) return y === null || y === undefined ? a - b : 1; if (y === null || y === undefined) return -1; return x === y ? a - b : (x - y) * sgn; });
+  else keep.sort((a, b) => (d.nm[a] === d.nm[b] ? a - b : d.nm[a] < d.nm[b] ? -sgn : sgn));
+  return Int32Array.from(keep);
+}

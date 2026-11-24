@@ -4,7 +4,7 @@ import path from "node:path";
 import { getDb, COLLECTIONS } from "../mongo";
 import type { Viewer } from "../access";
 import { allowedIds, meterAllowed } from "./meter-dataset";
-import { ALL_ROWS_MAX, cleanPatch, type InstallerList, type InstallerRecord, type InstallerRow, type Patch } from "../installer";
+import { ALL_ROWS_MAX, cleanPatch, type InstEdits, type InstallerList, type InstallerRecord, type InstallerRow, type Patch } from "../installer";
 import { decodeImage, photoDir, photoPath, processImage, validId } from "../photos";
 
 /**
@@ -68,6 +68,22 @@ export async function listMeters(v: Viewer, o: { q: string; page: number; size: 
   ]);
   const data = new Map((await db.collection<DataDoc>(DATA_COLLECTION).find({ _id: { $in: docs.map((d) => String(d._id)) } }).toArray()).map((d) => [d._id, d]));
   return { total, rows: docs.map((m) => rowOf(m, data.get(String(m._id)))) };
+}
+
+/** Ce au introdus instalatorii la noi, pentru contoarele din zona utilizatorului (puține documente): { id: { l: Instalation_Litres, c: ContorNr } }. */
+export async function listEdits(v: Viewer): Promise<InstEdits> {
+  const docs = await (await getDb()).collection<DataDoc>(DATA_COLLECTION).find({ $or: [{ Instalation_Litres: { $exists: true } }, { ContorNr: { $exists: true } }] }, { projection: { Instalation_Litres: 1, ContorNr: 1 } }).toArray();
+  const ids = await allowedIds(v);
+  const ok = ids ? new Set(ids) : null;
+  const out: InstEdits = {};
+  for (const d of docs) {
+    if (ok && !ok.has(d._id)) continue;
+    const e: InstEdits[string] = {};
+    if (d.Instalation_Litres !== undefined) e.l = d.Instalation_Litres;
+    if (d.ContorNr !== undefined) e.c = d.ContorNr;
+    out[d._id] = e;
+  }
+  return out;
 }
 
 export const countMeters = async (v: Viewer): Promise<number> => (await allowedIds(v))?.length ?? (await getDb()).collection(COLLECTIONS.meters).estimatedDocumentCount();
