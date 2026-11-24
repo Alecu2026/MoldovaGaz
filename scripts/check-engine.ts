@@ -32,6 +32,10 @@ import { MAX_BATCH, isStaleFcnt, isStaleUplink, ingestIsNewer, mergeDerive, merg
 import { MAX_READINGS, appendReadings, readingOf } from "../lib/meter-readings";
 import { DEFECT_PROFILE, GAS_CUSTOMERS } from "../lib/meter-scope";
 import { antennaIdOk, cleanAntennaPatch, fdtA, parseAntennaQr, queryAntennas, type AntennaRow } from "../lib/antennas";
+import { HOUR as H1, DAY as D1, gatewayDown, gatewayDrop, silentByZone, silentProblem, zoneOf } from "../lib/alert-rules";
+import { deliver, planEvents, recipients, type Problem } from "../lib/alert-job";
+import { cleanNotify, eventVisible } from "../lib/notify";
+import { cleanSub, type PushSub, type Sender } from "../lib/push";
 import { allowsMeter, canPage, cleanAccess, firstPath, scopeKey, type Viewer } from "../lib/access";
 import type { Db } from "mongodb";
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -349,11 +353,11 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   const walk = (d: string): string[] => readdirSync(d).flatMap((n) => (n === "node_modules" || n === ".next" || n.startsWith(".") ? [] : statSync(join(d, n)).isDirectory() ? walk(join(d, n)) : /\.(ts|tsx)$/.test(n) ? [join(d, n)] : []));
   const files = ["app", "lib", "scripts"].flatMap(walk).filter((f) => !f.endsWith("check-engine.ts"));
   const fetches = files.flatMap((f) => (readFileSync(f, "utf8").match(/\bfetch\(/g) ?? []).map(() => f.replace(/\\/g, "/")));
-  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "app/components/GatewayLayer.tsx", "app/components/KeptBrowser.tsx", "app/components/ReportsPanel.tsx", "app/components/InstallerApp.tsx", "app/components/GatewayPopup.tsx", "app/components/GatewayCharts.tsx", "app/components/SeenBrowser.tsx", "app/components/MeterAntennas.tsx", "app/components/UsersPanel.tsx", "app/components/useInstallerStore.ts", "app/components/AntennaApp.tsx", "scripts/bench-integration.ts"]);
+  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "app/components/GatewayLayer.tsx", "app/components/KeptBrowser.tsx", "app/components/ReportsPanel.tsx", "app/components/InstallerApp.tsx", "app/components/GatewayPopup.tsx", "app/components/GatewayCharts.tsx", "app/components/SeenBrowser.tsx", "app/components/MeterAntennas.tsx", "app/components/UsersPanel.tsx", "app/components/useInstallerStore.ts", "app/components/AntennaApp.tsx", "app/components/NotificationsPanel.tsx", "app/components/NotifBell.tsx", "app/components/notify-client.ts", "scripts/bench-integration.ts"]);
   check("read-only: fetch() doar în fișierele așteptate", fetches.every((f) => allowedFetch.has(f)), [...new Set(fetches)].join(", "));
   const mutating = files.filter((f) => /method:\s*"(PUT|DELETE|PATCH)"|\.(deleteOne|deleteMany|drop|updateMany|updateOne|insertOne|insertMany|replaceOne|bulkWrite)\(/.test(readFileSync(f, "utf8"))).map((f) => f.replace(/\\/g, "/"));
   // scrieri în baza NOASTRĂ: doar sesiuni / utilizator (login, seed) și colecția `meters` (sincronizare); niciodată în surse
-  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts", "lib/services/gateways.ts", "lib/services/counters.ts", "lib/services/kept.ts", "lib/report-job.ts", "lib/services/reports.ts", "lib/photo-job.ts", "lib/services/installer.ts", "lib/services/users.ts", "lib/services/antennas.ts", "lib/antenna-job.ts", "app/components/ReportsPanel.tsx", "app/components/UsersPanel.tsx", "app/components/AntennaApp.tsx"]);
+  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts", "lib/services/gateways.ts", "lib/services/counters.ts", "lib/services/kept.ts", "lib/report-job.ts", "lib/services/reports.ts", "lib/photo-job.ts", "lib/services/installer.ts", "lib/services/users.ts", "lib/services/antennas.ts", "lib/antenna-job.ts", "lib/alert-job.ts", "lib/push.ts", "lib/services/notifications.ts", "app/components/NotificationsPanel.tsx", "app/components/notify-client.ts", "app/components/ReportsPanel.tsx", "app/components/UsersPanel.tsx", "app/components/AntennaApp.tsx"]);
   check("read-only: scrieri în baza de date doar în sesiuni, seed:user, sync-meters, load-history și lib/source-sync", mutating.every((f) => allowedWrites.has(f)), mutating.join(", "));
   const syncSrc = readFileSync("scripts/sync-meters.ts", "utf8");
   const syncCollections = syncSrc.match(/client\.db\(\)\.collection[^\n]*/g) ?? [];
@@ -973,6 +977,57 @@ const section8 = (async () => {
   check("profil pe ore: consum în 0,001 m³ pe Uint16 și temperatură în 0,5 °C pe Int8 (rotunjire corectă)", (() => { const q = NA.hourlyProfile([P(D[0], 0, 21.3), P(D[0] + H, 1.2346, 21.3), P(D[0] + 2 * H, 1.2346, null)], D.slice(0, 1)); return q.cons[0] === 1235 && q.temp[0] === 43 && q.cons[1] === 0 && q.temp[1] === 43 ? true : q.cons[0] === 1235 && q.temp[0] === 43; })());
 })();
 
+// ───── notificări despre probleme
+const sectionNotify = (async () => {
+  const NOW = Date.UTC(2026, 10, 24, 12);
+  const mk = (br: string, ct: string, ageH: number | null, pf?: string) => ({ br, ct, t: ageH === null ? null : NOW - ageH * H1, pf: pf ?? null });
+  const many = (n: number, br: string, ct: string, ageH: number) => Array.from({ length: n }, () => mk(br, ct, ageH));
+  const fleet = [...many(100, "05 · Comrat", "Comrat", 2), ...many(40, "05 · Comrat", "Comrat", 60), ...many(300, "20 · Orhei", "Orhei", 5), ...many(8, "20 · Orhei", "Orhei", 100), ...many(30, "05 · Comrat", "Comrat", 24 * 30), mk("Nedeterminată", "—", 100), ...many(50, "27 · Taraclia", "", 90).map((m) => ({ ...m, pf: "Defectate_Jooby_Gaz" })), mk("20 · Orhei", "Orhei", null)];
+  const stats = silentByZone(fleet, NOW);
+  const comrat = stats.find((s) => s.zone === "05|Comrat"), orhei = stats.find((s) => s.zone === "20|Orhei");
+  check("alerte: contoarele se numără pe zonă (filială|oraș): transmit (≤36 h) și «au tăcut de curând» (36 h – 10 zile); mai vechi de 10 zile, defecte, fără filială sau fără citire nu intră", comrat?.recent === 100 && comrat?.lapsed === 40 && orhei?.recent === 300 && orhei?.lapsed === 8 && stats.length === 2, JSON.stringify(stats));
+  check("alerte: problemă dacă au tăcut cel puțin 15 și cel puțin 15% (grav la 40%+); Orhei (8 contoare) nu e problemă", silentProblem(comrat!)?.level === "warn" && silentProblem({ zone: "x|y", recent: 20, lapsed: 20 })?.level === "crit" && silentProblem(orhei!) === null && silentProblem({ zone: "x|y", recent: 1000, lapsed: 100 }) === null && silentProblem({ zone: "x|y", recent: 60, lapsed: 20 })?.level === "warn");
+  check("alerte: zona unui contor fără oraș = «filială|—»", zoneOf("05 · Comrat", "") === "05|—" && zoneOf("05 · Comrat", "Comrat") === "05|Comrat");
+  const day = (back: number, n: number) => ({ d: Date.UTC(2026, 10, 24) - back * D1, n });
+  const steady = [1, 2, 3, 4, 5, 6, 7].map((b) => day(b, 100));
+  check("alerte: antenă fără mesaje — tace mai mult de 4 intervale obișnuite (min. 3 h), dar nu de peste 14 zile; antenele cu sub 2 mesaje pe zi nu se urmăresc", gatewayDown(NOW - 5 * H1, steady, NOW).down && !gatewayDown(NOW - 2 * H1, steady, NOW).down && !gatewayDown(NOW - 20 * D1, steady, NOW).down && !gatewayDown(NOW - 30 * H1, [1, 2, 3, 4, 5, 6, 7].map((b) => day(b, 1)), NOW).down && gatewayDown(NOW - 40 * H1, [1, 2, 3, 4, 5, 6, 7].map((b) => day(b, 4)), NOW).down && gatewayDown(null, steady, NOW).down === false);
+  check("alerte: eficiență scăzută — ieri sub jumătate din mediana celor 7 zile dinainte (mediană ≥ 40); ieri normal sau mediană mică ⇒ fără problemă", gatewayDrop([day(1, 30), ...[2, 3, 4, 5, 6, 7, 8].map((b) => day(b, 100))], NOW).drop && !gatewayDrop([day(1, 80), ...[2, 3, 4, 5, 6, 7, 8].map((b) => day(b, 100))], NOW).drop && !gatewayDrop([day(1, 5), ...[2, 3, 4, 5, 6, 7, 8].map((b) => day(b, 30))], NOW).drop && gatewayDrop([...[2, 3, 4, 5, 6, 7, 8].map((b) => day(b, 100))], NOW).yesterday === 0);
+  const P = (key: string, size: number, level: "warn" | "crit" = "warn"): Problem => ({ type: key.startsWith("gw_down") ? "gw_down" : "meters_silent", key, level, title: key, body: "", zones: [], size });
+  const pl = planEvents([P("meters_silent|05|Comrat", 40), P("meters_silent|20|Orhei", 20), P("gw_down|aa", 5), P("meters_silent|11|Cahul", 100)], [{ _id: "meters_silent|05|Comrat", type: "meters_silent", level: "warn", nsize: 30 }, { _id: "meters_silent|20|Orhei", type: "meters_silent", level: "warn", nsize: 10 }, { _id: "meters_silent|27|Taraclia", type: "meters_silent", level: "warn", nsize: 20 }, { _id: "gw_down|aa", type: "gw_down", level: "warn", nsize: 5 }], new Set(["meters_silent|05|Comrat", "meters_silent|20|Orhei", "meters_silent|27|Taraclia", "gw_down|aa"]));
+  check("alerte: probleme noi se deschid (și se anunță), cele care s-au agravat de 1,5× cu cel puțin 10 se anunță din nou, cele neschimbate doar se actualizează, cele dispărute se închid", pl.open.map((p) => p.key).join() === "meters_silent|11|Cahul" && pl.escalate.map((p) => p.key).join() === "meters_silent|20|Orhei" && pl.update.map((p) => p.key).sort().join() === "gw_down|aa,meters_silent|05|Comrat" && pl.resolve.join() === "meters_silent|27|Taraclia", JSON.stringify(pl));
+  const crit = planEvents([P("meters_silent|05|Comrat", 31, "crit")], [{ _id: "meters_silent|05|Comrat", type: "meters_silent", level: "warn", nsize: 30 }], new Set(["meters_silent|05|Comrat"]));
+  check("alerte: trecerea de la «atenție» la «grav» se anunță din nou", crit.escalate.length === 1);
+  // cine primește: tipul bifat + zona
+  const lim = (access: object) => ({ admin: false as const, access: { pages: [], branches: [], cities: [], ...access } });
+  check("notificări: administratorul vede orice zonă; limitatul doar zonele lui; eveniment fără zone doar administratorul; orașul altei filiale cu același nume nu intră", eventVisible({ admin: true, access: { pages: [], branches: [], cities: [] } }, ["05|Comrat"]) && eventVisible(lim({ cities: ["05|Comrat"] }), ["20|Orhei", "05|Comrat"]) && !eventVisible(lim({ cities: ["05|Comrat"] }), ["20|Orhei"]) && eventVisible(lim({ branches: ["20"] }), ["20|Orhei"]) && !eventVisible(lim({ branches: ["20"] }), []) && !eventVisible(lim({ cities: ["05|Orhei"] }), ["20|Orhei"]) && eventVisible({ admin: true, access: { pages: [], branches: [], cities: [] } }, []));
+  const cn = cleanNotify(["meters_silent", "gw_down", "x", "gw_down", 5 as unknown as string]);
+  check("notificări: lista de tipuri se curăță (necunoscute / dubluri ies); valori greșite ⇒ eroare; lipsă ⇒ nimic", "error" in cn && "notify" in cleanNotify(["gw_drop", "gw_drop", "zzz"]) && (cleanNotify(["gw_drop", "gw_drop", "zzz"]) as { notify: string[] }).notify.join() === "gw_drop" && (cleanNotify(undefined) as { notify: string[] }).notify.length === 0 && "error" in cleanNotify("gw_down"));
+  check("notificări: abonamentul push se validează (https, chei de lungime rezonabilă)", cleanSub({ endpoint: "https://fcm.googleapis.com/fcm/send/abcdefgh", keys: { p256dh: "B".repeat(87), auth: "a".repeat(22) } }) !== null && cleanSub({ endpoint: "http://x.example/aaaaaaaaaa", keys: { p256dh: "B".repeat(87), auth: "a".repeat(22) } }) === null && cleanSub({ endpoint: "https://x.example/aaaaaaaa", keys: { p256dh: "B", auth: "a" } }) === null && cleanSub(null) === null);
+  // livrarea: cine primește ce, abonamente moarte șterse (bază de date falsă)
+  const users = [
+    { _id: "adm", role: "super_admin", notify: ["meters_silent", "gw_down"] },
+    { _id: "comrat", role: "user", access: { pages: ["meters"], branches: [], cities: ["05|Comrat"] }, notify: ["meters_silent"] },
+    { _id: "orhei", role: "user", access: { pages: ["meters"], branches: ["20"], cities: [] }, notify: ["meters_silent"] },
+    { _id: "nutip", role: "user", access: { pages: ["meters"], branches: ["05"], cities: [] }, notify: ["gw_down"] },
+    { _id: "off", role: "user", access: { pages: ["meters"], branches: ["05"], cities: [] }, notify: ["meters_silent"], disabled: true },
+    { _id: "gol", role: "user", access: { pages: [], branches: [], cities: [] }, notify: ["meters_silent"] },
+  ];
+  const subs = [{ _id: "s1", userId: "adm", endpoint: "https://p/1", keys: { p256dh: "x".repeat(30), auth: "y".repeat(10) } }, { _id: "s2", userId: "comrat", endpoint: "https://p/2", keys: { p256dh: "x".repeat(30), auth: "y".repeat(10) } }, { _id: "s3", userId: "comrat", endpoint: "https://p/3", keys: { p256dh: "x".repeat(30), auth: "y".repeat(10) } }, { _id: "s4", userId: "orhei", endpoint: "https://p/4", keys: { p256dh: "x".repeat(30), auth: "y".repeat(10) } }];
+  const deleted: unknown[] = [];
+  const fakeDb = { collection: (n: string) => ({
+    // la fel ca baza de date: abonamentele după utilizatorii ceruți, utilizatorii după tipul bifat și fără conturile dezactivate
+    find: (q: { userId?: { $in: string[] }; notify?: string; disabled?: unknown }) => ({ toArray: async () => (n === "push_subs" ? subs.filter((s) => q.userId?.$in.includes(s.userId)) : users.filter((u) => (!q.notify || u.notify.includes(q.notify)) && (q.disabled === undefined || (u as { disabled?: boolean }).disabled !== true))) }),
+    deleteMany: async (q: { _id: { $in: unknown[] } }) => { deleted.push(...q._id.$in); },
+  }) } as unknown as Db;
+  const sentTo: string[] = [];
+  const send: Sender = async (s: PushSub) => { sentTo.push(s.endpoint); return s.endpoint === "https://p/3" ? "gone" : "ok"; };
+  const evC = { type: "meters_silent" as const, key: "k", level: "warn" as const, title: "t", body: "b", zones: ["05|Comrat"] };
+  const rc = await recipients(fakeDb, evC), rcO = await recipients(fakeDb, { ...evC, zones: ["20|Orhei"] }), rcG = await recipients(fakeDb, { type: "gw_down", zones: ["05|Comrat"] }), rcNone = await recipients(fakeDb, { ...evC, zones: [] });
+  check("notificări: destinatari = tipul bifat + zona vizibilă; conturile dezactivate sau fără zonă nu primesc; fără zone doar administratorul", rc.join() === "adm,comrat" && rcO.join() === "adm,orhei" && rcG.join() === "adm,nutip" && rcNone.join() === "adm", JSON.stringify([rc, rcO, rcG, rcNone]));
+  const dr = await deliver(fakeDb, send, evC);
+  check("notificări: se trimite la fiecare dispozitiv al destinatarilor, nu altora; abonamentul expirat (410) se șterge", dr.users === 2 && dr.sent === 2 && dr.gone === 1 && dr.failed === 0 && sentTo.sort().join() === "https://p/1,https://p/2,https://p/3" && deleted.join() === "s3", JSON.stringify([dr, sentTo, deleted]));
+})();
+
 // ───── antene (ecranul instalatorului de antene)
 {
   check("antene: codul QR → identificatorul antenei (16 cifre hexazecimale), cu sau fără prefix; altceva ⇒ null", parseAntennaQr("5031395355324750") === "5031395355324750" && parseAntennaQr("EUI:AC1F09FFFE1060FB") === "ac1f09fffe1060fb" && parseAntennaQr("x ac1f09fffe1060fb;y") === "ac1f09fffe1060fb" && parseAntennaQr("ac1f09fffe1060fb0") === null && parseAntennaQr("abc") === null && parseAntennaQr("") === null);
@@ -1028,7 +1083,7 @@ const section8 = (async () => {
   check("acces: lista de contoare, instalatorul și antenele folosesc verificarea de acces, nu doar autentificarea", noAuth.every((f) => (read(f).includes("apiGuard(") || read(f).includes("apiMeterGuard(")) && !read(f).includes("getCurrentUser")), noAuth.filter((f) => !(read(f).includes("apiGuard(") || read(f).includes("apiMeterGuard("))).join(", "));
 }
 
-section7.then(() => section8).then(() => {
+section7.then(() => section8).then(() => sectionNotify).then(() => {
   console.log(bad ? `\n${bad} EȘECURI` : "\nToate verificările au trecut.");
   process.exit(bad ? 1 : 0);
 });

@@ -2,17 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PAGES, cityKey, type Access, type PageKey } from "@/lib/access";
+import { NOTIFY_INFO, NOTIFY_TYPES, type NotifyType } from "@/lib/notify";
 
 /**
  * Utilizatorii aplicației (doar administratori): creezi conturi și bifezi ce vede fiecare — paginile și zona (filiale întregi sau orașe dintr-o filială).
  * Un cont fără nimic bifat nu vede nimic. Administratorii văd tot și gestionează conturile.
  */
-type User = { id: string; email: string; name: string; admin: boolean; disabled: boolean; access: Access; createdAt: number | null };
+type User = { id: string; email: string; name: string; admin: boolean; disabled: boolean; access: Access; notify: NotifyType[]; createdAt: number | null };
 type Branch = { fil: string; label: string; count: number; cities: { city: string; count: number }[] };
-type Draft = { id: string | null; email: string; name: string; password: string; admin: boolean; disabled: boolean; pages: Set<PageKey>; branches: Set<string>; cities: Set<string> };
+type Draft = { id: string | null; email: string; name: string; password: string; admin: boolean; disabled: boolean; pages: Set<PageKey>; branches: Set<string>; cities: Set<string>; notify: Set<NotifyType> };
 const nf = new Intl.NumberFormat("ro-RO");
-const empty = (): Draft => ({ id: null, email: "", name: "", password: "", admin: false, disabled: false, pages: new Set(["meters"]), branches: new Set(), cities: new Set() });
-const fromUser = (u: User): Draft => ({ id: u.id, email: u.email, name: u.name, password: "", admin: u.admin, disabled: u.disabled, pages: new Set(u.access.pages), branches: new Set(u.access.branches), cities: new Set(u.access.cities) });
+const empty = (): Draft => ({ id: null, email: "", name: "", password: "", admin: false, disabled: false, pages: new Set(["meters"]), branches: new Set(), cities: new Set(), notify: new Set() });
+const fromUser = (u: User): Draft => ({ id: u.id, email: u.email, name: u.name, password: "", admin: u.admin, disabled: u.disabled, pages: new Set(u.access.pages), branches: new Set(u.access.branches), cities: new Set(u.access.cities), notify: new Set(u.notify) });
 const toggle = <T,>(s: Set<T>, v: T, on: boolean): Set<T> => { const n = new Set(s); if (on) n.add(v); else n.delete(v); return n; };
 
 function summary(u: User, branches: Branch[]): string {
@@ -48,7 +49,8 @@ export default function UsersPanel() {
     if (!d || busy) return;
     setBusy(true); setMsg(null);
     const access = { pages: [...d.pages], branches: [...d.branches], cities: [...d.cities] };
-    const body = d.id ? { name: d.name, password: d.password, admin: d.admin, disabled: d.disabled, access } : { email: d.email, name: d.name, password: d.password, admin: d.admin, access };
+    const notify = [...d.notify];
+    const body = d.id ? { name: d.name, password: d.password, admin: d.admin, disabled: d.disabled, access, notify } : { email: d.email, name: d.name, password: d.password, admin: d.admin, access, notify };
     try {
       const r = await fetch(d.id ? `/api/users/${d.id}` : "/api/users", { method: d.id ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const j = (await r.json().catch(() => ({}))) as { error?: string };
@@ -88,7 +90,7 @@ export default function UsersPanel() {
                   <tr key={u.id}>
                     <td><div className="cell-main" style={{ overflow: "visible" }}>{u.name || u.email}</div><div className="cell-sub mono" style={{ whiteSpace: "normal", overflowWrap: "anywhere" }}>{u.email}</div></td>
                     <td>{u.admin ? <span className="badge ok">Administrator</span> : <span className="badge">Limitat</span>}</td>
-                    <td style={{ minWidth: 220 }}>{summary(u, branches)}</td>
+                    <td style={{ minWidth: 220 }}>{summary(u, branches)}{u.notify.length > 0 && <div className="cell-sub" style={{ whiteSpace: "normal" }}>Notificări: {u.notify.map((t) => NOTIFY_INFO[t].label).join("; ")}</div>}</td>
                     <td>{u.disabled ? <span className="badge danger">Dezactivat</span> : <span className="cell-sub">Activ</span>}</td>
                     <td style={{ textAlign: "right" }}><button type="button" className="btn btn-sm" onClick={() => { setD(fromUser(u)); setMsg(null); }}>Modifică</button></td>
                   </tr>
@@ -125,6 +127,16 @@ function Editor({ d, setD, branches, busy, msg, self, onSave, onDelete, onClose 
           </div>
           <label className="chk" style={{ marginTop: 10 }}><input type="checkbox" checked={d.admin} disabled={self} onChange={(e) => set({ admin: e.target.checked })} /> Administrator — vede tot și gestionează utilizatorii</label>
           {d.id && <label className="chk" style={{ marginTop: 6 }}><input type="checkbox" checked={d.disabled} disabled={self} onChange={(e) => set({ disabled: e.target.checked })} /> Cont dezactivat (nu se mai poate autentifica)</label>}
+        </section>
+        <section>
+          <h3>Notificări primite</h3>
+          {NOTIFY_TYPES.map((t) => (
+            <label key={t} className="chk" style={{ display: "flex", marginBottom: 6, alignItems: "flex-start" }}>
+              <input type="checkbox" checked={d.notify.has(t)} onChange={(e) => set({ notify: toggle(d.notify, t, e.target.checked) })} style={{ marginTop: 3 }} />
+              <span>{NOTIFY_INFO[t].label}<span className="cell-sub" style={{ display: "block", whiteSpace: "normal" }}>{NOTIFY_INFO[t].desc}</span></span>
+            </label>
+          ))}
+          <p className="cell-sub" style={{ whiteSpace: "normal", margin: "6px 0 0" }}>{d.admin ? "Administratorul primește notificările bifate pentru toate orașele." : "Primește notificările bifate doar pentru orașele pe care are voie să le vadă (zona de mai jos); fiecare utilizator le pornește apoi pe telefonul / calculatorul lui."}</p>
         </section>
         {!d.admin && (
           <>

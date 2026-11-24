@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import AppNav from "@/app/components/AppNav";
 import AppShell from "@/app/components/AppShell";
 import LogoutButton from "@/app/components/LogoutButton";
+import NotifBell from "@/app/components/NotifBell";
 import { PAGES } from "@/lib/access";
 import { requireUser } from "@/lib/dal";
 
@@ -28,6 +29,7 @@ async function Who() {
   const user = await requireUser();
   return (
     <div className="who">
+      {user.notify.length > 0 && <NotifBell />}
       <span title={user.email}>{user.email}</span>
       <LogoutButton />
     </div>

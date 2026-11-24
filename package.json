@@ -15,6 +15,7 @@
     "report:monthly": "tsx scripts/monthly-report.ts",
     "photos:pull": "tsx scripts/pull-photos.ts",
     "antennas:pull": "tsx scripts/pull-antennas.ts",
+    "alerts:check": "tsx scripts/check-alerts.ts",
     "bench:integration": "tsx scripts/bench-integration.ts",
     "history:fetch": "tsx scripts/fetch-history.ts",
     "history:load": "tsx scripts/load-history.ts"
@@ -27,7 +28,8 @@
     "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "sharp": "^0.35.5"
+    "sharp": "^0.35.5",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "4.3.3",
@@ -35,6 +37,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "eslint": "^9",
     "eslint-config-next": "16.4.6",
     "tailwindcss": "4.3.3",

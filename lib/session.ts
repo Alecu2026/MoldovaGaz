@@ -3,6 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { COLLECTIONS, col } from "./mongo";
 import { ADMIN_ROLE, NO_ACCESS, cleanAccess, type Viewer } from "./access";
+import { cleanNotify, type NotifyType } from "./notify";
 
 /**
  * Sesiuni în baza de date: în cookie stă un token aleatoriu, în DB doar hash-ul lui (un dump al bazei nu dă sesiuni valide).
@@ -12,8 +13,8 @@ export const SESSION_COOKIE = "mg_session";
 export const SESSION_DAYS = 14;
 const CACHE_MS = 30_000;
 
-export type SessionUser = Viewer & { id: string; email: string; name: string };
-export type UserDoc = { _id: ObjectId; email: string; name?: string; role?: string; access?: unknown; passwordHash: string; disabled?: boolean; createdAt?: Date; updatedAt?: Date };
+export type SessionUser = Viewer & { id: string; email: string; name: string; /** tipurile de notificări pe care le primește */ notify: NotifyType[] };
+export type UserDoc = { _id: ObjectId; email: string; name?: string; role?: string; access?: unknown; notify?: unknown; passwordHash: string; disabled?: boolean; createdAt?: Date; updatedAt?: Date };
 type SessionDoc = { tokenHash: string; userId: string; createdAt: Date; expiresAt: Date };
 
 const g = globalThis as unknown as { __sessCache?: Map<string, { user: SessionUser; until: number }> };
@@ -26,6 +27,12 @@ export function viewerOf(u: Pick<UserDoc, "role" | "access">): Viewer {
   if (u.role === ADMIN_ROLE) return { admin: true, access: NO_ACCESS };
   const c = cleanAccess(u.access ?? {});
   return { admin: false, access: "access" in c ? c.access : NO_ACCESS };
+}
+
+/** Tipurile de notificări bifate la cont (necunoscutele se ignoră). */
+export function notifyOf(u: Pick<UserDoc, "notify">): NotifyType[] {
+  const c = cleanNotify(u.notify);
+  return "notify" in c ? c.notify : [];
 }
 
 /** După o modificare a unui utilizator: sesiunile lui din memorie se citesc din nou la următoarea cerere (nu așteaptă cele 30 s). */
@@ -54,7 +61,7 @@ export async function validateSession(token: string): Promise<SessionUser | null
   if (!s || !ObjectId.isValid(s.userId)) return null;
   const u = await (await col<UserDoc>(COLLECTIONS.users)).findOne({ _id: new ObjectId(s.userId) });
   if (!u || u.disabled) return null;
-  const user: SessionUser = { id: String(u._id), email: u.email, name: u.name || u.email, ...viewerOf(u) };
+  const user: SessionUser = { id: String(u._id), email: u.email, name: u.name || u.email, notify: notifyOf(u), ...viewerOf(u) };
   cache.set(th, { user, until: Date.now() + CACHE_MS });
   if (cache.size > 500) for (const [k, v] of cache) if (v.until < Date.now()) cache.delete(k);
   return user;

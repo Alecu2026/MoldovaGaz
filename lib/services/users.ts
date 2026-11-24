@@ -1,20 +1,21 @@
 import "server-only";
 import { ObjectId } from "mongodb";
 import { ADMIN_ROLE, NO_ACCESS, cleanAccess, filOf, NO_CITY, type Access } from "../access";
+import { cleanNotify, type NotifyType } from "../notify";
 import { COLLECTIONS, col } from "../mongo";
 import { hashPassword } from "../password";
-import { forgetUser, viewerOf, type UserDoc } from "../session";
+import { forgetUser, notifyOf, viewerOf, type UserDoc } from "../session";
 import { getStore } from "./meter-dataset";
 
 /**
  * Conturile aplicației (colecția `users`): creare, schimbare drepturi (pagini + filiale / orașe), parolă, dezactivare, ștergere.
  * Administrator = rolul `super_admin`; ceilalți sunt limitați la ce e bifat (vezi lib/access.ts). Nu atinge nicio altă colecție în afară de `sessions` (la ștergere / dezactivare).
  */
-export type UserView = { id: string; email: string; name: string; admin: boolean; disabled: boolean; access: Access; createdAt: number | null };
+export type UserView = { id: string; email: string; name: string; admin: boolean; disabled: boolean; access: Access; notify: NotifyType[]; createdAt: number | null };
 type Err = { error: string; status: number };
 
 const EMAIL = /^[^\s@]{1,100}@[^\s@]{1,150}\.[^\s@]{2,40}$/;
-const view = (u: UserDoc): UserView => ({ id: String(u._id), email: u.email, name: u.name ?? "", disabled: !!u.disabled, createdAt: u.createdAt instanceof Date ? u.createdAt.getTime() : null, ...(() => { const v = viewerOf(u); return { admin: v.admin, access: v.admin ? NO_ACCESS : v.access }; })() });
+const view = (u: UserDoc): UserView => ({ id: String(u._id), email: u.email, name: u.name ?? "", disabled: !!u.disabled, createdAt: u.createdAt instanceof Date ? u.createdAt.getTime() : null, notify: notifyOf(u), ...(() => { const v = viewerOf(u); return { admin: v.admin, access: v.admin ? NO_ACCESS : v.access }; })() });
 
 export async function listUsers(): Promise<UserView[]> {
   const docs = await (await col<UserDoc>(COLLECTIONS.users)).find({}, { projection: { passwordHash: 0 } }).sort({ email: 1 }).toArray();
@@ -28,7 +29,7 @@ async function adminCount(exceptId?: string): Promise<number> {
   return (await col<UserDoc>(COLLECTIONS.users)).countDocuments(q);
 }
 
-export type NewUser = { email?: unknown; name?: unknown; password?: unknown; admin?: unknown; access?: unknown };
+export type NewUser = { email?: unknown; name?: unknown; password?: unknown; admin?: unknown; access?: unknown; notify?: unknown };
 
 export async function createUser(b: NewUser): Promise<{ user: UserView } | Err> {
   const email = String(b.email ?? "").trim().toLowerCase();
@@ -43,10 +44,12 @@ export async function createUser(b: NewUser): Promise<{ user: UserView } | Err> 
     if ("error" in c) return { error: c.error, status: 400 };
     access = c.access;
   }
+  const nt = cleanNotify(b.notify);
+  if ("error" in nt) return { error: nt.error, status: 400 };
   const users = await col<UserDoc>(COLLECTIONS.users);
   if (await users.findOne({ email }, { projection: { _id: 1 } })) return { error: "Există deja un cont cu această adresă.", status: 409 };
   const now = new Date();
-  const doc = { email, name: name || email, passwordHash: await hashPassword(password), role: admin ? ADMIN_ROLE : "user", access: admin ? undefined : access, disabled: false, createdAt: now, updatedAt: now };
+  const doc = { email, name: name || email, passwordHash: await hashPassword(password), role: admin ? ADMIN_ROLE : "user", access: admin ? undefined : access, notify: nt.notify, disabled: false, createdAt: now, updatedAt: now };
   const r = await users.insertOne(doc as never);
   return { user: view({ ...doc, _id: r.insertedId } as UserDoc) };
 }
@@ -69,6 +72,11 @@ export async function updateUser(id: string, b: NewUser & { disabled?: unknown }
   }
   if (id === actorId && (!admin || disabled)) return { error: "Nu-ți poți scoate singur drepturile de administrator sau dezactiva contul.", status: 400 };
   if (wasAdmin && !cur.disabled && (!admin || disabled) && (await adminCount(id)) === 0) return { error: "Trebuie să rămână cel puțin un administrator activ.", status: 400 };
+  if (b.notify !== undefined) {
+    const nt = cleanNotify(b.notify);
+    if ("error" in nt) return { error: nt.error, status: 400 };
+    set.notify = nt.notify;
+  }
   set.role = admin ? ADMIN_ROLE : "user";
   set.disabled = disabled;
   if (admin) unset.access = "";

@@ -39,6 +39,10 @@ start_or_reload() {
   if ! pm2 describe "$NAME-antennas" >/dev/null 2>&1; then
     pm2 start ecosystem.config.js --only "$NAME-antennas" --update-env
   fi
+  # verificarea problemelor + notificările push: tot separat și doar dacă nu există; citește doar din baza noastră
+  if ! pm2 describe "$NAME-alerts" >/dev/null 2>&1; then
+    pm2 start ecosystem.config.js --only "$NAME-alerts" --update-env
+  fi
   pm2 save >/dev/null
 }
 
