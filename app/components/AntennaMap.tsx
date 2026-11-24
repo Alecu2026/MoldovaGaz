@@ -8,7 +8,7 @@ import { STATE_COLOR, sigColor } from "./GatewayInfo";
 
 /**
  * Harta mică a unei antene (în popup-ul din Grafice): antena (cerc mare, colorat după stare) și toate contoarele cu care comunică (puncte colorate după semnal:
- * verde bun, galben mediu, roșu slab), unite cu antena prin linii subțiri. Harta se încadrează pe toate punctele; rotița nu mărește până nu dai click pe hartă.
+ * verde bun, galben mediu, roșu slab), unite cu antena prin linii subțiri. Harta se încadrează pe toate punctele; rotița, butoanele +/−, dublu-click și pinch-ul măresc / micșorează harta.
  */
 const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 export type MapDevice = { id: string; name: string; la: number; lo: number; rssi: number | null; km: number | null };
@@ -22,7 +22,7 @@ export default function AntennaMap({ name, la, lo, state, devices, onOpen }: { n
   useEffect(() => {
     const el = box.current;
     if (!el) return;
-    const map = L.map(el, { center: [la ?? 47.0, lo ?? 28.5], zoom: 9, minZoom: 5, maxZoom: 19, scrollWheelZoom: false });
+    const map = L.map(el, { center: [la ?? 47.0, lo ?? 28.5], zoom: 9, minZoom: 5, maxZoom: 19, zoomControl: true, scrollWheelZoom: true, doubleClickZoom: true, touchZoom: true, boxZoom: true, zoomSnap: 0.5, wheelPxPerZoomLevel: 90 });
     L.tileLayer(TILE_URL, { maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>' }).addTo(map);
     const pts: L.LatLngTuple[] = [];
     if (la !== null && lo !== null) {
@@ -40,7 +40,6 @@ export default function AntennaMap({ name, la, lo, state, devices, onOpen }: { n
     if (la !== null && lo !== null) L.circleMarker([la, lo], { radius: 10, color: "#ffffff", weight: 3, fillColor: STATE_COLOR[state], fillOpacity: 1 }).bindTooltip(name, { direction: "top", permanent: false }).addTo(map);
     if (pts.length > 1) map.fitBounds(pts, { padding: [24, 24], maxZoom: 14 });
     else if (pts.length === 1) map.setView(pts[0], 14);
-    map.once("click", () => map.scrollWheelZoom.enable());
     const ro = new ResizeObserver(() => map.invalidateSize());
     ro.observe(el);
     return () => { ro.disconnect(); map.remove(); };
