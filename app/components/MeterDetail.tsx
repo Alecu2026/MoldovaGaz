@@ -77,7 +77,7 @@ function Photo({ id, title }: { id: string; title: string }) {
     <section style={{ padding: 0, borderBottom: "none" }}>
       <button type="button" onClick={() => setBig(true)} title="Mărește poza (popup cu zoom)" aria-label="Mărește poza contorului" style={{ display: "block", width: "100%", padding: 0, border: 0, background: "var(--surface-2)", borderRadius: 10, overflow: "hidden", textAlign: "center", cursor: "zoom-in" }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={`/api/meters/${id}/photo`} alt="Poza contorului" loading="lazy" onError={() => setBad(id)} style={{ maxWidth: "100%", maxHeight: 320, objectFit: "contain", display: "block", margin: "0 auto" }} />
+        <img className="mdphoto" src={`/api/meters/${id}/photo`} alt="Poza contorului" loading="lazy" onError={() => setBad(id)} style={{ maxWidth: "100%", objectFit: "contain", display: "block", margin: "0 auto" }} />
       </button>
       {big && <PhotoViewer id={id} title={title} onClose={() => setBig(false)} />}
     </section>
