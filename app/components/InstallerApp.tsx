@@ -38,7 +38,7 @@ type Dlg = { kind: "alert"; title: string; body?: string } | { kind: "scan" } | 
 type Form = { id: string; ContorNr: string; lit: string; Aragaz: boolean; Cazan: boolean; Incalzire: boolean; mod: boolean; loc: string; com: string };
 const toForm = (r: InstallerRecord): Form => ({ id: r.id, ContorNr: r.ContorNr, lit: fnum(r.Instalation_Litres), Aragaz: r.Aragaz, Cazan: r.Cazan, Incalzire: r.Incalzire, mod: r.ModuleWriteInitial, loc: r.locationModule, com: r.Comments });
 
-export default function InstallerApp() {
+export default function InstallerApp({ canHome = false }: { /** are acces și la pagina Contoare: doar atunci apare legătura spre aplicația principală */ canHome?: boolean }) {
   /* ───────── lista (Device admin table) ───────── */
   const [q, setQ] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -213,9 +213,11 @@ export default function InstallerApp() {
       <header className="tbx-tool">
         <div className="tbx-tool-row1">
           <h1>{STATE_TITLE}</h1>
-          <div className="tbx-rel" onClick={(e) => e.stopPropagation()}>
-            <Btn n="more_vert" label="Meniu" className="tbx-white" onClick={() => setMenu(!menu)} />
-            {menu && (
+          <div className="tbx-rel" style={{ display: "flex", alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
+            {/* buton de ieșire mereu la vedere (instalatorul nu are nevoie de aplicația principală) */}
+            <form action={logoutAction} onSubmit={logout}><button type="submit" className="tbx-iconbtn tbx-white" aria-label="Ieșire" title="Ieșire / Sign out"><Ico n="logout" /></button></form>
+            {canHome && <Btn n="more_vert" label="Meniu" className="tbx-white" onClick={() => setMenu(!menu)} />}
+            {canHome && menu && (
               <div className="tbx-menu tbx-menu-r" role="menu">
                 <Link className="tbx-mi" href="/" role="menuitem"><Ico n="home" /> Moldovagaz</Link>
                 <form action={logoutAction} onSubmit={logout}><button type="submit" className="tbx-mi" role="menuitem"><Ico n="logout" /> Sign out</button></form>

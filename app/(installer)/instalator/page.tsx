@@ -14,6 +14,6 @@ export default function Page() {
 }
 
 async function Gate() {
-  await requirePage("installer");
-  return <InstallerApp />;
+  const user = await requirePage("installer");
+  return <InstallerApp canHome={user.admin || user.access.pages.includes("meters")} />;
 }
