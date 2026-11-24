@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { chirpstackFields, chirpstackText } from "@/lib/antennas";
 import { DOWNLINKS, GAS_TYPES, TYPE_LABEL, type DownlinkKey, type ModType } from "@/lib/lorawan/config";
 
 /**
@@ -10,6 +11,8 @@ import { DOWNLINKS, GAS_TYPES, TYPE_LABEL, type DownlinkKey, type ModType } from
 type Cfg = { primary: boolean; backup: boolean; v4: boolean; mqttV4: boolean; nodered: number; secret: boolean; write: boolean };
 type Run = { at: number; kind: string; dry: boolean; ok: boolean; by: string; steps: string[]; error: string | null };
 type Mod = { id: string; name: string; type: ModType; activation: "OTAA" | "ABP"; status: string; applicationID: string | null; emergency: string | null; emcCount: number; step: string | null; hasKeys: { appKey: boolean }; updatedAt: number; last: Run | null };
+type Ant = { id: string; name: string; description: string; latitude: number | null; longitude: number | null; altitude: number; createdAt: number; by: string; heard: boolean; last: number | null; msgs: number };
+const EMPTY_ANT = { id: "", name: "", description: "", latitude: "", longitude: "", altitude: "", Client: "", Comments: "" };
 type Kind = "register" | "emergency" | "otaa_down" | "extraframe";
 const KINDS: [Kind, string][] = [["register", "Înregistrare + activare"], ["emergency", "Reînregistrare de urgență (rezervă)"], ["otaa_down", "Comandă către modul"], ["extraframe", "ABP extraframe (v4)"]];
 const p2 = (n: number) => String(n).padStart(2, "0");
@@ -33,6 +36,10 @@ export default function LorawanPanel() {
   const [err, setErr] = useState<string | null>(null);
   const [f, setF] = useState({ ...EMPTY });
   const [csv, setCsv] = useState("");
+  const [ants, setAnts] = useState<Ant[] | null>(null);
+  const [af, setAf] = useState({ ...EMPTY_ANT });
+  const [amsg, setAmsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [openAnt, setOpenAnt] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [kind, setKind] = useState<Record<string, Kind>>({});
@@ -43,9 +50,9 @@ export default function LorawanPanel() {
     try {
       const r = await fetch("/api/lorawan", { cache: "no-store" });
       if (r.status === 401) { window.location.replace("/login"); return; }
-      const j = (await r.json()) as { config?: Cfg; modules?: Mod[]; error?: string };
+      const j = (await r.json()) as { config?: Cfg; modules?: Mod[]; antennas?: Ant[]; error?: string };
       if (!r.ok) throw new Error(j.error || "Nu am putut citi modulele.");
-      setCfg(j.config ?? null); setMods(j.modules ?? []); setErr(null);
+      setCfg(j.config ?? null); setMods(j.modules ?? []); setAnts(j.antennas ?? []); setErr(null);
     } catch (e) { setErr((e as Error).message); }
   }, []);
   useEffect(() => { const t = setTimeout(() => void load(), 0); return () => clearTimeout(t); }, [load]);
@@ -61,6 +68,31 @@ export default function LorawanPanel() {
       if ((j.added?.length ?? 0) > 0) { setF({ ...EMPTY }); setCsv(""); }
       await load();
     } catch { setMsg({ ok: false, text: "Nu am putut contacta serverul." }); } finally { setBusy(null); }
+  };
+  const addAnt = async () => {
+    setBusy("ant"); setAmsg(null);
+    try {
+      const r = await fetch("/api/lorawan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "antenna", ...af }) });
+      const j = (await r.json()) as { antenna?: Ant; error?: string };
+      if (!r.ok || !j.antenna) { setAmsg({ ok: false, text: j.error ?? "Eroare." }); return; }
+      setAf({ ...EMPTY_ANT }); setOpenAnt(j.antenna.id); setAmsg({ ok: true, text: `Antena ${j.antenna.name} a fost creată. Copiază valorile de mai jos și încarcă-le în ChirpStack.` });
+      await load();
+    } catch { setAmsg({ ok: false, text: "Nu am putut contacta serverul." }); } finally { setBusy(null); }
+  };
+  const delAnt = async (a: Ant) => {
+    if (!window.confirm(`Scoți antena ${a.name} din evidența noastră? (nu se șterge nimic din ChirpStack)`)) return;
+    const r = await fetch(`/api/lorawan?antenna=${a.id}`, { method: "DELETE" });
+    const j = (await r.json().catch(() => ({}))) as { ok?: boolean };
+    setAmsg(j.ok ? { ok: true, text: `Antena ${a.name} a fost scoasă.` } : { ok: false, text: "Antena nu poate fi scoasă (a transmis deja mesaje sau nu mai există)." });
+    await load();
+  };
+  const copy = async (value: string, what: string) => {
+    try { await navigator.clipboard.writeText(value); setAmsg({ ok: true, text: `Copiat: ${what}` }); }
+    catch {
+      const t = document.createElement("textarea"); t.value = value; t.style.position = "fixed"; t.style.opacity = "0"; document.body.appendChild(t); t.select();
+      let ok = false; try { ok = document.execCommand("copy"); } catch { /* fără clipboard */ }
+      t.remove(); setAmsg(ok ? { ok: true, text: `Copiat: ${what}` } : { ok: false, text: "Nu am putut copia — selectează textul și copiază-l manual." });
+    }
   };
   const run = async (m: Mod, dry: boolean, confirmDelete = false) => {
     const k = kind[m.id] ?? "register";
@@ -118,6 +150,55 @@ export default function LorawanPanel() {
           <textarea className="input mono" style={{ height: 120, padding: 8 }} value={csv} onChange={(e) => setCsv(e.target.value)} spellCheck={false} aria-label="Tabel CSV" />
           <div style={{ marginTop: 8 }}><button type="button" className="btn" disabled={busy === "add" || !csv.trim()} onClick={() => void add(parseCsv(csv))}>Adaugă din tabel</button></div>
         </details>
+      </section>
+
+      <section className="card" aria-label="Antene">
+        <header className="card-h"><div><h3>Antene (gateway)</h3><p>Antena se creează aici, apoi <b>copiezi valorile</b> și o încarci manual în ChirpStack (Gateways → Create). În SCADA antenele nu se creează în ChirpStack: apar singure după primul mesaj primit prin ele, iar la noi apar în ecranul «Instalator antene» din momentul creării.</p></div></header>
+        <div className="usr-grid">
+          <label className="field"><span>Gateway name (ex. M-0E4750_Orhei_Spital)</span><input className="input" value={af.name} onChange={(e) => setAf({ ...af, name: e.target.value })} autoComplete="off" spellCheck={false} /></label>
+          <label className="field"><span>Gateway ID (EUI, 16 hex)</span><input className="input mono" value={af.id} onChange={(e) => setAf({ ...af, id: e.target.value })} autoComplete="off" spellCheck={false} /></label>
+          <label className="field"><span>Gateway description</span><input className="input" value={af.description} maxLength={200} onChange={(e) => setAf({ ...af, description: e.target.value })} autoComplete="off" /></label>
+          <label className="field"><span>Latitude (opțional)</span><input className="input" inputMode="decimal" value={af.latitude} onChange={(e) => setAf({ ...af, latitude: e.target.value })} autoComplete="off" /></label>
+          <label className="field"><span>Longitude (opțional)</span><input className="input" inputMode="decimal" value={af.longitude} onChange={(e) => setAf({ ...af, longitude: e.target.value })} autoComplete="off" /></label>
+          <label className="field"><span>Altitudine, m (implicit 0)</span><input className="input" inputMode="decimal" value={af.altitude} onChange={(e) => setAf({ ...af, altitude: e.target.value })} autoComplete="off" /></label>
+          <label className="field"><span>Client (la noi)</span><input className="input" value={af.Client} maxLength={200} onChange={(e) => setAf({ ...af, Client: e.target.value })} autoComplete="off" /></label>
+          <label className="field"><span>Comentarii (la noi)</span><input className="input" value={af.Comments} maxLength={2000} onChange={(e) => setAf({ ...af, Comments: e.target.value })} autoComplete="off" /></label>
+        </div>
+        <div style={{ marginTop: 10 }}><button type="button" className="btn btn-primary" disabled={busy === "ant" || !af.name.trim() || !af.id.trim()} onClick={() => void addAnt()}>Creează antena</button></div>
+        {amsg && <p className={amsg.ok ? "cell-sub" : "form-error"} role={amsg.ok ? "status" : "alert"} style={{ whiteSpace: "normal", marginTop: 8 }}>{amsg.text}</p>}
+        {ants && ants.length > 0 && (
+          <div className="card-table" style={{ marginTop: 12, maxHeight: 420 }}>
+            <table className="mini">
+              <thead><tr><th>Antenă</th><th>Stare</th><th>Pentru ChirpStack</th></tr></thead>
+              <tbody>
+                {ants.map((a) => (
+                  <tr key={a.id}>
+                    <td><b>{a.name}</b><div className="cell-sub mono">{a.id}</div><div className="cell-sub">{dt(a.createdAt)} · {a.by}</div></td>
+                    <td><span className={`badge ${a.heard ? "ok" : ""}`}>{a.heard ? "transmite" : "neîncărcată / fără mesaje"}</span>{a.last && <div className="cell-sub">ultimul mesaj {dt(a.last)} · {a.msgs} mesaje</div>}</td>
+                    <td style={{ minWidth: 300 }}>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <button type="button" className="btn btn-sm btn-primary" onClick={() => void copy(chirpstackText(a), "toate câmpurile")}>Copiază tot</button>
+                        <button type="button" className="btn btn-sm" onClick={() => setOpenAnt(openAnt === a.id ? null : a.id)}>{openAnt === a.id ? "Ascunde câmpurile" : "Câmpuri pe rând"}</button>
+                        {!a.heard && <button type="button" className="btn btn-sm btn-ghost" onClick={() => void delAnt(a)} aria-label={`Scoate ${a.name}`}>Scoate</button>}
+                      </div>
+                      {openAnt === a.id && (
+                        <ul style={{ listStyle: "none", margin: "8px 0 0", padding: 0, display: "grid", gap: 4 }}>
+                          {chirpstackFields(a).map((fl) => (
+                            <li key={fl.label} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                              <span className="cell-sub" style={{ width: 170, flex: "none" }}>{fl.label}</span>
+                              <span className="mono" style={{ flex: 1, overflowWrap: "anywhere" }}>{fl.value || "—"}</span>
+                              <button type="button" className="btn btn-sm" disabled={!fl.value} onClick={() => void copy(fl.value, fl.label)}>Copiază</button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       {result && (

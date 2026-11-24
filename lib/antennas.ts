@@ -20,6 +20,8 @@ export type AntennaRow = {
   latitude: number | null; longitude: number | null;
   Instalta: boolean; Antena_mobila: boolean;
   hasPhoto: boolean;
+  /** creată la noi (formularul «Antenă nouă» din Module LoRaWAN), nu adusă din SCADA / din rețea */
+  created?: boolean;
 };
 export type AntennaRecord = AntennaRow & { updatedAt: number | null; by: string | null; photoAt: number | null };
 export type AntennaList = { rows: AntennaRow[]; now: number };
@@ -127,3 +129,41 @@ export function queryAntennas(rows: AntennaRow[], q: string, key: string, dir: "
   });
   return out;
 }
+
+/* ───────── antene noi: se creează la noi, apoi se copiază și se încarcă MANUAL în ChirpStack (SCADA nu creează antene în ChirpStack: ele apar acolo doar din mesajele primite) ───────── */
+
+/** Ce se păstrează la o antenă creată la noi (colecția `antenna_new`). */
+export type NewAntenna = { id: string; name: string; description: string; latitude: number | null; longitude: number | null; altitude: number; Client: string; Comments: string };
+
+/** Numele antenei în ChirpStack: litere, cifre, «_» și «-» (la fel ca regula «[\w-]+» a formularului de gateway). */
+export const gatewayNameOk = (n: string): boolean => /^[A-Za-z0-9_-]{3,60}$/.test(n);
+
+/** Validează formularul „Antenă nouă”: EUI-ul (16 cifre hexazecimale, se acceptă și textul unui cod QR), numele, descrierea, poziția (opțională) și altitudinea (implicit 0). */
+export function cleanNewAntenna(body: unknown): { antenna: NewAntenna } | { error: string } {
+  if (!body || typeof body !== "object") return { error: "Cerere invalidă." };
+  const b = body as Record<string, unknown>;
+  const id = parseAntennaQr(String(b.id ?? ""));
+  if (!id) return { error: "Gateway ID trebuie să aibă 16 cifre hexazecimale (EUI-ul antenei)." };
+  const name = String(b.name ?? "").trim();
+  if (!gatewayNameOk(name)) return { error: "Numele (Gateway name) are 3–60 de caractere: litere, cifre, «_» și «-», fără spații." };
+  const description = text(b.description, 200), Client = text(b.Client, 200), Comments = text(b.Comments, 2000);
+  for (const v of [description, Client, Comments]) if (typeof v !== "string") return { error: v.error };
+  const la = num(b.latitude), lo = num(b.longitude), alt = num(b.altitude);
+  if ((la === null) !== (lo === null)) return { error: "Latitudinea și longitudinea se completează amândouă (sau niciuna)." };
+  if (la !== null && (Math.abs(la) > 90 || Math.abs(lo!) > 180)) return { error: "Coordonatele nu sunt valide." };
+  if (alt !== null && Math.abs(alt) > 10000) return { error: "Altitudinea nu este validă." };
+  return { antenna: { id, name, description: description as string, latitude: la, longitude: lo, altitude: alt ?? 0, Client: Client as string, Comments: Comments as string } };
+}
+
+/** Câmpurile din formularul „Create gateway” din ChirpStack, în ordinea lui, gata de copiat (fiecare valoare se lipește în câmpul cu același nume). */
+export function chirpstackFields(a: Pick<NewAntenna, "id" | "name" | "description" | "latitude" | "longitude" | "altitude">): { label: string; value: string }[] {
+  return [
+    { label: "Gateway name", value: a.name },
+    { label: "Gateway description", value: a.description || a.name },
+    { label: "Gateway ID", value: a.id },
+    { label: "Latitude", value: a.latitude === null ? "" : String(a.latitude) },
+    { label: "Longitude", value: a.longitude === null ? "" : String(a.longitude) },
+    { label: "Gateway altitude (meters)", value: String(a.altitude) },
+  ];
+}
+export const chirpstackText = (a: Parameters<typeof chirpstackFields>[0]): string => chirpstackFields(a).map((f) => `${f.label}: ${f.value}`).join("\n");
