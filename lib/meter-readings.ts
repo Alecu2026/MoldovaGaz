@@ -27,10 +27,15 @@ export function readingOf(d: Pick<MeterDoc, "tel">): { t: number; v: number; tp:
   if (!vol || !(vol.t > 0)) return null;
   const v = Number(String(vol.v).replace(",", "."));
   if (!Number.isFinite(v) || v < 0) return null;
+  // momentul citirii = ora la care contorul a CITIT volumul (Volume_m3_Total_ts), dacă are aceeași valoare și e plauzibilă (cel mult 1 h după sosire, cel mult 7 zile înainte);
+  // altfel momentul sosirii în SCADA (Volume_m3_Total). Pentru raportul către facturare contează ora reală a citirii.
+  const vt = d.tel.Volume_m3_Total_ts;
+  const vtv = vt ? Number(String(vt.v).replace(",", ".")) : NaN;
+  const t = vt && vt.t > 0 && Number.isFinite(vtv) && Math.abs(vtv - v) < 0.0005 && vt.t <= vol.t + 3_600_000 && vt.t >= vol.t - 7 * 86_400_000 ? vt.t : vol.t;
   const tm = d.tel.temp;
   const tpv = tm ? Number(String(tm.v).replace(",", ".")) : NaN;
-  const tp = tm && Number.isFinite(tpv) && Math.abs(tm.t - vol.t) <= TEMP_MAX_AGE_MS ? tpv : null;
-  return { t: vol.t, v, tp };
+  const tp = tm && Number.isFinite(tpv) && Math.abs(tm.t - t) <= TEMP_MAX_AGE_MS ? tpv : null;
+  return { t, v, tp };
 }
 
 /** La fel ca `appendReadings`, dar doar pentru contoarele date (o interogare pe ele, nu pe toată colecția): pentru integrarea care scrie câteva zeci de contoare pe secundă. */

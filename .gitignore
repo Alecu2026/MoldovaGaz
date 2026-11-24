@@ -45,3 +45,6 @@ next-env.d.ts
 
 # pm2 / loguri
 /logs/
+
+# rapoartele de citiri generate pe server
+/reports/

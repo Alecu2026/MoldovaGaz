@@ -127,6 +127,14 @@ Instrument de încărcare și verificare: `npm run bench:integration -- load | b
 
 **Consum pe perioadă** (cartea „Consum” de sus): suma consumului raportat de contoare în **perioada curentă**, la alegere „Azi” (ziua calendaristică, `dailyConsumption`) sau „Luna aceasta” (`monthlyConsumption`), doar pentru contoarele filtrate; se adună doar contoarele al căror consum e înscris în SCADA pentru ziua / luna de acum (restul au valori vechi și ar falsifica totalul), iar cartea arată și câte contoare au raportat din câte sunt filtrate. Înlocuiește vechea „sumă a ultimelor citiri de volum”, care aduna volume cumulate citite în zile diferite și nu însemna nimic. Alegerea se reține în browser.
 
+## Raportul de citiri către facturare (Oracle)
+
+Pagina **Rapoarte**: alegi perioada (luna aceasta, luna trecută sau un interval cu date), ce citiri intră (toate / una pe zi / doar ultima) și dacă doar contoarele legate de facturare; **Previzualizează** arată primele rânduri și o estimare, **Generează fișierul** scrie un CSV pe server (în fundal, cu progres), de unde îl preia facturarea. Fiecare rând = o citire: `num_radio;cont;sp_id;serie_contor;contor;deveui;filiala;data_citire;data_citire_utc;volum_m3` (indicația cu 3 zecimale, ora citirii în ora Moldovei și în UTC; separator `;`, UTF-8, ghilimele unde e nevoie).
+
+- **Locul fișierelor**: `REPORT_OUT_DIR` (director local sau montat din rețea); implicit `reports/` lângă aplicație. Fișierul se scrie întâi ca `.part` și se redenumește abia când e complet, deci cine urmărește directorul vede doar fișiere întregi; lângă el apare `<fișier>.sha256` (suma de control). Un singur raport se generează odată.
+- **Automat**: aplicația pm2 `<nume>-report` rulează pe **1 ale lunii la 07:00** (ora serverului) și generează raportul lunii precedente (toate citirile, doar contoare legate de facturare; schimbabil cu `REPORT_MODE` / `REPORT_ONLY_BILLED`). Dacă serverul a fost oprit la 07:00, la pornire completează în zilele 1–5; nu generează de două ori aceeași lună. Manual: `npm run report:monthly -- --force`.
+- **Sursa citirilor**: istoricul propriu de citiri (`meter_readings`) și arhiva veche de volum (`meter_history`), combinate, fără dubluri, în ordine. Ora citirii e cea la care contorul a măsurat volumul (`Volume_m3_Total_ts`), nu momentul sosirii în sistem.
+
 ## Limite și date personale
 
 - Facturarea conține **date personale** (nume consumator, adresă). Ele ajung în browserul utilizatorilor autentificați (căutare instant) și în IndexedDB-ul lor; se șterg la „Ieșire”. Exportul CSV **nu** le include. Dă acces doar persoanelor autorizate.

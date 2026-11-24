@@ -27,6 +27,10 @@ start_or_reload() {
   if ! pm2 describe "$NAME-sync" >/dev/null 2>&1; then
     pm2 start ecosystem.config.js --only "$NAME-sync" --update-env
   fi
+  # raportul lunar către facturare: tot separat și doar dacă nu există (la creare rulează o dată, dar nu face nimic în afara zilelor 1–5 ale lunii)
+  if ! pm2 describe "$NAME-report" >/dev/null 2>&1; then
+    pm2 start ecosystem.config.js --only "$NAME-report" --update-env
+  fi
   pm2 save >/dev/null
 }
 

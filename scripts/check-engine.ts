@@ -22,6 +22,7 @@ import { writeSource } from "../lib/source-sync";
 import * as NA from "../lib/night-analysis";
 import { RESTART_GAP, counterOf, lostOf, newStream, observe, summarize } from "../lib/integration-counter";
 import { distanceKm as kmDist } from "../lib/geo";
+import { collapse, csvCell, fmtLocal, fmtUtc, mergePoints, meterKeys, monthRange, periodName, previousMonth, readingLine, thisMonthSoFar } from "../lib/report-readings";
 import { DAY as GDAY, buildStats, dayRange, foldDays, type DayAgg, type GwSum } from "../lib/gateway-stats";
 import { eventToMsg, gatewaysOf, looksLikeEvent, looksLikeUplink, nameKey, uplinkToMsg } from "../lib/integration-uplink";
 import { MAX_BATCH, isStaleFcnt, isStaleUplink, ingestIsNewer, mergeDerive, mergeMsgs, normTs, parseMessage, type MeterDocIng } from "../lib/integration";
@@ -343,11 +344,11 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
   const walk = (d: string): string[] => readdirSync(d).flatMap((n) => (n === "node_modules" || n === ".next" || n.startsWith(".") ? [] : statSync(join(d, n)).isDirectory() ? walk(join(d, n)) : /\.(ts|tsx)$/.test(n) ? [join(d, n)] : []));
   const files = ["app", "lib", "scripts"].flatMap(walk).filter((f) => !f.endsWith("check-engine.ts"));
   const fetches = files.flatMap((f) => (readFileSync(f, "utf8").match(/\bfetch\(/g) ?? []).map(() => f.replace(/\\/g, "/")));
-  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "app/components/GatewayLayer.tsx", "app/components/KeptBrowser.tsx", "app/components/GatewayPopup.tsx", "app/components/GatewayCharts.tsx", "app/components/SeenBrowser.tsx", "app/components/MeterAntennas.tsx", "scripts/bench-integration.ts"]);
+  const allowedFetch = new Set(["lib/thingsboard.ts", "lib/meter-sync.ts", "app/components/useMeterStore.ts", "app/components/MeterDetail.tsx", "app/components/useSourceStore.ts", "app/components/NightControl.tsx", "app/components/IntegrationPanel.tsx", "app/components/GatewayLayer.tsx", "app/components/KeptBrowser.tsx", "app/components/ReportsPanel.tsx", "app/components/GatewayPopup.tsx", "app/components/GatewayCharts.tsx", "app/components/SeenBrowser.tsx", "app/components/MeterAntennas.tsx", "scripts/bench-integration.ts"]);
   check("read-only: fetch() doar în fișierele așteptate", fetches.every((f) => allowedFetch.has(f)), [...new Set(fetches)].join(", "));
   const mutating = files.filter((f) => /method:\s*"(PUT|DELETE|PATCH)"|\.(deleteOne|deleteMany|drop|updateMany|updateOne|insertOne|insertMany|replaceOne|bulkWrite)\(/.test(readFileSync(f, "utf8"))).map((f) => f.replace(/\\/g, "/"));
   // scrieri în baza NOASTRĂ: doar sesiuni / utilizator (login, seed) și colecția `meters` (sincronizare); niciodată în surse
-  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts", "lib/services/gateways.ts", "lib/services/counters.ts", "lib/services/kept.ts"]);
+  const allowedWrites = new Set(["lib/session.ts", "scripts/seed-user.ts", "scripts/sync-meters.ts", "scripts/load-history.ts", "lib/source-sync.ts", "lib/meter-readings.ts", "lib/night-job.ts", "lib/services/integration.ts", "lib/services/gateways.ts", "lib/services/counters.ts", "lib/services/kept.ts", "lib/report-job.ts", "lib/services/reports.ts", "app/components/ReportsPanel.tsx"]);
   check("read-only: scrieri în baza de date doar în sesiuni, seed:user, sync-meters, load-history și lib/source-sync", mutating.every((f) => allowedWrites.has(f)), mutating.join(", "));
   const syncSrc = readFileSync("scripts/sync-meters.ts", "utf8");
   const syncCollections = syncSrc.match(/client\.db\(\)\.collection[^\n]*/g) ?? [];
@@ -848,6 +849,23 @@ const section8 = (async () => {
   const r1 = readingOf({ tel: tel(1_000_000_000, "1234.5", 1_000_000_000 + 2 * H) });
   check("citire: volum + temperatura măsurată de contor (la cel mult 48 h de citire, înainte sau după), cu virgulă zecimală", r1?.v === 1234.5 && r1.tp === 23.5 && r1.t === 1_000_000_000);
   check("citire: temperatură de acum 30 h se atașează, de peste 48 h ⇒ null; volum negativ / lipsă ⇒ fără citire", readingOf({ tel: tel(1_000_000_000, "5", 1_000_000_000 - 30 * H, "21") })?.tp === 21 && readingOf({ tel: tel(1_000_000_000, "5", 1_000_000_000 - 50 * H) })?.tp === null && readingOf({ tel: tel(1_000_000_000, "-3", null) }) === null && readingOf({ tel: {} }) === null);
+  { const T = 1_800_000_000_000;
+    const vv = (tsT: number | null, tsV = "10.000") => readingOf({ tel: { Volume_m3_Total: { t: T, v: "10.000" }, ...(tsT === null ? {} : { Volume_m3_Total_ts: { t: tsT, v: tsV } }) } })?.t;
+    check("citire: ora = momentul CITIRII (Volume_m3_Total_ts) când are aceeași valoare și e plauzibilă; altfel momentul sosirii", vv(T - 45 * 60_000) === T - 45 * 60_000 && vv(T - 45 * 60_000, "10,000") === T - 45 * 60_000 && vv(T - 45 * 60_000, "9.000") === T && vv(T + 3 * H) === T && vv(T - 8 * 24 * H) === T && vv(null) === T);
+  }
+  // raportul de citiri către facturare
+  { const oct = monthRange(2026, 10);
+    check("raport: luna în ora locală (octombrie 2026 începe la UTC+3 și se termină la UTC+2, după trecerea la ora de iarnă)", oct.from === Date.UTC(2026, 8, 30, 21) && oct.to === Date.UTC(2026, 9, 31, 22) && periodName(oct.from, oct.to) === "2026-10-01_2026-10-31");
+    check("raport: luna precedentă (și peste schimbarea anului) și luna curentă până acum", previousMonth(Date.UTC(2026, 10, 24, 5)).from === oct.from && previousMonth(Date.UTC(2026, 10, 24, 5)).to === oct.to && previousMonth(Date.UTC(2027, 0, 15)).from === Date.UTC(2026, 10, 30, 22) && previousMonth(Date.UTC(2027, 0, 15)).to === Date.UTC(2026, 11, 31, 22) && thisMonthSoFar(Date.UTC(2026, 10, 24, 5)).from === oct.to && thisMonthSoFar(Date.UTC(2026, 10, 24, 5)).to === Date.UTC(2026, 10, 24, 5) + 1);
+    check("raport: ora citirii în ora Moldovei și în UTC", fmtLocal(oct.to) === "2026-11-01 00:00:00" && fmtUtc(oct.to) === "2026-10-31 22:00:00" && fmtLocal(Date.UTC(2026, 6, 1, 0, 0, 0)) === "2026-07-01 03:00:00");
+    const A = Date.UTC(2026, 9, 30, 10), B = Date.UTC(2026, 9, 30, 20), C = Date.UTC(2026, 9, 30, 22, 30), D = Date.UTC(2026, 9, 31, 5);
+    const mp = mergePoints([[B, 6], [A, 5], [D, -1], [Date.UTC(2026, 10, 5), 9]], [[A + 300, 5], [C, 7], [Date.UTC(2026, 8, 1), 1], [D + 1000, Number.NaN]], oct.from, oct.to);
+    check("raport: citirile din cele două surse se combină, se taie la perioadă, fără dubluri (aceeași secundă), fără valori negative / invalide, în ordine", JSON.stringify(mp) === JSON.stringify([[A, 5], [B, 6], [C, 7]]));
+    const pts: [number, number][] = [[A, 5], [B, 6], [C, 7], [D, 8]];
+    check("raport: toate / una pe zi (ultima din ziua locală) / doar ultima", collapse(pts, "all").length === 4 && JSON.stringify(collapse(pts, "daily")) === JSON.stringify([[B, 6], [D, 8]]) && JSON.stringify(collapse(pts, "last")) === JSON.stringify([[D, 8]]) && collapse([], "last").length === 0);
+    const keys = meterKeys({ _id: "x", s: { n: "S2154_1", e: "abc" }, bill: { NUM_RADIO: "00039410", ACCT_ID: 2572, SP_ID: "47" }, attrs: { ContorNr: "4624641" } });
+    check("raport: cheile contorului pentru facturare (număr radio, cont, SPID, serie, nume, devEUI, filială) și linia CSV cu indicația cu 3 zecimale", keys.join("|") === "00039410|2572|47|4624641|S2154_1|abc|" && readingLine(["1", "a;b", "c"].map(csvCell), oct.to, 12.3456) === '1;"a;b";c;2026-11-01 00:00:00;2026-10-31 22:00:00;12.346\n' && csvCell('x"y') === '"x""y"' && csvCell("simplu") === "simplu");
+  }
   const stored = new Map<string, number>();
   const opsSeen: { insertOne?: { document: { _id: string; lt: number } }; updateOne?: { filter: { _id: string; lt: { $lt: number } }; update: { $push: Record<string, { $slice: number }>; $set: { lt: number } } } }[] = [];
   const usedC = new Set<string>();

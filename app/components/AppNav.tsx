@@ -8,6 +8,7 @@ const ITEMS: { href: string; label: string; sub: string; title: string }[] = [
   { href: "/", label: "Contoare", sub: "combinat", title: "Contoarele din SCADA + facturarea, puse împreună (volum, coordonate, stare)" },
   { href: "/control", label: "Consum nemăsurat", sub: "noapte", title: "Contoare care noaptea nu înregistrează consum deși ziua consumă și temperatura nu scade" },
   { href: "/integration", label: "Integrare", sub: "api", title: "API-ul prin care primim mesaje direct de la LoRaWAN / antene: stare, ritm, verificare mesaj" },
+  { href: "/rapoarte", label: "Rapoarte", sub: "facturare", title: "Raport de citiri către facturare (Oracle): perioadă la alegere, fișier CSV pe server, generare automată pe 1 ale lunii la 07:00" },
   { href: "/lorawan", label: "Dispozitive LoRaWAN", sub: "lorawandb", title: "Doar datele din lorawandb (primul IP)" },
   { href: "/facturare", label: "Facturare", sub: "getmgdb", title: "Doar datele din getmgdb (al doilea IP)" },
 ];

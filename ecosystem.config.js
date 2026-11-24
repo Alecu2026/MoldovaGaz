@@ -4,6 +4,7 @@
  * Trei aplicații:
  *  1. aplicația Next (un SINGUR proces, fork — intenționat: lista de contoare din memorie e per proces; în cluster ar fi mai multe copii);
  *  2. „<nume>-sync”: o dată pe oră (minutul 0) rulează scripts/sync-meters.ts (lista și valorile din SCADA + getmgdb → colecția `meters`; scrie doar contoarele modificate);
+ *  2b. „<nume>-report”: pe 1 ale lunii la 07:00 rulează scripts/monthly-report.ts (raportul de citiri al lunii precedente, CSV în REPORT_OUT_DIR, pentru facturare);
  *  3. „<nume>-autodeploy”: o dată pe minut verifică GitHub-ul (deploy/auto-deploy.sh) și, dacă există commit nou pe branch, face deploy
  *     (git pull, npm ci doar dacă s-au schimbat dependențele, build, reload; la build eșuat revine la commit-ul anterior).
  *     Nu e nevoie de webhook sau de SSH dinspre GitHub, deci merge și pe un server din rețeaua locală.
@@ -67,6 +68,21 @@ module.exports = {
       merge_logs: true,
       out_file: "logs/sync.log",
       error_file: "logs/sync.log",
+    },
+    {
+      name: `${NAME}-report`,
+      cwd: __dirname,
+      script: "node_modules/tsx/dist/cli.mjs",
+      args: "scripts/monthly-report.ts",
+      exec_mode: "fork",
+      instances: 1,
+      autorestart: false, // rulează o dată și iese; pm2 îl repornește după cron_restart
+      cron_restart: "0 7 1 * *", // pe 1 ale lunii, la 07:00 (ora serverului): raportul de citiri al lunii precedente, pentru facturare
+      watch: false,
+      time: true,
+      merge_logs: true,
+      out_file: "logs/report.log",
+      error_file: "logs/report.log",
     },
     {
       name: `${NAME}-autodeploy`,
