@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Db } from "mongodb";
-import { decodeImage, PHOTO_COLLECTION, photoDir, photoPath, processImage } from "./photos";
+import { decodeImage, fullPx, PHOTO_COLLECTION, photoDir, photoPath, processImage } from "./photos";
 import { tb } from "./thingsboard";
 
 /**
@@ -11,7 +11,7 @@ import { tb } from "./thingsboard";
  *  - contoarele fără poză („none”) se verifică din nou după NONE_RETRY_DAYS zile, cele cu eroare după câteva minute (de cel mult MAX_TRIES ori);
  *  - se oprește singură dacă pe disc mai rămân sub PHOTO_MIN_FREE_GB GB, sau dacă SCADA nu răspunde minute la rând.
  */
-type PhotoDoc = { _id: string; st: "ok" | "none" | "err"; at: Date; ts?: number; b?: number; w?: number; h?: number; src?: number; n?: number; msg?: string };
+type PhotoDoc = { _id: string; st: "ok" | "none" | "err"; at: Date; ts?: number; b?: number; w?: number; h?: number; src?: number; mx?: number; n?: number; msg?: string };
 export type PullStats = { total: number; todo: number; ok: number; none: number; err: number; bytes: number; srcBytes: number; ms: number; stopped: string | null };
 type Attr = { key?: string; value?: unknown; lastUpdateTs?: number };
 
@@ -21,15 +21,15 @@ export const MAX_TRIES = 5;
 const ERR_RETRY_MS = 10 * 60_000;
 const num = (v: string | undefined, d: number) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
 
-/** Care contoare mai trebuie (re)verificate: fără stare, cu eroare mai veche de 10 min (și sub MAX_TRIES încercări), fără poză de peste NONE_RETRY_DAYS zile; sau toate, cu `refresh`. */
-export function pendingIds(all: string[], done: Map<string, Pick<PhotoDoc, "st" | "at" | "n">>, now: number, refresh = false): string[] {
+/** Care contoare mai trebuie (re)verificate: fără stare, cu poză păstrată la o rezoluție mai mică decât `px`, cu eroare mai veche de 10 min (și sub MAX_TRIES încercări), fără poză de peste NONE_RETRY_DAYS zile; sau toate, cu `refresh`. */
+export function pendingIds(all: string[], done: Map<string, Pick<PhotoDoc, "st" | "at" | "n" | "mx">>, now: number, refresh = false, px = fullPx()): string[] {
   return all.filter((id) => {
     const d = done.get(id);
     if (!d || refresh) return true;
     const age = now - d.at.getTime();
     if (d.st === "err") return (d.n ?? 1) < MAX_TRIES && age >= ERR_RETRY_MS;
     if (d.st === "none") return age >= NONE_RETRY_DAYS * DAY;
-    return false;
+    return (d.mx ?? 0) < px; // poză păstrată la o rezoluție mai mică decât cea cerută acum: se reface (o singură dată)
   });
 }
 
@@ -52,7 +52,7 @@ export async function pullPhotos(db: Db, opts: { limit?: number; refresh?: boole
 
   const all = (await db.collection(process.env.METERS_COLLECTION || "meters").find({}, { projection: { _id: 1 } }).sort({ _id: 1 }).toArray()).map((d) => String(d._id));
   const done = new Map<string, PhotoDoc>();
-  for await (const d of coll.find({}, { projection: { _id: 1, st: 1, at: 1, n: 1 } })) done.set(String(d._id), d as PhotoDoc);
+  for await (const d of coll.find({}, { projection: { _id: 1, st: 1, at: 1, n: 1, mx: 1 } })) done.set(String(d._id), d as PhotoDoc);
   let todo = pendingIds(all, done, Date.now(), opts.refresh);
   const pending = todo.length;
   if (opts.limit && opts.limit > 0) todo = todo.slice(0, opts.limit);
@@ -77,7 +77,7 @@ export async function pullPhotos(db: Db, opts: { limit?: number; refresh?: boole
       const p = await processImage(buf);
       await writeAtomic(photoPath(id, false, dir), p.full);
       await writeAtomic(photoPath(id, true, dir), p.thumb);
-      await save(id, { st: "ok", at: new Date(), ts: Number(a.lastUpdateTs) || 0, b: p.full.length, w: p.w, h: p.h, src: buf.length });
+      await save(id, { st: "ok", at: new Date(), ts: Number(a.lastUpdateTs) || 0, b: p.full.length, w: p.w, h: p.h, src: buf.length, mx: fullPx() });
       st.ok++; st.bytes += p.full.length + p.thumb.length; st.srcBytes += buf.length;
     } catch (e) {
       fails++;

@@ -1230,3 +1230,11 @@ button.badge-btn:hover {
 .gwpop-cols { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 16px; align-items: start; }
 .gw-minimap { height: 300px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface-2); }
 @media (max-width: 900px) { .gwpop-cols { grid-template-columns: 1fr; } }
+
+/* poza contorului în popup cu zoom (PhotoViewer) */
+.pv { position: fixed; inset: 0; z-index: 2000; background: rgb(6 10 18 / 0.92); display: grid; place-items: center; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+.pv-img { max-width: 100vw; max-height: 100dvh; width: auto; height: auto; object-fit: contain; transform-origin: center center; will-change: transform; }
+.pv-bar { position: absolute; left: 0; right: 0; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: linear-gradient(rgb(6 10 18 / 0.85), rgb(6 10 18 / 0)); color: #e6edf6; flex-wrap: wrap; }
+.pv-title { flex: 1 1 auto; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono, ui-monospace, monospace); }
+.pv-zoom { font-variant-numeric: tabular-nums; color: #9fb3c8; min-width: 3.2em; text-align: right; }
+.pv-msg { position: absolute; color: #cbd5e1; margin: 0; }

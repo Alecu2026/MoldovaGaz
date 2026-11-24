@@ -2,13 +2,14 @@ import path from "node:path";
 
 /**
  * Pozele contoarelor. În SCADA fiecare contor poate avea atributul `image` = poza făcută la montaj, ca text base64 (`data:image/jpeg;base64,…`), de 1,5–3,5 MB.
- * Nu le păstrăm așa (69.000 × ~2,5 MB nu încap): le decodăm, le micșorăm (cel mult PHOTO_MAX_PX pe latura lungă, JPEG fără date EXIF — deci și fără locația din poză)
+ * Nu le păstrăm așa (69.000 × ~2,5 MB nu încap): le decodăm, le micșorăm (cel mult PHOTO_MAX_PX (1600) pe latura lungă, JPEG fără date EXIF — deci și fără locația din poză)
  * și le scriem ca fișiere pe disc, împreună cu o miniatură:   <PHOTO_DIR>/<primele 2 caractere ale id-ului>/<id>.jpg   și   …/<id>_t.jpg
  * În Mongo, colecția `meter_photos` ține doar starea fiecărui contor (ok / none / err), ca extragerea să poată fi oprită și reluată.
  */
 export const PHOTO_COLLECTION = "meter_photos";
 export const photoDir = (): string => path.resolve(process.env.PHOTO_DIR || path.join(process.cwd(), "photos"));
-export const FULL_PX = Math.max(400, Math.min(3000, Number(process.env.PHOTO_MAX_PX) || 1000));
+/** Latura lungă a pozei păstrate (PHOTO_MAX_PX, implicit 1600: se poate mări mult la zoom). Se citește la rulare, nu la import: .env.local se încarcă abia în script. */
+export const fullPx = (): number => Math.max(400, Math.min(3000, Number(process.env.PHOTO_MAX_PX) || 1600));
 export const THUMB_PX = 240;
 
 /** id-ul unui contor = id-ul dispozitivului din SCADA (UUID). Verificat strict: ajunge într-o cale de fișier. */
@@ -36,7 +37,7 @@ export function decodeImage(value: unknown): Buffer | null {
 export type Processed = { full: Buffer; thumb: Buffer; w: number; h: number };
 
 /** Micșorează (respectând orientarea din EXIF), scoate metadatele, scrie JPEG. `sharp` se încarcă doar aici, ca restul aplicației să nu-l ceară. */
-export async function processImage(buf: Buffer, maxPx: number = FULL_PX): Promise<Processed> {
+export async function processImage(buf: Buffer, maxPx: number = fullPx()): Promise<Processed> {
   const sharp = (await import("sharp")).default;
   sharp.concurrency(2);
   const base = () => sharp(buf, { failOn: "none", limitInputPixels: 300_000_000 }).rotate();
