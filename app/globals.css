@@ -1442,3 +1442,10 @@ button.badge-btn:hover {
 .usr-city { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .usr-foot { position: sticky; bottom: 0; background: var(--surface); border-bottom: 0 !important; border-top: 1px solid var(--border); }
 @media (max-width: 640px) { .usr-citylist { grid-template-columns: 1fr; max-height: 220px; } }
+
+/* ───────── Ecran tactil: fără mărire automată la atingerea unui câmp ─────────
+   iOS (Safari) mărește pagina când atingi un câmp cu text sub 16 px — la filtre încurca. Pe ecran tactil câmpurile au 16 px, iar dublu-atingerea pe butoane nu mai mărește. */
+@media (pointer: coarse) {
+  .input, .select, .cf-in, select, textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]) { font-size: 16px; }
+  button, a, label, summary, th, select, input { touch-action: manipulation; }
+}
