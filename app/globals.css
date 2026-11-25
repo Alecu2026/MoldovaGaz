@@ -1053,7 +1053,7 @@ button.badge-btn:hover {
 /* coloana din dreapta sus a hărții: cardul contorului + panoul cu antenele lui, unul sub altul; fiecare se strânge / se deschide fără să deselecteze contorul */
 .map-side { position: absolute; right: 10px; top: 10px; z-index: 720; width: min(380px, calc(100% - 20px)); max-height: calc(100% - 36px); overflow: auto; display: flex; flex-direction: column; gap: 8px; pointer-events: none; overscroll-behavior: contain; }
 .map-side > * { pointer-events: auto; }
-.map-side .map-popup, .map-side .gw-panel-sm { position: static; width: auto; max-height: none; bottom: auto; overflow: visible; flex: none; }
+.map-side .map-popup, .map-side .gw-panel { position: static; width: auto; max-height: none; bottom: auto; top: auto; right: auto; overflow: visible; flex: none; }
 .map-fold { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .map-fold-t { display: grid; min-width: 0; }
 .map-fold-t .cell-main, .map-fold-t .cell-sub { white-space: normal; overflow-wrap: anywhere; }
@@ -1080,13 +1080,13 @@ button.badge-btn:hover {
   .map-stage { min-height: 60dvh; }
   /* telefon: popup-ul contorului și panoul antenei sunt „foi” prinse de ecran (nu de hartă, care poate ieși din ecran): mereu întregi și vizibile */
   .map-stage .map-side { position: fixed; left: 8px; right: 8px; top: auto; bottom: max(8px, env(safe-area-inset-bottom)); width: auto; max-height: 56dvh; z-index: 2100; }
-  .map-side .map-popup, .map-side .gw-panel-sm { padding: 10px 12px; border-radius: 14px; }
+  .map-side .map-popup, .map-side .gw-panel { padding: 10px 12px; border-radius: 14px; }
   .map-stage .gw-panel {
     position: fixed; left: 8px; right: 8px; top: auto; bottom: max(8px, env(safe-area-inset-bottom)); width: auto; max-height: 52dvh; overflow: auto;
     transform: none !important; visibility: visible !important; z-index: 2100; padding: 12px 14px; border-radius: 14px; overscroll-behavior: contain;
   }
   .map-stage .gw-panel { max-height: 68dvh; }
-  .map-stage .map-side .gw-panel-sm { position: static; left: auto; right: auto; bottom: auto; top: auto; width: auto; max-height: none; overflow: visible; transform: none; }
+  .map-stage .map-side .gw-panel { position: static; left: auto; right: auto; bottom: auto; top: auto; width: auto; max-height: none; overflow: visible; transform: none; }
   .map-popup .map-x, .map-stage .gw-panel .map-x { width: 40px; height: 40px; right: 2px; top: 0; font-size: 26px; }
   .map-popup .cell-main { white-space: normal; overflow-wrap: anywhere; }
   .map-btns { gap: 8px; }
@@ -1578,5 +1578,16 @@ button.badge-btn:hover {
 @media (max-width: 640px) { .page:has(.fold-body) .ant-wrap { min-height: calc(100dvh - var(--top, 0px) - 16px); } .ant-stage { min-height: 60dvh; } .ant-card .usr-grid { grid-template-columns: 1fr; } }
 
 /* panoul antenei alese, strâns: doar bara cu numele (pe telefon harta rămâne vizibilă) */
-.map-stage .gw-panel.gw-panel-min { bottom: auto; max-height: none; overflow: visible; }
-@media (max-width: 640px) { .map-stage .gw-panel.gw-panel-min { bottom: max(8px, env(safe-area-inset-bottom)); top: auto; } }
+
+/* carduri de pe hartă: bară + buton „doar pictogramă” */
+.map-fold-row { display: flex; align-items: center; gap: 6px; }
+.map-fold-row .map-fold { flex: 1 1 auto; width: auto; min-width: 0; }
+.map-min { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--border-strong); border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
+.map-min:hover { color: var(--text); background: var(--surface-2); }
+.map-icon-btn { align-self: flex-end; flex: none; width: 46px; height: 46px; display: grid; place-items: center; border: 1px solid var(--border-strong); border-radius: 50%; background: var(--surface); color: var(--accent-strong); box-shadow: var(--shadow); cursor: pointer; }
+.map-icon-btn:hover { background: var(--accent-soft); }
+/* cardurile iau tot rândul; pictogramele stau una lângă alta, în același rând, lipite de marginea din dreapta */
+.map-side { flex-flow: row wrap; justify-content: flex-end; align-content: flex-start; }
+.map-side > * { flex: 1 1 100%; min-width: 0; max-width: 100%; }
+.map-side > .map-icon-btn { flex: none; }
+.map-card-bar .map-fold-row { margin: 0; }

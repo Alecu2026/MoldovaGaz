@@ -3,6 +3,7 @@
 import L from "leaflet";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import MapCard, { IcoTower, type CardMode } from "./MapCard";
 import type { DevGateway, GwDetail, GwDevice, GwState, GwSummary } from "@/lib/services/gateways";
 
 /**
@@ -77,8 +78,8 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
   /** panoul „contor → antene” strâns / deschis (nu schimbă contorul ales; se păstrează între contoare) */
   // pe telefon (foaia din josul ecranului) lista antenelor pornește strânsă, ca să rămână loc pentru hartă; la fel de ușor de deschis
   /** panoul antenei alese strâns / deschis (antena rămâne aleasă, liniile rămân; se păstrează între antene) */
-  const [selOpen, setSelOpen] = useState(true);
-  const [panelOpen, setPanelOpen] = useState(() => typeof window === "undefined" || !window.matchMedia("(max-width: 640px)").matches);
+  const [selMode, setSelMode] = useState<CardMode>("open");
+  const [panelMode, setPanelMode] = useState<CardMode>(() => (typeof window === "undefined" || !window.matchMedia("(max-width: 640px)").matches ? "open" : "bar"));
   const [now, setNow] = useState(() => Date.now());
   const meter = useMemo(() => (meterId !== null && meterLa !== null && meterLo !== null ? { id: meterId, name: meterName, la: meterLa, lo: meterLo } : null), [meterId, meterName, meterLa, meterLo]);
   // când se alege alt contor, antena aleasă se închide (ajustare în timpul randării, nu în efect)
@@ -241,13 +242,10 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
         </div>
       )}
 
-      {sel && (
-        <aside className={`gw-panel${selOpen ? "" : " gw-panel-min"}`} aria-label="Detalii antenă">
-          <button type="button" className="map-fold" aria-expanded={selOpen} aria-label={selOpen ? "Strânge detaliile antenei (antena rămâne aleasă)" : "Deschide detaliile antenei"} title={selOpen ? "Strânge (antena rămâne aleasă, harta se vede)" : "Deschide"} onClick={() => setSelOpen((v) => !v)}>
-            <span className="map-fold-t"><span className="cell-main">{det && detFor === sel ? det.gateway.name : "Antenă"}</span><span className="cell-sub">{det && detFor === sel ? `${nf.format(det.gateway.devices)} contoare auzite · ${STATE_LABEL[det.gateway.state]}` : "se încarcă…"}</span></span>
-            <span aria-hidden="true" className="map-fold-i">{selOpen ? "▴" : "▾"}</span>
-          </button>
-          {selOpen && (det && detFor === sel ? (
+      {sel && sideEl && createPortal(
+        <MapCard mode={selMode} setMode={setSelMode} tag="aside" icon={<IcoTower />} label={`Antena ${det && detFor === sel ? det.gateway.name : ""}`.trim()} className="gw-panel"
+          title={det && detFor === sel ? det.gateway.name : "Antenă"} sub={det && detFor === sel ? `${nf.format(det.gateway.devices)} contoare auzite · ${STATE_LABEL[det.gateway.state]}` : "se încarcă…"}>
+          {det && detFor === sel ? (
             <>
               <div className="cell-sub">
                 <span className={`gw-dot gw-${det.gateway.state}`} aria-hidden="true" /> {STATE_LABEL[det.gateway.state]} · ultimul mesaj {when(det.gateway.last)} ({ago(det.gateway.last, now)})
@@ -293,17 +291,13 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
             </>
           ) : (
             <div className="cell-sub">Se încarcă…</div>
-          ))}
-        </aside>
+          )}
+        </MapCard>,
+        sideEl,
       )}
 
       {showMeterPanel && meter && dev && sideEl && createPortal(
-        <aside className="gw-panel gw-panel-sm" aria-label="Antenele contorului">
-          <button type="button" className="map-fold" aria-expanded={panelOpen} aria-label={panelOpen ? "Strânge lista antenelor (contorul rămâne ales)" : "Deschide lista antenelor"} title={panelOpen ? "Strânge (contorul rămâne ales)" : "Deschide"} onClick={() => setPanelOpen((v) => !v)}>
-            <span className="map-fold-t"><span className="cell-main">Antene care aud contorul ({dev.list.length})</span></span>
-            <span aria-hidden="true" className="map-fold-i">{panelOpen ? "▴" : "▾"}</span>
-          </button>
-          {panelOpen && <>
+        <MapCard mode={panelMode} setMode={setPanelMode} tag="aside" icon={<IcoTower />} label="Antene care aud contorul" className="gw-panel gw-panel-sm" title={`Antene care aud contorul (${dev.list.length})`}>
           {legend && (
             <div className="gw-linegen" aria-label="Legenda antenelor și a liniilor">
               {dev.list.length > 0 && <span><i className="gw-ln gw-ln-main" />principală (semnalul cel mai bun)</span>}
@@ -329,8 +323,7 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
               ))}
             </ul>
           )}
-          </>}
-        </aside>,
+        </MapCard>,
         sideEl,
       )}
     </>

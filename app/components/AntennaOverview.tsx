@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { LINK_LABEL, fdtA, ours, type AntennaRecord, type GasLink, type OverviewRow } from "@/lib/antennas";
 import type { GwDetail } from "@/lib/services/gateways";
 import { ColumnChart, type Bar } from "./charts/primitives";
+import MapCard, { IcoTower, type CardMode } from "./MapCard";
 
 const AntennasMap = dynamic(() => import("./AntennasMap"), { ssr: false, loading: () => <div className="skeleton" style={{ height: 520, borderRadius: 12 }} /> });
 
@@ -54,7 +55,7 @@ export default function AntennaOverview() {
   const [sel, setSel] = useState<string | null>(null);
   const [more, setMore] = useState<{ id: string; v: More | null; err: string | null } | null>(null);
   /** fișa antenei de pe hartă strânsă / deschisă (nu deselectează antena) */
-  const [cardOpen, setCardOpen] = useState(true);
+  const [cardMode, setCardMode] = useState<CardMode>("open");
   /** harta urmărește antena aleasă din tabel; la click pe hartă NU se mută (nici zoom) */
   const [follow, setFollow] = useState(true);
   const [full, setFull] = useState(false);
@@ -219,12 +220,7 @@ export default function AntennaOverview() {
           </div>
           <div className="map-side ant-side">
             {cur && (
-              <div className="map-popup ant-card" role="dialog" aria-label="Fișa antenei">
-                <button type="button" className="map-fold" aria-expanded={cardOpen} aria-label={cardOpen ? "Strânge fișa antenei (antena rămâne aleasă)" : "Deschide fișa antenei"} title={cardOpen ? "Strânge (antena rămâne aleasă)" : "Deschide"} onClick={() => setCardOpen((v) => !v)}>
-                  <span className="map-fold-t"><span className="cell-main">{cur.name || cur.id}</span><span className="cell-sub mono">{cur.id}</span></span>
-                  <span aria-hidden="true" className="map-fold-i">{cardOpen ? "▴" : "▾"}</span>
-                </button>
-                {cardOpen && <>
+              <MapCard mode={cardMode} setMode={setCardMode} icon={<IcoTower />} label={`Fișa antenei ${cur.name || cur.id}`} className="map-popup ant-card" role="dialog" title={cur.name || cur.id} sub={<span className="mono">{cur.id}</span>}>
           <div className="usr-grid">
             <Fact k="Stare" v={`${STATE_LABEL[cur.state]}${cur.last ? ` · ultima activitate ${fdtA(cur.last)}` : ""}`} />
             <Fact k="Contoare de gaz" v={`${LINK_LABEL[cur.link]}${cur.gas ? ` · ${nf.format(cur.gas)}× în SCADA${cur.gasAt ? `, ultima dată ${day(cur.gasAt)}` : ""}` : ""}`} />
@@ -262,8 +258,7 @@ export default function AntennaOverview() {
             </>
           )}
                   <div className="map-btns"><button type="button" className="btn btn-sm" onClick={() => setSel(null)}>Deselectează antena</button></div>
-                </>}
-              </div>
+              </MapCard>
             )}
           </div>
         </div>

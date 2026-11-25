@@ -7,6 +7,7 @@ import { boundsOf, buildClusters, latFromY, lonFromX, mapLinks, worldSize, type 
 import { FLAG, PROBLEM_FLAGS } from "@/lib/meter-shared";
 import type { MeterStore } from "@/lib/meter-store";
 import GatewayLayer from "./GatewayLayer";
+import MapCard, { IcoMeter, type CardMode } from "./MapCard";
 
 /**
  * Harta tuturor contoarelor filtrate. Optimizare:
@@ -87,7 +88,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen, antennas }: 
   const tipRef = useRef<HTMLDivElement>(null);
   const [sideEl, setSideEl] = useState<HTMLDivElement | null>(null);
   /** cardul contorului strâns / deschis: se păstrează între contoare și NU deselectează contorul (liniile spre antene rămân) */
-  const [popOpen, setPopOpen] = useState(true);
+  const [popMode, setPopMode] = useState<CardMode>("open");
   const mapRef = useRef<L.Map | null>(null);
   const [by, setBy] = useState<ColorBy>("status");
   const [sel, setSel] = useState<number | null>(null);
@@ -403,12 +404,8 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen, antennas }: 
 
         <div ref={setSideEl} className="map-side">
           {picked && (
-          <div className="map-popup" role="dialog" aria-label={`Contor ${picked.name}`}>
-            <button type="button" className="map-fold" aria-expanded={popOpen} aria-label={popOpen ? "Strânge cardul contorului (contorul rămâne ales)" : "Deschide cardul contorului"} title={popOpen ? "Strânge (contorul rămâne ales)" : "Deschide"} onClick={() => setPopOpen((v) => !v)}>
-              <span className="map-fold-t"><span className="cell-main">{picked.name}</span><span className="cell-sub">{[picked.branch, picked.city && picked.city !== "—" ? picked.city : ""].filter(Boolean).join(" · ")}</span></span>
-              <span aria-hidden="true" className="map-fold-i">{popOpen ? "▴" : "▾"}</span>
-            </button>
-            {popOpen && <>
+          <MapCard mode={popMode} setMode={setPopMode} icon={<IcoMeter />} label={`Contor ${picked.name}`} className="map-popup" role="dialog"
+            title={picked.name} sub={[picked.branch, picked.city && picked.city !== "—" ? picked.city : ""].filter(Boolean).join(" · ")}>
             <dl className="kv" style={{ gridTemplateColumns: "92px 1fr", margin: "8px 0", fontSize: 12.5 }}>
               <dt>Ultima citire</dt><dd>{picked.ts > 0 ? dt(picked.ts) : "—"}</dd>
               <dt>Volume</dt><dd className="mono">{picked.val !== null ? `${nf.format(picked.val)} m³` : "—"}</dd>
@@ -430,8 +427,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen, antennas }: 
               )}
             </div>
             <div className="map-btns"><button type="button" className="btn btn-sm" onClick={() => setSel(null)}>Deselectează contorul</button></div>
-            </>}
-          </div>
+          </MapCard>
           )}
         </div>
       </div>
