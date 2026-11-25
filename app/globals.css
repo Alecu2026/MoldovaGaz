@@ -1576,3 +1576,7 @@ button.badge-btn:hover {
 .ant-card .card-table { max-height: 260px; }
 .ant-card h4 { margin: 10px 0 4px; }
 @media (max-width: 640px) { .page:has(.fold-body) .ant-wrap { min-height: calc(100dvh - var(--top, 0px) - 16px); } .ant-stage { min-height: 60dvh; } .ant-card .usr-grid { grid-template-columns: 1fr; } }
+
+/* panoul antenei alese, strâns: doar bara cu numele (pe telefon harta rămâne vizibilă) */
+.map-stage .gw-panel.gw-panel-min { bottom: auto; max-height: none; overflow: visible; }
+@media (max-width: 640px) { .map-stage .gw-panel.gw-panel-min { bottom: max(8px, env(safe-area-inset-bottom)); top: auto; } }

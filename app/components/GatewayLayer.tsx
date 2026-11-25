@@ -76,6 +76,8 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
   const [dev, setDev] = useState<{ id: string; list: DevGateway[] } | null>(null);
   /** panoul „contor → antene” strâns / deschis (nu schimbă contorul ales; se păstrează între contoare) */
   // pe telefon (foaia din josul ecranului) lista antenelor pornește strânsă, ca să rămână loc pentru hartă; la fel de ușor de deschis
+  /** panoul antenei alese strâns / deschis (antena rămâne aleasă, liniile rămân; se păstrează între antene) */
+  const [selOpen, setSelOpen] = useState(true);
   const [panelOpen, setPanelOpen] = useState(() => typeof window === "undefined" || !window.matchMedia("(max-width: 640px)").matches);
   const [now, setNow] = useState(() => Date.now());
   const meter = useMemo(() => (meterId !== null && meterLa !== null && meterLo !== null ? { id: meterId, name: meterName, la: meterLa, lo: meterLo } : null), [meterId, meterName, meterLa, meterLo]);
@@ -240,11 +242,13 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
       )}
 
       {sel && (
-        <aside className="gw-panel" aria-label="Detalii antenă">
-          <button type="button" className="map-x" aria-label="Închide" onClick={close}>×</button>
-          {det && detFor === sel ? (
+        <aside className={`gw-panel${selOpen ? "" : " gw-panel-min"}`} aria-label="Detalii antenă">
+          <button type="button" className="map-fold" aria-expanded={selOpen} aria-label={selOpen ? "Strânge detaliile antenei (antena rămâne aleasă)" : "Deschide detaliile antenei"} title={selOpen ? "Strânge (antena rămâne aleasă, harta se vede)" : "Deschide"} onClick={() => setSelOpen((v) => !v)}>
+            <span className="map-fold-t"><span className="cell-main">{det && detFor === sel ? det.gateway.name : "Antenă"}</span><span className="cell-sub">{det && detFor === sel ? `${nf.format(det.gateway.devices)} contoare auzite · ${STATE_LABEL[det.gateway.state]}` : "se încarcă…"}</span></span>
+            <span aria-hidden="true" className="map-fold-i">{selOpen ? "▴" : "▾"}</span>
+          </button>
+          {selOpen && (det && detFor === sel ? (
             <>
-              <div className="cell-main" style={{ paddingRight: 20 }}>{det.gateway.name}</div>
               <div className="cell-sub">
                 <span className={`gw-dot gw-${det.gateway.state}`} aria-hidden="true" /> {STATE_LABEL[det.gateway.state]} · ultimul mesaj {when(det.gateway.last)} ({ago(det.gateway.last, now)})
               </div>
@@ -285,10 +289,11 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
                 </table>
               </div>
               <div className="cell-sub">Liniile de pe hartă merg spre {nf.format(det.devices.length)} contoare (verde = semnal bun, galben = mediu, roșu = slab).</div>
+              <div className="map-btns"><button type="button" className="btn btn-sm" onClick={close}>Deselectează antena</button></div>
             </>
           ) : (
             <div className="cell-sub">Se încarcă…</div>
-          )}
+          ))}
         </aside>
       )}
 
