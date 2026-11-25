@@ -4,11 +4,11 @@
  * ce obiect, ce s-a schimbat (valoare veche → nouă, pe câmpuri) și dacă a reușit. Parolele, cheile și tokenurile NU se păstrează niciodată.
  */
 
-export const AUDIT_MODULES = ["auth", "users", "reports", "lorawan", "installer", "antennas", "integration", "notifications", "data", "security"] as const;
+export const AUDIT_MODULES = ["auth", "users", "reports", "lorawan", "installer", "antennas", "integration", "notifications", "data", "security", "nav"] as const;
 export type AuditModule = (typeof AUDIT_MODULES)[number];
 export const MODULE_LABELS: Record<AuditModule, string> = {
   auth: "Autentificare", users: "Utilizatori", reports: "Rapoarte", lorawan: "Module LoRaWAN", installer: "Instalator contoare", antennas: "Antene",
-  integration: "Integrare", notifications: "Notificări", data: "Date consultate", security: "Securitate",
+  integration: "Integrare", notifications: "Notificări", data: "Date consultate", security: "Securitate", nav: "Navigare și clicuri",
 };
 
 /** Gravitate: info = obișnuit, warn = merită privit (ștergeri, drepturi, eșecuri, acces refuzat), crit = serios (prea multe încercări, acces administrativ nou). */
@@ -56,6 +56,10 @@ export const ACTIONS: Record<string, ActionMeta> = {
   "notify.test": A("notifications", "Notificare de probă trimisă", "Notificare de probă"),
   "data.view": A("data", "Date personale / de facturare consultate", "Date consultate"),
   "security.denied": A("security", "Acces refuzat (drept lipsă)", "Acces refuzat", "warn"),
+  "nav.view": A("nav", "Pagină deschisă", "Pagină deschisă"),
+  "nav.leave": A("nav", "Pagină părăsită (timpul petrecut pe ea)", "Pagină părăsită"),
+  "nav.query": A("nav", "Filtre / vedere schimbate pe pagină", "Filtre / vedere"),
+  "nav.click": A("nav", "Click pe buton / link / filă", "Click"),
   "audit.view": A("security", "Jurnalul de audit deschis", "Audit deschis"),
   "audit.export": A("security", "Jurnalul de audit exportat (CSV)", "Audit exportat", "warn"),
 };
@@ -71,6 +75,14 @@ export type AuditChange = { field: string; label: string; old: string | null; ne
 /** Informații suplimentare (etichetă → valoare), ex. «Tip proces: Înregistrare + activare». */
 export type AuditExtra = { label: string; value: string };
 export type AuditDetails = { changes?: AuditChange[]; extra?: AuditExtra[] };
+
+/** Numele paginii după adresă (pentru «Pagină deschisă»); o adresă necunoscută rămâne cum e. */
+const PAGE_NAMES: [string, string][] = [
+  ["/", "Contoare de gaz"], ["/instalator", "Instalator (montaj contoare)"], ["/antene", "Instalator antene"], ["/date-antene", "Antene: date și hartă"], ["/control", "Consum nemăsurat"],
+  ["/integration", "Integrare API"], ["/rapoarte", "Rapoarte (facturare)"], ["/module", "Module LoRaWAN"], ["/lorawan", "Dispozitive LoRaWAN"], ["/facturare", "Facturare"],
+  ["/audit", "Jurnal de audit"], ["/utilizatori", "Utilizatori"], ["/securitate", "Securitate (parola mea)"], ["/notificari", "Notificări"], ["/acces", "Acces"],
+];
+export const pageName = (path: string): string => PAGE_NAMES.find(([p]) => p === path)?.[1] ?? path;
 
 /** Un rând din jurnal, cum ajunge în browser (fără textele lungi: acelea vin la deschiderea rândului). */
 export type AuditRow = {
@@ -118,8 +130,9 @@ export type AuditFilterState = {
   /** text liber: utilizator, e-mail, obiect, IP, pagină, rezumat */ q: string;
   /** doar rândurile cu modificări pe câmpuri */ changes: boolean;
   /** doar acțiunile făcute într-o simulare de login */ sim: boolean;
+  /** ascunde navigarea (pagini deschise, clicuri): rămân doar acțiunile care schimbă ceva */ hideNav: boolean;
 };
-export const EMPTY_AUDIT_FILTERS: AuditFilterState = { user: "", module: "", action: "", severity: "", status: "", from: "", to: "", q: "", changes: false, sim: false };
+export const EMPTY_AUDIT_FILTERS: AuditFilterState = { user: "", module: "", action: "", severity: "", status: "", from: "", to: "", q: "", changes: false, sim: false, hideNav: false };
 
 export function sanitizeAuditFilters(raw: Record<string, unknown>): AuditFilterState {
   const str = (v: unknown, max = 80) => (typeof v === "string" ? v.trim().slice(0, max) : "");
@@ -132,15 +145,16 @@ export function sanitizeAuditFilters(raw: Record<string, unknown>): AuditFilterS
     action: /^[a-z_.]{1,60}$/.test(str(raw.action, 60)) ? str(raw.action, 60) : "",
     severity: sev === "info" || sev === "warn" || sev === "crit" ? sev : "",
     status: st === "ok" || st === "fail" ? st : "",
-    from: day(raw.from), to: day(raw.to), q: str(raw.q), changes: raw.changes === "1" || raw.changes === true, sim: raw.sim === "1" || raw.sim === true,
+    from: day(raw.from), to: day(raw.to), q: str(raw.q), changes: raw.changes === "1" || raw.changes === true, sim: raw.sim === "1" || raw.sim === true, hideNav: raw.hideNav === "1" || raw.hideNav === true,
   };
 }
-export const countAuditFilters = (f: AuditFilterState): number => (f.user ? 1 : 0) + (f.module ? 1 : 0) + (f.action ? 1 : 0) + (f.severity ? 1 : 0) + (f.status ? 1 : 0) + (f.from || f.to ? 1 : 0) + (f.q ? 1 : 0) + (f.changes ? 1 : 0) + (f.sim ? 1 : 0);
+export const countAuditFilters = (f: AuditFilterState): number => (f.user ? 1 : 0) + (f.module ? 1 : 0) + (f.action ? 1 : 0) + (f.severity ? 1 : 0) + (f.status ? 1 : 0) + (f.from || f.to ? 1 : 0) + (f.q ? 1 : 0) + (f.changes ? 1 : 0) + (f.sim ? 1 : 0) + (f.hideNav ? 1 : 0);
 export function auditFiltersToParams(f: AuditFilterState): URLSearchParams {
   const p = new URLSearchParams();
   for (const k of ["user", "module", "action", "severity", "status", "from", "to", "q"] as const) if (f[k]) p.set(k, f[k]);
   if (f.changes) p.set("changes", "1");
   if (f.sim) p.set("sim", "1");
+  if (f.hideNav) p.set("hideNav", "1");
   return p;
 }
 

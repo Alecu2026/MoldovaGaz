@@ -154,6 +154,7 @@ export default function AuditLog({ canExport }: { canExport: boolean }) {
           <label className="field"><span>Până la</span><input className="input" type="date" value={f.to} min={f.from || undefined} onChange={(e) => apply({ to: e.target.value })} /></label>
           <label className="chk" style={{ alignSelf: "center" }}><input type="checkbox" checked={f.changes} onChange={(e) => apply({ changes: e.target.checked })} /> Doar cu modificări pe câmpuri</label>
           <label className="chk" style={{ alignSelf: "center" }}><input type="checkbox" checked={f.sim} onChange={(e) => apply({ sim: e.target.checked })} /> Doar în simulare de login</label>
+          <label className="chk" style={{ alignSelf: "center" }}><input type="checkbox" checked={f.hideNav} onChange={(e) => apply({ hideNav: e.target.checked })} /> Ascunde navigarea și clicurile</label>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
           <span className="cell-sub" aria-live="polite">{loading && !rows.length ? "Se încarcă…" : count ? `${nf.format(count.n)}${count.capped ? "+" : ""} evenimente${active ? " (cu filtrele alese)" : ""}${rows.length < count.n ? ` · încărcate ${nf.format(rows.length)}` : ""}` : ""}</span>

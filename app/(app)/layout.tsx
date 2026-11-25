@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import AppNav from "@/app/components/AppNav";
 import AppShell from "@/app/components/AppShell";
 import LogoutButton from "@/app/components/LogoutButton";
+import AuditTracker from "@/app/components/AuditTracker";
 import ImpersonationNotice from "@/app/components/ImpersonationNotice";
 import NotifBell from "@/app/components/NotifBell";
 import { PAGES, can } from "@/lib/access";
@@ -16,6 +17,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     >
       {children}
       <Suspense fallback={null}><ImpersonationNotice /></Suspense>
+      <Suspense fallback={null}><AuditTracker /></Suspense>
     </AppShell>
   );
 }

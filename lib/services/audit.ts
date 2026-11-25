@@ -32,6 +32,8 @@ export type AuditInput = {
   /** cererea (metoda + adresa API-ului intră în jurnal) */ req?: Request;
   /** pentru evenimente fără utilizator autentificat (autentificare eșuată): numele / e-mailul încercat */ anonName?: string;
   /** altă pagină decât cea din Referer */ path?: string | null;
+  /** rezumat scurt pentru rând (când nu sunt modificări pe câmpuri), ex. «a stat 3 min» */ summary?: string;
+  /** momentul real al evenimentului (ms), când diferă de momentul scrierii (evenimente trimise în grup din browser) */ atMs?: number;
 };
 
 const g = globalThis as unknown as { __auditIdx?: Promise<void>; __auditOnce?: Map<string, number>; __auditMemo?: Map<string, { at: number; v: unknown; p?: Promise<unknown> }> };
@@ -70,27 +72,45 @@ async function meta(req?: Request) {
   return { ip: ip?.slice(0, 64) ?? null, xff: xff && xff.split(",").length > 1 ? xff.slice(0, 200) : null, ua: ua?.slice(0, 300) ?? null, path, method };
 }
 
+type Meta =Awaited<ReturnType<typeof meta>>;
+function toDoc(actor: AuditActor | null, input: AuditInput, m: Meta): Omit<Doc, "_id"> {
+  const changes = (input.changes ?? []).slice(0, 60).map((c) => ({ ...c, old: clip(c.old), new: clip(c.new) }));
+  const extra = (input.extra ?? []).slice(0, 30).map((x) => ({ label: x.label, value: clip(x.value) ?? "" }));
+  const details: AuditDetails | null = changes.length || extra.length ? { ...(changes.length ? { changes } : {}), ...(extra.length ? { extra } : {}) } : null;
+  const sum = input.summary ? clip(input.summary, 200) : summarizeChanges(changes);
+  const name = actor?.name || actor?.email || input.anonName || "necunoscut";
+  const doc: Omit<Doc, "_id"> = {
+    at: input.atMs ? new Date(input.atMs) : new Date(), uid: actor?.id ?? null, un: name.slice(0, 120), ue: (actor?.email ?? (input.anonName?.includes("@") ? input.anonName : null))?.slice(0, 200) ?? null,
+    ur: actor ? (actor.admin ? "admin" : "user") : "anon", a: input.action, m: actionModule(input.action),
+    oid: input.objectId ? String(input.objectId).slice(0, 120) : null, on: clip(input.objectName ?? null, 200), ov: clip(input.oldValue), nv: clip(input.newValue),
+    sb: actor?.sim?.id ?? null, sn: actor?.sim?.name?.slice(0, 120) ?? null, se: actor?.sim?.email?.slice(0, 200) ?? null,
+    d: details, sum, nc: changes.length, ok: input.ok !== false, ip: m.ip, xff: m.xff, ua: m.ua, p: (input.path ?? m.path) || null, me: m.method, ms: input.ms ?? null, hay: "",
+  };
+  doc.hay = [doc.un, doc.ue, doc.sn, doc.se, doc.on, doc.oid, doc.ip, doc.p, doc.sum, actionLabel(doc.a), doc.a].filter(Boolean).join(" ").toLowerCase().slice(0, 600);
+  return doc;
+}
+
 /**
  * Înregistrează o acțiune. Nu aruncă niciodată și nu așteaptă baza de date: scrierea pleacă după răspuns.
  * Fără `actor` (autentificare eșuată) se folosește `anonName`.
  */
 export async function logAudit(actor: AuditActor | null, input: AuditInput): Promise<void> {
   try {
-    const m = await meta(input.req);
-    const changes = (input.changes ?? []).slice(0, 60).map((c) => ({ ...c, old: clip(c.old), new: clip(c.new) }));
-    const extra = (input.extra ?? []).slice(0, 30).map((x) => ({ label: x.label, value: clip(x.value) ?? "" }));
-    const details: AuditDetails | null = changes.length || extra.length ? { ...(changes.length ? { changes } : {}), ...(extra.length ? { extra } : {}) } : null;
-    const sum = summarizeChanges(changes);
-    const name = actor?.name || actor?.email || input.anonName || "necunoscut";
-    const doc: Omit<Doc, "_id"> = {
-      at: new Date(), uid: actor?.id ?? null, un: name.slice(0, 120), ue: (actor?.email ?? (input.anonName?.includes("@") ? input.anonName : null))?.slice(0, 200) ?? null,
-      ur: actor ? (actor.admin ? "admin" : "user") : "anon", a: input.action, m: actionModule(input.action),
-      oid: input.objectId ? String(input.objectId).slice(0, 120) : null, on: clip(input.objectName ?? null, 200), ov: clip(input.oldValue), nv: clip(input.newValue),
-      sb: actor?.sim?.id ?? null, sn: actor?.sim?.name?.slice(0, 120) ?? null, se: actor?.sim?.email?.slice(0, 200) ?? null,
-      d: details, sum, nc: changes.length, ok: input.ok !== false, ip: m.ip, xff: m.xff, ua: m.ua, p: (input.path ?? m.path) || null, me: m.method, ms: input.ms ?? null, hay: "",
-    };
-    doc.hay = [doc.un, doc.ue, doc.sn, doc.se, doc.on, doc.oid, doc.ip, doc.p, doc.sum, actionLabel(doc.a), doc.a].filter(Boolean).join(" ").toLowerCase().slice(0, 600);
+    const doc = toDoc(actor, input, await meta(input.req));
     const write = async () => { try { await (await coll()).insertOne(doc as Doc); } catch (e) { console.error("[audit] scrierea a eșuat:", (e as Error).message); } };
+    try { after(write); } catch { void write(); }
+  } catch (e) {
+    console.error("[audit] jurnalul nu a putut fi pregătit:", (e as Error).message);
+  }
+}
+
+/** Mai multe evenimente deodată (navigare, clicuri): o singură scriere în bază, după răspuns. */
+export async function logAuditMany(actor: AuditActor | null, inputs: AuditInput[]): Promise<void> {
+  if (inputs.length === 0) return;
+  try {
+    const m = await meta();
+    const docs = inputs.map((i) => toDoc(actor, i, m));
+    const write = async () => { try { await (await coll()).insertMany(docs as Doc[], { ordered: false }); } catch (e) { console.error("[audit] scrierea (grup) a eșuat:", (e as Error).message); } };
     try { after(write); } catch { void write(); }
   } catch (e) {
     console.error("[audit] jurnalul nu a putut fi pregătit:", (e as Error).message);
@@ -138,6 +158,7 @@ function buildFilter(f: AuditFilterState): Filter<Doc> {
   if (f.from || f.to) and.push({ at: { ...(f.from ? { $gte: new Date(dayStart(f.from)) } : {}), ...(f.to ? { $lt: new Date(dayStart(nextDay(f.to))) } : {}) } });
   if (f.changes) and.push({ nc: { $gt: 0 } });
   if (f.sim) and.push({ sb: { $ne: null } });
+  if (f.hideNav) and.push({ m: { $ne: "nav" } });
   for (const w of f.q.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 4)) and.push({ hay: { $regex: esc(w.slice(0, 40)) } });
   return and.length ? { $and: and } : {};
 }
