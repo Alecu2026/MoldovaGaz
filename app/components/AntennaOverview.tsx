@@ -6,6 +6,9 @@ import { LINK_LABEL, fdtA, ours, type AntennaRecord, type GasLink, type Overview
 import type { GwDetail } from "@/lib/services/gateways";
 import { ColumnChart, type Bar } from "./charts/primitives";
 import MapCard, { IcoTower, type CardMode } from "./MapCard";
+import GwFilterBar, { useGwFilter } from "./GwFilterBar";
+import DistanceChart from "./DistanceChart";
+import { periodText, queryString, radiusActive, periodActive, type GwQuery } from "@/lib/gw-filter";
 
 const AntennasMap = dynamic(() => import("./AntennasMap"), { ssr: false, loading: () => <div className="skeleton" style={{ height: 520, borderRadius: 12 }} /> });
 
@@ -53,6 +56,10 @@ export default function AntennaOverview() {
   const [size, setSize] = useState(25);
   const [page, setPage] = useState(0);
   const [sel, setSel] = useState<string | null>(null);
+  /** filtrul rază + perioadă (același ca pe harta de contoare); `counts` = câte contoare din filtru are fiecare antenă */
+  const gf = useGwFilter();
+  const qs = queryString(gf.q);
+  const [matchRaw, setMatchRaw] = useState<{ key: string; v: Map<string, number> } | null>(null);
   const [more, setMore] = useState<{ id: string; v: More | null; err: string | null } | null>(null);
   /** fișa antenei de pe hartă strânsă / deschisă (nu deselectează antena) */
   const [cardMode, setCardMode] = useState<CardMode>("open");
@@ -94,13 +101,23 @@ export default function AntennaOverview() {
   }, [load]);
 
   useEffect(() => {
+    if (!gf.on) return;
+    const ac = new AbortController();
+    void fetch(`/api/integration/gateways?match=1&${qs}`, { signal: ac.signal, cache: "no-store" })
+      .then(async (r) => { if (!r.ok) throw new Error(String(r.status)); const d = (await r.json()) as { counts: Record<string, number> }; setMatchRaw({ key: qs, v: new Map(Object.entries(d.counts).map(([k, n]) => [k.toLowerCase(), n])) }); })
+      .catch(() => undefined);
+    return () => ac.abort();
+  }, [gf.on, qs]);
+  const match = gf.on && matchRaw && matchRaw.key === qs ? matchRaw.v : null;
+
+  useEffect(() => {
     if (!sel) return;
     const ac = new AbortController();
-    void fetch(`/api/antennas/overview?id=${encodeURIComponent(sel)}`, { signal: ac.signal, cache: "no-store" })
+    void fetch(`/api/antennas/overview?id=${encodeURIComponent(sel)}${qs ? `&${qs}` : ""}`, { signal: ac.signal, cache: "no-store" })
       .then(async (r) => { if (!r.ok) throw new Error(String(r.status)); setMore({ id: sel, v: (await r.json()) as More, err: null }); })
       .catch((e: Error) => { if (e.name !== "AbortError") setMore({ id: sel, v: null, err: "Nu am putut citi detaliile antenei." }); });
     return () => ac.abort();
-  }, [sel]);
+  }, [sel, qs]);
 
   const all = useMemo(() => data?.rows ?? [], [data]);
   const counts = useMemo(() => {
@@ -117,11 +134,12 @@ export default function AntennaOverview() {
     const out = all.filter((r) => {
       if (rel === "ours" ? !ours(r.link) : rel !== "all" && r.link !== rel) return false;
       if (state !== "all" && r.state !== state) return false;
+      if (match && !match.has(r.id.toLowerCase())) return false;
       return !needle || `${r.id} ${r.name} ${r.Client} ${r.NumeInstalator} ${r.Comments} ${r.NrTel_SIM} ${r.ip_address}`.toLowerCase().includes(needle);
     });
     out.sort((a, b) => { const x = sortVal(a, sort.key), y = sortVal(b, sort.key); const c = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), "ro", { numeric: true }); return (c || a.id.localeCompare(b.id)) * sort.dir; });
     return out;
-  }, [all, q, rel, state, sort]);
+  }, [all, q, rel, state, sort, match]);
   const lastPage = size ? Math.max(0, Math.ceil(shown.length / size) - 1) : 0;
   const pg = Math.min(page, lastPage);
   const rows = size ? shown.slice(pg * size, (pg + 1) * size) : shown;
@@ -132,7 +150,8 @@ export default function AntennaOverview() {
   const pick = (id: string) => { setFollow(true); setSel(id); setMore(null); };
   const pickMap = (id: string) => { setFollow(false); setSel(id); setMore(null); };
   // ultimele 60 de zile COMPLETE (zilele fără mesaje = 0, nu lipsesc), ziua = ziua UTC ca în rest
-  const series = useMemo(() => {
+  // cu perioada aleasă în filtru (azi / 7 zile / mai vechi de 7 zile) rămân doar zilele ei; raza nu se aplică, fiindcă mesajele pe zi nu se rețin pe contor
+  const daysFull = useMemo(() => {
     const days = m?.v?.days;
     if (!days) return null;
     const by = new Map(days.map((x) => [x.d, x.n]));
@@ -141,12 +160,13 @@ export default function AntennaOverview() {
     for (let i = 59; i >= 0; i--) { const d = today - i * 86_400_000; out.push({ d, n: by.get(d) ?? 0 }); }
     return out;
   }, [m, data]);
+  const series = useMemo(() => (daysFull ? daysFull.filter((x) => (gf.q.pf === null || x.d + 86_400_000 > gf.q.pf) && (gf.q.pt === null || x.d <= gf.q.pt)) : null), [daysFull, gf.q]);
   const stat = useMemo(() => {
-    if (!series) return null;
+    if (!series || !daysFull || series.length === 0) return null;
     const total = series.reduce((a, b) => a + b.n, 0), active = series.filter((x) => x.n > 0);
     const peak = series.reduce((a, b) => (b.n > a.n ? b : a), series[0]);
-    return { total, activeDays: active.length, avg: active.length ? Math.round(total / active.length) : 0, peak, yesterday: series[series.length - 2]?.n ?? 0, today: series[series.length - 1]?.n ?? 0, lastDay: [...series].reverse().find((x) => x.n > 0)?.d ?? null };
-  }, [series]);
+    return { total, days: series.length, activeDays: active.length, avg: active.length ? Math.round(total / active.length) : 0, peak, yesterday: daysFull[daysFull.length - 2]?.n ?? 0, today: daysFull[daysFull.length - 1]?.n ?? 0, lastDay: [...series].reverse().find((x) => x.n > 0)?.d ?? null };
+  }, [series, daysFull]);
   const bars: Bar[] = useMemo(() => (series ?? []).map((x, i, a) => ({ label: day(x.d), axis: i % 10 === 0 || i === a.length - 1 ? day(x.d).slice(0, 5) : "", value: x.n, ghost: 0, sub: x.n === 0 ? "niciun mesaj în ziua aceasta" : undefined })), [series]);
 
   return (
@@ -159,6 +179,12 @@ export default function AntennaOverview() {
         <div className="stat"><div className="k">Active / lente / oprite</div><div className="v">{data ? `${nf.format(counts.on)} / ${nf.format(counts.slow)} / ${nf.format(counts.off)}` : "—"}</div><div className="s">după ultima activitate (oră / 24 h)</div></div>
         <div className="stat"><div className="k">Fără locație</div><div className="v">{data ? nf.format(counts.noPos) : "—"}</div><div className="s">nu apar pe hartă</div></div>
         </section>
+      </Fold>
+
+      <Fold id="filter" card label="Filtru rază și perioadă" title="Filtru: raza de acțiune și perioada" summary={gf.on ? gf.text : "toate antenele, toate contoarele"}>
+        <p className="cell-sub" style={{ margin: "0 0 8px", whiteSpace: "normal" }}>Se aplică tabelului, hărții, fișei antenei și graficelor ei: raza = distanța dintre antenă și contor, perioada = când a auzit antena ultima oară contorul. Alegerea se ține minte (e aceeași și pe harta de contoare).</p>
+        <GwFilterBar f={gf.f} set={gf.set} reset={gf.reset} on={gf.on} wide />
+        {gf.on && <p className="gwf-note">{match ? `${nf.format(match.size)} antene au contoare în filtru (${gf.text}).` : "Se calculează…"}</p>}
       </Fold>
 
       <Fold id="table" card label="Antene" title="Datele fiecărei antene" summary={`${nf.format(shown.length)} antene afișate`}>
@@ -180,14 +206,14 @@ export default function AntennaOverview() {
                     <td><b>{r.name || r.id}</b>{r.created && <span className="badge" style={{ marginLeft: 6 }}>creată la noi</span>}<div className="cell-sub mono">{r.id}</div></td>
                     <td><span className="tbx-dot" style={{ display: "inline-block", width: 10, height: 10, borderRadius: 5, marginRight: 6, background: STATE_COLOR[r.state] }} aria-hidden="true" />{STATE_LABEL[r.state]}<div className="cell-sub">{r.last ? fdtA(r.last) : "fără activitate"}</div></td>
                     <td><span className={`badge ${linkClass(r.link)}`}>{LINK_LABEL[r.link]}</span>{r.gas !== null && r.gas !== undefined && <div className="cell-sub">{r.gas > 0 ? `${nf.format(r.gas)}× în SCADA${r.gasAt ? `, ultima dată ${day(r.gasAt)}` : ""}` : "0 în SCADA"}</div>}</td>
-                    <td className="num">{nf.format(r.devices)}{r.devices > 0 && <div className="cell-sub">{nf.format(r.primary)} primare · {nf.format(r.exclusive)} doar ea</div>}</td>
+                    <td className="num">{match ? <>{nf.format(match.get(r.id.toLowerCase()) ?? 0)}<div className="cell-sub">în filtru, din {nf.format(r.devices)}</div></> : <>{nf.format(r.devices)}{r.devices > 0 && <div className="cell-sub">{nf.format(r.primary)} primare · {nf.format(r.exclusive)} doar ea</div>}</>}</td>
                     <td className="num">{r.rssi === null ? "—" : `${r1(r.rssi)} / ${r1(r.snr)}`}</td>
                     <td className="num">{nf.format(r.msgs)}</td>
                     <td style={{ whiteSpace: "normal", minWidth: 160 }}>{r.Client || "—"}{r.NumeInstalator && <div className="cell-sub">{r.NumeInstalator}</div>}</td>
                     <td>{hasPos(r) ? <span className="badge ok">pe hartă</span> : <span className="badge warn">fără</span>}</td>
                   </tr>
                 ))}
-                {rows.length === 0 && <tr><td colSpan={COLS.length} className="cell-sub" style={{ padding: 16 }}>Nicio antenă pentru filtrele alese.</td></tr>}
+                {rows.length === 0 && <tr><td colSpan={COLS.length} className="cell-sub" style={{ padding: 16 }}>Nicio antenă pentru filtrele alese.{gf.on ? " Resetează filtrul de rază / perioadă ca să le vezi pe toate." : ""}</td></tr>}
               </tbody>
             </table>
           </div>
@@ -206,7 +232,7 @@ export default function AntennaOverview() {
         <div className="map-bar">
           <div style={{ minWidth: 0 }}>
             <h3 style={{ margin: 0 }}>Harta antenelor</h3>
-            <span className="cell-sub">{nf.format(shown.filter(hasPos).length)} din {nf.format(shown.length)} antene din tabel au locație. Apasă pe o antenă ca să-i vezi fișa aici, pe hartă.</span>
+            <span className="cell-sub">{nf.format(shown.filter(hasPos).length)} din {nf.format(shown.length)} antene din tabel au locație{gf.on ? ` (filtru: ${gf.text})` : ""}. Apasă pe o antenă ca să-i vezi fișa aici, pe hartă.</span>
           </div>
           <div style={{ flex: 1 }} />
           <button type="button" className="btn" onClick={toggleFull} aria-pressed={full || pseudo}>{full || pseudo ? "Ieși din ecranul complet" : "Ecran complet"}</button>
@@ -239,21 +265,23 @@ export default function AntennaOverview() {
           {m?.err && <p className="form-error" role="alert">{m.err}</p>}
           {m?.v && (
             <>
-              <h4 style={{ margin: "14px 0 2px" }}>Mesaje primite pe zi (ultimele 60 de zile)</h4>
+              <h4 style={{ margin: "14px 0 2px" }}>Mesaje primite pe zi ({periodActive(gf.q) ? `${periodText(gf.f)}, din ultimele 60 de zile` : "ultimele 60 de zile"})</h4>
               <p className="cell-sub" style={{ margin: "0 0 8px", whiteSpace: "normal" }}>Fiecare coloană este o zi; înălțimea ei = câte mesaje de la contoarele noastre a primit antena în ziua aceea (ziua începe la miezul nopții UTC). Pe axa din stânga sunt numărul de mesaje, iar dedesubt datele. Treci cu cursorul (sau atinge) peste o coloană ca să vezi ziua exactă.</p>
-              {stat && stat.total === 0 && <p className="cell-sub">Antena nu a primit niciun mesaj de la contoarele noastre în ultimele 60 de zile.</p>}
+              {radiusActive(gf.q) && <p className="gwf-note">Raza aleasă nu se aplică mesajelor pe zi: ele se rețin pe antenă, nu pe contor. Perioada se aplică. Raza se vede în graficul «Contoare după distanță» și în lista contoarelor, de mai jos.</p>}
+              {!stat && series && series.length === 0 && <p className="cell-sub">Nicio zi în perioada aleasă (mesajele pe zi se păstrează 60 de zile).</p>}
+              {stat && stat.total === 0 && <p className="cell-sub">Antena nu a primit niciun mesaj de la contoarele noastre în {stat.days === 60 ? "ultimele 60 de zile" : `perioada aleasă (${stat.days} ${stat.days === 1 ? "zi" : "zile"})`}.</p>}
               {stat && stat.total > 0 && (
                 <>
                   <div className="stats auto" style={{ marginBottom: 8 }}>
-                    <div className="stat"><div className="k">Total în 60 de zile</div><div className="v">{nf.format(stat.total)}</div><div className="s">mesaje primite</div></div>
-                    <div className="stat"><div className="k">Zile cu mesaje</div><div className="v">{stat.activeDays} din 60</div><div className="s">medie {nf.format(stat.avg)} / zi activă</div></div>
+                    <div className="stat"><div className="k">Total în {stat.days} {stat.days === 1 ? "zi" : "zile"}</div><div className="v">{nf.format(stat.total)}</div><div className="s">mesaje primite</div></div>
+                    <div className="stat"><div className="k">Zile cu mesaje</div><div className="v">{stat.activeDays} din {stat.days}</div><div className="s">medie {nf.format(stat.avg)} / zi activă</div></div>
                     <div className="stat"><div className="k">Cea mai bună zi</div><div className="v">{nf.format(stat.peak.n)}</div><div className="s">{day(stat.peak.d)}</div></div>
                     <div className="stat"><div className="k">Azi / ieri</div><div className="v">{nf.format(stat.today)} / {nf.format(stat.yesterday)}</div><div className="s">{stat.lastDay ? `ultimul mesaj în ziua ${day(stat.lastDay)}` : ""}</div></div>
                   </div>
-                  <ColumnChart bars={bars} unit="mesaje" ariaLabel={`Mesaje primite pe zi de antenă, ultimele 60 de zile, total ${stat.total}`} height={190} labelWidth={46} />
+                  <ColumnChart bars={bars} unit="mesaje" ariaLabel={`Mesaje primite pe zi de antenă, ${stat.days} zile, total ${stat.total}`} height={190} labelWidth={46} />
                 </>
               )}
-              {m.v.detail && <Devices d={m.v.detail} />}
+              {m.v.detail && <Devices d={m.v.detail} q={gf.q} on={gf.on} text={gf.text} />}
               {!m.v.detail && <p className="cell-sub" style={{ marginTop: 10 }}>La noi nu a trimis încă niciun mesaj prin integrare, deci nu avem contoare auzite de ea.</p>}
             </>
           )}
@@ -269,11 +297,15 @@ export default function AntennaOverview() {
 
 const Fact = ({ k, v }: { k: string; v: string }) => <div className="field"><span>{k}</span><div style={{ whiteSpace: "normal", overflowWrap: "anywhere" }}>{v}</div></div>;
 
-function Devices({ d }: { d: GwDetail }) {
+function Devices({ d, q, on, text }: { d: GwDetail; q: GwQuery; on: boolean; text: string }) {
   const pick = (label: string, x: GwDetail["nearest"]) => (x ? <li><span className="cell-sub">{label}: </span><b>{x.name}</b>{x.km !== null ? ` · ${r1(x.km)} km` : ""}{x.rssi !== null ? ` · RSSI ${r1(x.rssi)}` : ""}</li> : null);
   return (
     <>
-      <h4 style={{ margin: "14px 0 6px" }}>Contoare auzite de ea ({nf.format(d.devicesTotal)})</h4>
+      <h4 style={{ margin: "14px 0 2px" }}>Contoare după distanță</h4>
+      <p className="cell-sub" style={{ margin: "0 0 6px", whiteSpace: "normal" }}>Câte contoare aude antena la fiecare distanță (raza ei de acțiune){on ? "; cele din raza aleasă rămân pline, restul sunt estompate" : ""}.</p>
+      <DistanceChart bands={d.bands} unknown={d.bandsUnknown} q={q} />
+      <h4 style={{ margin: "14px 0 6px" }}>{on ? `Contoare auzite de ea, în filtru (${nf.format(d.devicesIn)} din ${nf.format(d.devicesTotal)})` : `Contoare auzite de ea (${nf.format(d.devicesTotal)})`}</h4>
+      {on && d.devicesIn === 0 && <p className="cell-sub">Niciun contor nu trece de filtru ({text}). Schimbă raza sau perioada.</p>}
       <ul style={{ margin: "0 0 8px", paddingLeft: 18 }}>{pick("cel mai apropiat", d.nearest)}{pick("cel mai îndepărtat", d.farthest)}{pick("semnalul cel mai bun", d.strongest)}{pick("semnalul cel mai slab", d.weakest)}</ul>
       <div className="card-table" style={{ maxHeight: 320 }}>
         <table className="mini">
@@ -281,7 +313,7 @@ function Devices({ d }: { d: GwDetail }) {
           <tbody>{d.list.slice(0, 200).map((x) => <tr key={x.id}><td>{x.name}</td><td className="num">{x.km === null ? "—" : `${r1(x.km)} km`}</td><td className="num">{r1(x.rssi)}</td><td className="num">{r1(x.snr)}</td><td className="num">{nf.format(x.n)}</td><td className="cell-sub">{fdtA(x.last)}</td></tr>)}</tbody>
         </table>
       </div>
-      {d.devicesTotal > 200 && <p className="cell-sub">Primele 200 din {nf.format(d.devicesTotal)} (cele mai recente).</p>}
+      {d.devicesIn > 200 && <p className="cell-sub">Primele 200 din {nf.format(d.devicesIn)} (cele mai recente).</p>}
     </>
   );
 }

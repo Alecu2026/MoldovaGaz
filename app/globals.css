@@ -1604,3 +1604,35 @@ button.badge-btn:hover {
 
 /* liniile antenă → contoare (canvas): peste punctele contoarelor, sub marcajele antenelor */
 .gw-lines { position: absolute; left: 0; top: 0; z-index: 455; pointer-events: none; }
+
+/* ───────── Filtru antene: perioadă + rază (interval cu două puncte) ───────── */
+.gwf { display: grid; gap: 10px; min-width: 0; }
+.gwf .field { gap: 4px; min-width: 0; }
+.gwf-seg { flex-wrap: wrap; max-width: 100%; align-self: flex-start; }
+.gwf-wide { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-items: start; }
+.gwf-wide .gwf-reset { grid-column: 1 / -1; }
+.gwf-seg button { font-size: 12px; padding: 6px 10px; }
+.gwf-compact .gwf-seg button { padding: 5px 8px; font-size: 11.5px; }
+.gwf-range { display: grid; gap: 6px; margin-top: 6px; min-width: 0; }
+.gwf-dual { position: relative; height: 28px; }
+.gwf-track { position: absolute; left: 10px; right: 10px; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px; background: var(--border); }
+.gwf-track i { position: absolute; top: 0; bottom: 0; border-radius: 2px; background: var(--accent, #2a78d6); }
+.gwf-dual input[type="range"] { position: absolute; left: 0; top: 0; width: 100%; height: 28px; margin: 0; background: none; pointer-events: none; -webkit-appearance: none; appearance: none; }
+.gwf-dual input[type="range"]::-webkit-slider-runnable-track { background: transparent; height: 28px; }
+.gwf-dual input[type="range"]::-moz-range-track { background: transparent; height: 28px; }
+.gwf-dual input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; pointer-events: auto; width: 20px; height: 20px; margin-top: 4px; border-radius: 50%; background: #fff; border: 2px solid var(--accent, #2a78d6); box-shadow: 0 1px 3px rgba(0, 0, 0, .35); cursor: pointer; }
+.gwf-dual input[type="range"]::-moz-range-thumb { pointer-events: auto; width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 2px solid var(--accent, #2a78d6); box-shadow: 0 1px 3px rgba(0, 0, 0, .35); cursor: pointer; }
+.gwf-dual input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent, #2a78d6); outline-offset: 2px; }
+.gwf-nums { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; align-items: center; }
+.gwf-nums label { display: inline-flex; align-items: center; gap: 6px; }
+.gwf-nums .input { width: 92px; height: 30px; padding: 0 8px; }
+.gwf-reset { justify-self: start; }
+.gwf-note { margin: 6px 0 0; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: color-mix(in oklab, var(--surface) 94%, var(--accent, #2a78d6)); font-size: 12px; white-space: normal; }
+.gwf-card .gwf { margin-top: 6px; }
+.gwf-pageb { margin: 0 0 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.gwf-pageb .gwf { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-items: start; }
+.gwf-pageb .gwf-reset { grid-column: 1 / -1; }
+.map-icon-btn { position: relative; }
+.map-icon-dot { position: absolute; top: 5px; right: 5px; width: 10px; height: 10px; border-radius: 50%; background: #e8590c; border: 2px solid var(--surface, #fff); }
+.gwf .select { max-width: 100%; }
+.gwf-nums input[type="date"] { width: 150px; }

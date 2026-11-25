@@ -1,17 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { DAY, dayOf, type Stats } from "@/lib/gateway-stats";
+import { DAY, MAX_DAYS, dayOf, type Stats } from "@/lib/gateway-stats";
+import { queryParams } from "@/lib/gw-filter";
 import { BarList, ColumnChart, nf, nf1, type Bar, type BarItem } from "./charts/primitives";
 import GatewayPopup from "./GatewayPopup";
+import GwFilterBar, { useGwFilter } from "./GwFilterBar";
 
 /**
  * Grafice pe ANTENE (gateway-uri LoRaWAN), cu filtre proprii (separate de cele ale contoarelor): perioadă (azi / 7 / 30 / 90 de zile sau interval ales), stare, căutare după nume,
  * minim de contoare, sortare. Arată eficiența fiecărei antene: contoare auzite, mesaje, mesaje pe contor, semnal (RSSI / SNR), zile active, câte contoare aude doar ea.
  * Click pe o antenă (în grafic sau în tabel) = seria ei pe zile. Datele vin din mesajele primite prin integrare (se strâng de la punerea în funcțiune); ziua e ziua UTC.
  */
-type Period = "today" | "7d" | "30d" | "90d" | "custom";
-const PERIODS: [Period, string, number][] = [["today", "Azi", 1], ["7d", "7 zile", 7], ["30d", "30 zile", 30], ["90d", "90 zile", 90]];
+type Period = "today" | "7d" | "older" | "30d" | "90d" | "all" | "custom";
+/** «Mai vechi de 7 zile» = zilele de dinainte de ultimele 7 (până la 120 de zile înapoi); «Toate» = tot ce se păstrează (120 de zile) */
+const PERIODS: [Period, string, number][] = [["today", "Azi", 1], ["7d", "Ultimele 7 zile", 7], ["older", "Mai vechi de 7 zile", 0], ["30d", "30 zile", 30], ["90d", "90 zile", 90], ["all", "Toate", 0]];
 type Metric = "n" | "dv" | "gws";
 const METRICS: [Metric, string][] = [["n", "Mesaje"], ["dv", "Contoare auzite (pe zi)"], ["gws", "Antene active"]];
 const SORTS: [string, string][] = [["devices", "Contoare auzite"], ["messages", "Mesaje"], ["perdevice", "Mesaje / contor"], ["rssi", "Semnal (RSSI)"], ["last", "Ultimul mesaj"], ["name", "Nume"]];
@@ -38,15 +41,18 @@ export default function GatewayCharts({ onOpenMeter }: { onOpenMeter?: (id: stri
   const [sort, setSort] = useState("devices");
   const [metric, setMetric] = useState<Metric>("n");
   const [gw, setGw] = useState("");
+  /** raza de acțiune (aceeași alegere ca pe hartă); perioada de aici rămâne cea proprie graficelor */
+  const gf = useGwFilter();
   const [popup, setPopup] = useState<string | null>(null);
   const [now] = useState(() => Date.now());
   const [res, setRes] = useState<{ key: string; data: Stats | null } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const days = PERIODS.find((p) => p[0] === period)?.[2] ?? 7;
-  const fromMs = period === "custom" ? (Date.parse(from) || dayOf(now) - 6 * DAY) : dayOf(now) - (days - 1) * DAY;
-  const toMs = period === "custom" ? (Date.parse(to) || now) : now;
-  const qs = new URLSearchParams({ stats: "1", from: String(fromMs), to: String(toMs), state, q, min: min || "0", sort, gw }).toString();
+  const today = dayOf(now);
+  const fromMs = period === "custom" ? (Date.parse(from) || today - 6 * DAY) : period === "older" || period === "all" ? today - (MAX_DAYS - 1) * DAY : today - (days - 1) * DAY;
+  const toMs = period === "custom" ? (Date.parse(to) || now) : period === "older" ? today - 6 * DAY - 1 : now;
+  const qs = new URLSearchParams({ stats: "1", from: String(fromMs), to: String(toMs), state, q, min: min || "0", sort, gw, ...queryParams({ ...gf.q, pf: null, pt: null }) }).toString();
 
   useEffect(() => {
     const ac = new AbortController();
@@ -109,14 +115,18 @@ export default function GatewayCharts({ onOpenMeter }: { onOpenMeter?: (id: stri
         <label className="field"><span>Ordonează după</span>
           <select className="select" value={sort} onChange={(e) => setSort(e.target.value)}>{SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
         </label>
-        {(state || q || min || gw) && <button type="button" className="btn" onClick={() => { setState(""); setQ(""); setQInput(""); setMin(""); setGw(""); }}>Resetează filtrele antenelor</button>}
+        {(state || q || min || gw || gf.f.rad !== "all") && <button type="button" className="btn" onClick={() => { setState(""); setQ(""); setQInput(""); setMin(""); setGw(""); gf.set({ rad: "all" }); }}>Resetează filtrele antenelor</button>}
+      </div>
+      <div className="gwf-pageb">
+        <GwFilterBar f={gf.f} set={gf.set} reset={() => gf.set({ rad: "all" })} on={gf.f.rad !== "all"} hidePeriod />
+        {st?.radius && <p className="gwf-note">Raza ({gf.text}) se aplică contoarelor auzite: apar doar antenele care au contoare în rază, iar «Contoare auzite» numără doar contoarele din rază. Mesajele, semnalul și zilele active se rețin pe antenă (nu pe contor), deci rămân ale antenei întregi, iar «Mesaje / contor» nu se mai calculează.</p>}
       </div>
 
       {st && t && (
         <div className="stats auto" aria-live="polite" style={{ opacity: loading ? 0.6 : 1, marginBottom: 12 }}>
           <div className="stat"><div className="k">Antene în filtru</div><div className="v">{nf.format(t.gateways)}</div><div className="s">{t.on} active · {t.slow} lente · {t.off} offline</div></div>
           <div className="stat"><div className="k">Mesaje în perioadă</div><div className="v">{nf.format(t.messages)}</div><div className="s">auzite de antenele din filtru</div></div>
-          <div className="stat"><div className="k">Contoare auzite</div><div className="v">{nf.format(t.devices)}</div><div className="s">suma pe antene (un contor aude mai multe)</div></div>
+          <div className="stat"><div className="k">Contoare auzite</div><div className="v">{nf.format(t.devices)}</div><div className="s">{t && st?.radius ? "în raza aleasă; " : ""}suma pe antene (un contor aude mai multe)</div></div>
           <div className="stat"><div className="k">Mesaje / contor</div><div className="v">{t.avgPerDevice !== null ? nf1.format(t.avgPerDevice) : "—"}</div><div className="s">medie pe antenă-contor</div></div>
           <div className="stat"><div className="k">Semnal mediu</div><div className="v">{t.rssi !== null ? `${nf1.format(t.rssi)} dBm` : "—"}</div><div className="s">ponderat cu mesajele</div></div>
           <div className="stat"><div className="k">Antene cu contoare doar ale lor</div><div className="v">{nf.format(t.singles)}</div><div className="s">fără ele, acele contoare nu s-ar auzi</div></div>

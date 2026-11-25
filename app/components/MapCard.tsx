@@ -18,13 +18,14 @@ export const IcoMeter = () => <Svg><path d="M4.5 18.5a9 9 0 1 1 15 0" /><path d=
 export const IcoTower = () => <Svg><path d="M4.9 16.1C1 12.2 1 5.8 4.9 1.9" /><path d="M7.8 4.7a6.1 6.1 0 0 0-.8 7.5" /><circle cx="12" cy="9" r="2" /><path d="M16.2 4.7a6.1 6.1 0 0 1 .8 7.5" /><path d="M19.1 1.9a10.1 10.1 0 0 1 0 14.2" /><path d="M9.5 18h5" /><path d="m8 22 4-11 4 11" /></Svg>;
 const Shrink = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 14h6v6" /><path d="M20 10h-6V4" /><path d="m14 10 7-7" /><path d="m3 21 7-7" /></svg>;
 
-export default function MapCard({ mode, setMode, icon, label, title, sub, tag = "div", className, role, children }: {
+export default function MapCard({ mode, setMode, icon, label, title, sub, tag = "div", className, role, badge, children }: {
   mode: CardMode; setMode: (m: CardMode) => void; icon: ReactNode;
   /** numele cardului pentru cititoare de ecran și indiciu (ex. «Contor S123») */ label: string;
-  title: ReactNode; sub?: ReactNode; tag?: "div" | "aside"; className: string; role?: string; children: ReactNode;
+  title: ReactNode; sub?: ReactNode; tag?: "div" | "aside"; className: string; role?: string;
+  /** punct pe pictogramă: cardul are ceva activ (ex. un filtru pornit) chiar și strâns */ badge?: boolean; children: ReactNode;
 }) {
   if (mode === "icon") {
-    return <button type="button" className="map-icon-btn" onClick={() => setMode("open")} aria-label={`Deschide: ${label}`} title={`${label} — apasă ca să deschizi`}>{icon}</button>;
+    return <button type="button" className="map-icon-btn" onClick={() => setMode("open")} aria-label={`Deschide: ${label}`} title={`${label} — apasă ca să deschizi`}>{icon}{badge ? <span className="map-icon-dot" aria-hidden="true" /> : null}</button>;
   }
   const Tag = tag;
   return (

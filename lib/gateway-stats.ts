@@ -44,11 +44,14 @@ export function foldDays(hits: Hit[], ld: Map<string, number>): { days: Map<stri
 }
 
 export type GwSum = { id: string; name: string; la: number | null; lo: number | null; state: "on" | "slow" | "off"; last: number; devices: number; primary: number; exclusive: number; rssi: number | null; snr: number | null };
-export type StatQuery = { from: number; to: number; state: string; q: string; minDevices: number; sort: string; gw: string };
+/** `kmin` / `kmax` = raza de acțiune (km, antenă ↔ contor); când e restrânsă, `devicesIn` numără doar contoarele din rază, iar mesajele pe zi (care nu se rețin pe contor) rămân ale antenei întregi */
+export type StatQuery = { from: number; to: number; state: string; q: string; minDevices: number; sort: string; gw: string; kmin?: number; kmax?: number | null };
 export type StatRow = GwSum & { messages: number; devicesIn: number; perDevice: number | null; rssiIn: number | null; snrIn: number | null; activeDays: number };
 export type DayPoint = { d: number; n: number; dv: number; gws: number; rssi: number | null; snr: number | null };
 export type Stats = {
   from: number; to: number;
+  /** raza de acțiune e restrânsă: contoarele auzite se numără doar din rază, iar «mesaje / contor» nu se mai poate calcula */
+  radius: boolean;
   rows: StatRow[];
   days: DayPoint[];
   totals: { gateways: number; on: number; slow: number; off: number; messages: number; devices: number; avgPerDevice: number | null; rssi: number | null; singles: number };
@@ -75,6 +78,7 @@ export function buildStats(sum: GwSum[], dayDocs: DayAgg[], devicesIn: Map<strin
     if (l) l.push(d); else per.set(d.g, [d]);
   }
   const needle = q.q.trim().toLowerCase();
+  const radius = (q.kmin ?? 0) > 0 || (q.kmax ?? null) !== null;
   const rows: StatRow[] = [];
   for (const g of sum) {
     if (q.state && g.state !== q.state) continue;
@@ -83,8 +87,8 @@ export function buildStats(sum: GwSum[], dayDocs: DayAgg[], devicesIn: Map<strin
     let messages = 0, nr = 0, rs = 0, ns = 0, ss = 0;
     for (const d of ds) { messages += d.n; nr += d.nr; rs += d.rs; ns += d.ns; ss += d.ss; }
     const dIn = devicesIn.get(g.id) ?? 0;
-    if (dIn < q.minDevices) continue;
-    rows.push({ ...g, messages, devicesIn: dIn, perDevice: dIn > 0 ? r1(messages / dIn) : null, rssiIn: nr ? r1(rs / nr) : null, snrIn: ns ? r1(ss / ns) : null, activeDays: ds.filter((d) => d.n > 0).length });
+    if (dIn < q.minDevices || (radius && dIn < 1)) continue;
+    rows.push({ ...g, messages, devicesIn: dIn, perDevice: dIn > 0 && !radius ? r1(messages / dIn) : null, rssiIn: nr ? r1(rs / nr) : null, snrIn: ns ? r1(ss / ns) : null, activeDays: ds.filter((d) => d.n > 0).length });
   }
   const by: Record<string, (a: StatRow, b: StatRow) => number> = {
     devices: (a, b) => b.devicesIn - a.devicesIn || b.messages - a.messages,
@@ -113,10 +117,10 @@ export function buildStats(sum: GwSum[], dayDocs: DayAgg[], devicesIn: Map<strin
   const rssiS = rows.reduce((a, r) => a + (r.rssiIn !== null ? r.rssiIn * r.messages : 0), 0);
   const devices = rows.reduce((a, r) => a + r.devicesIn, 0);
   return {
-    from: lo, to: hi + DAY - 1, rows, days,
+    from: lo, to: hi + DAY - 1, radius, rows, days,
     totals: {
       gateways: rows.length, on: rows.filter((r) => r.state === "on").length, slow: rows.filter((r) => r.state === "slow").length, off: rows.filter((r) => r.state === "off").length,
-      messages: totalMsgs, devices, avgPerDevice: devices ? r1(totalMsgs / devices) : null, rssi: rssiN ? r1(rssiS / rssiN) : null, singles: rows.filter((r) => r.exclusive > 0).length,
+      messages: totalMsgs, devices, avgPerDevice: devices && !radius ? r1(totalMsgs / devices) : null, rssi: rssiN ? r1(rssiS / rssiN) : null, singles: rows.filter((r) => r.exclusive > 0).length,
     },
     gw: pick ? { id: pick.id, name: pick.name, days: series((g) => g === pick.id) } : null,
   };

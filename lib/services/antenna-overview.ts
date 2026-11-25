@@ -1,5 +1,6 @@
 import "server-only";
 import { gasLink, type AntennaRecord, type OverviewRow } from "../antennas";
+import { NO_QUERY, type GwQuery } from "../gw-filter";
 import { gatewayDetail, gatewaySummary, type GwDetail } from "./gateways";
 import { antennaDaily, getAntenna, listAntennas } from "./antennas";
 
@@ -23,7 +24,9 @@ export async function antennaOverview(): Promise<Overview> {
 
 export type AntennaMore = { record: AntennaRecord | null; detail: GwDetail | null; days: { d: number; n: number }[] };
 /** Detaliile unei antene: fișa ei (atribute), contoarele auzite și mesajele pe zile. */
-export async function antennaMore(id: string): Promise<AntennaMore> {
-  const [record, detail, days] = await Promise.all([getAntenna(id), gatewayDetail(id).catch(() => null), antennaDaily(id, 60)]);
+export async function antennaMore(id: string, q: GwQuery = NO_QUERY): Promise<AntennaMore> {
+  const [record, detail, all] = await Promise.all([getAntenna(id), gatewayDetail(id, false, q).catch(() => null), antennaDaily(id, 60)]);
+  // perioada se aplică și mesajelor pe zi (ziua întreagă care atinge perioada); raza nu, fiindcă mesajele pe zi nu se rețin pe contor
+  const days = all.filter((x) => (q.pf === null || x.d + 86_400_000 > q.pf) && (q.pt === null || x.d <= q.pt));
   return { record, detail, days };
 }

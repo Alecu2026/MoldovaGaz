@@ -1,6 +1,7 @@
 import { apiGuard, apiMeterGuard } from "@/lib/guard";
 import { DAY, MAX_DAYS } from "@/lib/gateway-stats";
-import { deviceGateways, gatewayDetail, gatewayStats, gatewaySummary } from "@/lib/services/gateways";
+import { parseQuery } from "@/lib/gw-filter";
+import { deviceGateways, gatewayDetail, gatewayMatches, gatewayStats, gatewaySummary } from "@/lib/services/gateways";
 
 /**
  * Antenele (gateway-uri LoRaWAN) din mesajele primite prin integrare, doar pentru utilizatori autentificați.
@@ -9,6 +10,8 @@ import { deviceGateways, gatewayDetail, gatewayStats, gatewaySummary } from "@/l
  *                                               cu lite=1 (harta) fără lista completă a contoarelor
  *   GET /api/integration/gateways?device=<id>   → antenele care aud un contor
  *   GET /api/integration/gateways?stats=1&from=&to=&state=&q=&min=&sort=&gw=   → eficiența antenelor pe perioadă, pe zile (from / to = AAAA-LL-ZZ sau ms)
+ *   GET /api/integration/gateways?match=1&kmin=&kmax=&pf=&pt=   → { counts }: câte contoare din filtru (rază în km + perioadă în ms) are fiecare antenă (cele cu 0 lipsesc)
+ * Filtrul (kmin, kmax, pf, pt) se poate adăuga și la ?id= (liniile, numărătorile și lista contoarelor se restrâng) și la ?stats=1 (kmin / kmax: contoarele auzite din rază).
  */
 export async function GET(req: Request) {
   const q = new URL(req.url).searchParams;
@@ -17,6 +20,8 @@ export async function GET(req: Request) {
   if ("res" in guard) return guard.res;
   const headers = { "Cache-Control": "private, no-store" };
   try {
+    const f = parseQuery(q);
+    if (q.get("match")) return Response.json({ counts: await gatewayMatches(f) }, { headers });
     if (q.get("stats")) {
       const when = (k: string, d: number) => {
         const v = q.get(k) ?? "";
@@ -26,12 +31,12 @@ export async function GET(req: Request) {
       const to = when("to", Date.now());
       const from = Math.min(Math.max(when("from", to - 6 * DAY), to - (MAX_DAYS - 1) * DAY), to);
       const state = ["on", "slow", "off"].includes(q.get("state") ?? "") ? (q.get("state") as string) : "";
-      const stats = await gatewayStats({ from, to, state, q: (q.get("q") ?? "").slice(0, 60), minDevices: Math.max(0, Math.floor(Number(q.get("min")) || 0)), sort: (q.get("sort") ?? "devices").slice(0, 12), gw: (q.get("gw") ?? "").slice(0, 120) });
+      const stats = await gatewayStats({ from, to, state, q: (q.get("q") ?? "").slice(0, 60), minDevices: Math.max(0, Math.floor(Number(q.get("min")) || 0)), sort: (q.get("sort") ?? "devices").slice(0, 12), gw: (q.get("gw") ?? "").slice(0, 120), kmin: f.kmin, kmax: f.kmax });
       return Response.json(stats, { headers });
     }
     const id = q.get("id");
     if (id) {
-      const d = await gatewayDetail(id.slice(0, 120), q.get("lite") === "1");
+      const d = await gatewayDetail(id.slice(0, 120), q.get("lite") === "1", f);
       return d ? Response.json(d, { headers }) : Response.json({ error: "Antena nu există." }, { status: 404 });
     }
     if (device) return Response.json({ gateways: await deviceGateways(device.slice(0, 80)) }, { headers });

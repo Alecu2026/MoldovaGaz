@@ -2,7 +2,8 @@ import "server-only";
 import type { Document } from "mongodb";
 import type { IntegrationMsg } from "../integration";
 import { distanceKm } from "../geo";
-import { buildStats, dayOf, foldDays, type DayAgg, type Hit, type Stats, type StatQuery } from "../gateway-stats";
+import { DAY, buildStats, dayOf, foldDays, type DayAgg, type Hit, type Stats, type StatQuery } from "../gateway-stats";
+import { KM_EDGES, NO_QUERY, bandOf, passes, queryActive, queryString, radiusActive, type GwQuery } from "../gw-filter";
 import { col } from "../mongo";
 import { getStore } from "./meter-dataset";
 
@@ -162,6 +163,42 @@ export async function gatewaySummary(): Promise<GwSummary> {
   return v;
 }
 
+type PairLite = { g: string; m: string; last: number };
+const gp = globalThis as unknown as { __gwPairs?: { at: number; v: PairLite[] } };
+/** Toate perechile antenă × contor (doar ce trebuie pentru filtre), reținute 15 s: un singur citit pentru toate cererile. */
+async function livePairs(): Promise<PairLite[]> {
+  const now = Date.now();
+  if (gp.__gwPairs && now - gp.__gwPairs.at < 15_000) return gp.__gwPairs.v;
+  const v = (await (await col<Pair>(GW_DEV)).find({}, { projection: { g: 1, m: 1, last: 1 } }).toArray()) as unknown as PairLite[];
+  gp.__gwPairs = { at: now, v };
+  return v;
+}
+
+/** Distanța antenă ↔ contor (km), sau null când lipsește poziția uneia. */
+function kmBetween(gw: { la: number | null; lo: number | null } | undefined, c: { la: ArrayLike<number | null>; lo: ArrayLike<number | null> }, i: number | undefined): number | null {
+  if (!gw || gw.la === null || gw.lo === null || i === undefined) return null;
+  const la = c.la[i], lo = c.lo[i];
+  return la !== null && lo !== null && Number.isFinite(la) && Number.isFinite(lo) ? r2(distanceKm(gw.la, gw.lo, la, lo)) : null;
+}
+
+const matchCache = new Map<string, { at: number; v: Record<string, number> }>();
+/** Câte contoare din filtru (rază + perioadă) are fiecare antenă. Antenele fără niciun contor în filtru lipsesc din rezultat. Reținut 15 s pe filtru. */
+export async function gatewayMatches(q: GwQuery): Promise<Record<string, number>> {
+  const key = queryString(q);
+  const hit = matchCache.get(key);
+  if (hit && Date.now() - hit.at < 15_000) return hit.v;
+  const [sum, pairs, idx] = await Promise.all([gatewaySummary(), livePairs(), meterIndex()]);
+  const by = new Map(sum.rows.map((r) => [r.id, r]));
+  const out: Record<string, number> = {};
+  for (const p of pairs) {
+    const km = radiusActive(q) ? kmBetween(by.get(p.g), idx.c, idx.map.get(p.m)) : null;
+    if (passes(q, km, p.last)) out[p.g] = (out[p.g] ?? 0) + 1;
+  }
+  matchCache.set(key, { at: Date.now(), v: out });
+  if (matchCache.size > 40) matchCache.delete(matchCache.keys().next().value as string);
+  return out;
+}
+
 const statCache = new Map<string, { at: number; v: Stats }>();
 /** Eficiența antenelor pe o perioadă (pe zile): vezi lib/gateway-stats.ts. Contoarele auzite = perechile antenă × contor cu ultimul moment în perioadă. Reținut 15 s. */
 export async function gatewayStats(q: StatQuery): Promise<Stats> {
@@ -169,11 +206,15 @@ export async function gatewayStats(q: StatQuery): Promise<Stats> {
   const hit = statCache.get(key);
   if (hit && Date.now() - hit.at < 15_000) return hit.v;
   const sum = await gatewaySummary();
-  const [dayDocs, inRows] = await Promise.all([
+  // contoarele auzite = perechile al căror ultim mesaj cade în perioadă (până la sfârșitul ultimei zile) și, când raza e restrânsă, aflate în rază
+  const pf = q.from, pt = dayOf(Math.max(q.from, q.to)) + DAY - 1;
+  const rq: GwQuery = { kmin: q.kmin ?? 0, kmax: q.kmax ?? null, pf, pt };
+  const [dayDocs, devicesIn] = await Promise.all([
     (await col<Document>(GW_DAY)).find({ d: { $gte: dayOf(Math.min(q.from, q.to)), $lte: dayOf(Math.max(q.from, q.to)) } }).toArray(),
-    (await col<Document>(GW_DEV)).aggregate([{ $match: { last: { $gte: q.from } } }, { $group: { _id: "$g", n: { $sum: 1 } } }]).toArray(),
+    radiusActive(rq)
+      ? gatewayMatches(rq).then((o) => new Map(Object.entries(o)))
+      : (await col<Document>(GW_DEV)).aggregate([{ $match: { last: { $gte: pf, $lte: pt } } }, { $group: { _id: "$g", n: { $sum: 1 } } }]).toArray().then((rows) => new Map<string, number>(rows.map((x) => [String(x._id), Number(x.n) || 0]))),
   ]);
-  const devicesIn = new Map<string, number>(inRows.map((x) => [String(x._id), Number(x.n) || 0]));
   const v = buildStats(sum.rows, dayDocs as unknown as DayAgg[], devicesIn, q);
   statCache.set(key, { at: Date.now(), v });
   if (statCache.size > 40) statCache.delete(statCache.keys().next().value as string);
@@ -186,7 +227,12 @@ export type GwLines = { la: number[]; lo: number[]; rs: number[] };
 export const MAX_LINES = 10_000;
 
 export type GwDetail = {
-  gateway: GwRow; devicesTotal: number; recent: (Recent & { name: string })[];
+  gateway: GwRow; devicesTotal: number;
+  /** câte dintre ele trec de filtru (rază + perioadă); fără filtru = devicesTotal */
+  devicesIn: number;
+  /** contoare pe grupe de distanță (KM_EDGES), doar cele care trec de perioadă (raza nu se aplică aici: graficul arată toată distribuția) + câte nu au distanță cunoscută */
+  bands: number[]; bandsUnknown: number;
+  recent: (Recent & { name: string })[];
   nearest: GwDevice | null; farthest: GwDevice | null; strongest: GwDevice | null; weakest: GwDevice | null;
   /** liniile de pe hartă: contoarele cu coordonate, cele mai apropiate primele, în tablouri paralele compacte (cel mult MAX_LINES; `linesTotal` = câte au poziție în total) */
   lines: GwLines; linesTotal: number;
@@ -202,7 +248,7 @@ function linesOf(byKm: GwDevice[]): GwLines {
 }
 
 /** `lite` = pentru hartă: fără lista completă a contoarelor (`list`), doar ce trebuie ca să se deseneze antena și liniile ei. */
-export async function gatewayDetail(id: string, lite = false): Promise<GwDetail | null> {
+export async function gatewayDetail(id: string, lite = false, q: GwQuery = NO_QUERY): Promise<GwDetail | null> {
   const [sum, gdoc, pairs, idx] = await Promise.all([
     gatewaySummary(),
     (await col<Document>(GATEWAYS)).findOne({ _id: id as never }),
@@ -223,17 +269,24 @@ export async function gatewayDetail(id: string, lite = false): Promise<GwDetail 
       n: p.n, last: p.last, ts: i !== undefined ? c.ts[i] : 0, volume: i !== undefined ? c.val[i] : null,
     };
   });
-  const withKm = devices.filter((d) => d.km !== null);
+  // filtrul (rază + perioadă) se aplică la tot ce se desenează și se numără; `devicesTotal` rămâne totalul
+  const all = devices;
+  const inF = queryActive(q) ? all.filter((d) => passes(q, d.km, d.last)) : all;
+  const bands = new Array<number>(KM_EDGES.length + 1).fill(0);
+  let bandsUnknown = 0;
+  const pq: GwQuery = { ...q, kmin: 0, kmax: null };
+  for (const d of all) { if (!passes(pq, d.km, d.last)) continue; if (d.km === null) bandsUnknown++; else bands[bandOf(d.km)]++; }
+  const withKm = inF.filter((d) => d.km !== null);
   const byKm = [...withKm].sort((a, b) => (a.km as number) - (b.km as number));
-  const withRssi = devices.filter((d) => d.rssi !== null).sort((a, b) => (b.rssi as number) - (a.rssi as number));
+  const withRssi = inF.filter((d) => d.rssi !== null).sort((a, b) => (b.rssi as number) - (a.rssi as number));
   const names = new Map(devices.map((d) => [d.id, d.name]));
   const recent = ((gdoc.rc as Recent[] | undefined) ?? []).slice().reverse().map((x) => ({ ...x, name: names.get(x.m) ?? x.m }));
   return {
-    gateway: row, devicesTotal: devices.length, recent,
+    gateway: row, devicesTotal: all.length, devicesIn: inF.length, bands, bandsUnknown, recent,
     nearest: byKm[0] ?? null, farthest: byKm.length ? byKm[byKm.length - 1] : null,
     strongest: withRssi[0] ?? null, weakest: withRssi.length ? withRssi[withRssi.length - 1] : null,
     lines: linesOf(byKm), linesTotal: byKm.length,
-    list: lite ? [] : [...devices].sort((a, b) => b.last - a.last).slice(0, 3000),
+    list: lite ? [] : [...inF].sort((a, b) => b.last - a.last).slice(0, 3000),
   };
 }
 
