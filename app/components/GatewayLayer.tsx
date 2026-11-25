@@ -142,6 +142,7 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
     const bounds: L.LatLngTuple[] = [];
     // zoom-ul / poziția hărții se schimbă DOAR când alegi o antenă; click-ul pe un contor lasă harta exact cum e (liniile se desenează peste vederea curentă)
     let fitIt = false;
+    const devPts: { p: L.LatLngTuple; m: number }[] = [];
     if (sel && det && detFor === sel && det.gateway.la !== null && det.gateway.lo !== null) {
       fitIt = true;
       const a: L.LatLngTuple = [det.gateway.la, det.gateway.lo];
@@ -149,8 +150,11 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
       for (const d of det.devices) {
         if (d.la === null || d.lo === null) continue;
         L.polyline([a, [d.la, d.lo]], { color: sigColor(d.rssi), weight: 1.3, opacity: 0.55, interactive: false }).addTo(grp);
-        bounds.push([d.la, d.lo]);
+        devPts.push({ p: [d.la, d.lo], m: L.latLng(a).distanceTo([d.la, d.lo]) });
       }
+      // încadrarea ține cont doar de cele mai apropiate 90 % dintre contoare: câteva contoare foarte îndepărtate nu mai depărtează harta (liniile spre ele se desenează oricum)
+      devPts.sort((x, y) => x.m - y.m);
+      for (const x of devPts.slice(0, Math.max(1, Math.ceil(devPts.length * 0.9)))) bounds.push(x.p);
       const ring = (d: GwDevice | null, label: string, color: string) => {
         if (!d || d.la === null || d.lo === null) return;
         L.circleMarker([d.la, d.lo], { radius: 9, color, weight: 3, fillOpacity: 0, interactive: true })
@@ -169,7 +173,13 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
         bounds.push([g.la, g.lo]);
       }
     }
-    if (fitIt && bounds.length > 1) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 13, animate: true });
+    if (fitIt && bounds.length > 1) {
+      // harta se depărtează doar cât să cuprindă contoarele antenei, dar cel mult 2 niveluri față de cum e acum și niciodată nu se apropie
+      const b = L.latLngBounds(bounds), cur = map.getZoom();
+      const target = map.getBoundsZoom(b, false, L.point(60, 60));
+      const z = Math.max(cur - 2, Math.min(cur, target));
+      if (z !== cur || !map.getBounds().contains(b)) map.setView(b.getCenter(), z, { animate: true });
+    }
     return () => { grp.remove(); lines.current = null; };
   }, [map, enabled, sel, det, detFor, meter, dev]);
 
