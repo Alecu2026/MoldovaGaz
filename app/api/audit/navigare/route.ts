@@ -24,7 +24,7 @@ const query = (v: unknown): string => {
 const dur = (s: number): string => (s < 60 ? `${s} s` : s < 3600 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`);
 const NAVTYPE: Record<string, string> = { load: "încărcare directă (adresă / link)", app: "navigare în aplicație", reload: "reîncărcare (F5)", back: "înapoi / înainte" };
 
-export async function POST(req: Request) {
+async function handle(req: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: "Autentificare necesară." }, { status: 401 });
   if (!hit(`nav|${user.id}`, 240, 60_000)) return Response.json({ error: "Prea multe cereri." }, { status: 429 });
@@ -60,4 +60,14 @@ export async function POST(req: Request) {
   }
   await logAuditMany(actorOf(user), out);
   return Response.json({ ok: true, n: out.length }, { headers: { "Cache-Control": "no-store" } });
+}
+
+/** Jurnalul de navigare nu are voie să strice pagina: orice eroare internă se scrie în log și se răspunde fără eroare de server (202), ca să nu apară 500 în browser. */
+export async function POST(req: Request) {
+  try {
+    return await handle(req);
+  } catch (e) {
+    console.error("[audit/navigare] eșuat:", (e as Error)?.message ?? e);
+    return Response.json({ ok: false }, { status: 202, headers: { "Cache-Control": "no-store" } });
+  }
 }
