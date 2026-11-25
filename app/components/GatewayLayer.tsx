@@ -2,6 +2,7 @@
 
 import L from "leaflet";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { DevGateway, GwDetail, GwDevice, GwState, GwSummary } from "@/lib/services/gateways";
 
 /**
@@ -63,16 +64,19 @@ type Props = {
   /** legenda antenelor se vede / se poate închide */
   legend: boolean;
   onCloseLegend: () => void;
-  /** închide panoul „contor → antene” (deselectează contorul) */
-  onClosePanel: () => void;
+  /** coloana din dreapta sus a hărții (acolo stă și cardul contorului): panoul „contor → antene” se pune în ea, sub card */
+  sideEl: HTMLElement | null;
 };
 
-export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa, meterLo, onOpen, onPickGateway, legend, onCloseLegend, onClosePanel }: Props) {
+export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa, meterLo, onOpen, onPickGateway, legend, onCloseLegend, sideEl }: Props) {
   const [sum, setSum] = useState<GwSummary | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [det, setDet] = useState<GwDetail | null>(null);
   const [detFor, setDetFor] = useState<string | null>(null);
   const [dev, setDev] = useState<{ id: string; list: DevGateway[] } | null>(null);
+  /** panoul „contor → antene” strâns / deschis (nu schimbă contorul ales; se păstrează între contoare) */
+  // pe telefon (foaia din josul ecranului) lista antenelor pornește strânsă, ca să rămână loc pentru hartă; la fel de ușor de deschis
+  const [panelOpen, setPanelOpen] = useState(() => typeof window === "undefined" || !window.matchMedia("(max-width: 640px)").matches);
   const [now, setNow] = useState(() => Date.now());
   const meter = useMemo(() => (meterId !== null && meterLa !== null && meterLo !== null ? { id: meterId, name: meterName, la: meterLa, lo: meterLo } : null), [meterId, meterName, meterLa, meterLo]);
   // când se alege alt contor, antena aleasă se închide (ajustare în timpul randării, nu în efect)
@@ -210,7 +214,7 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
           ))}
         </div>
       )}
-      {sum && legend && !showMeterPanel && (
+      {sum && legend && !meterId && (
         <div className="gw-legend" aria-label="Legenda antenelor">
           <button type="button" className="map-x" aria-label="Închide legenda" onClick={onCloseLegend}>×</button>
           <div className="gw-leg-t">Antene: {nf.format(sum.located)} pe hartă din {nf.format(sum.total)}</div>
@@ -278,10 +282,13 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
         </aside>
       )}
 
-      {showMeterPanel && meter && dev && (
+      {showMeterPanel && meter && dev && sideEl && createPortal(
         <aside className="gw-panel gw-panel-sm" aria-label="Antenele contorului">
-          <button type="button" className="map-x" aria-label="Închide" onClick={onClosePanel}>×</button>
-          <div className="cell-main" style={{ paddingRight: 22 }}>{meter.name} → antene ({dev.list.length})</div>
+          <button type="button" className="map-fold" aria-expanded={panelOpen} aria-label={panelOpen ? "Strânge lista antenelor (contorul rămâne ales)" : "Deschide lista antenelor"} title={panelOpen ? "Strânge (contorul rămâne ales)" : "Deschide"} onClick={() => setPanelOpen((v) => !v)}>
+            <span className="map-fold-t"><span className="cell-main">Antene care aud contorul ({dev.list.length})</span></span>
+            <span aria-hidden="true" className="map-fold-i">{panelOpen ? "▴" : "▾"}</span>
+          </button>
+          {panelOpen && <>
           {legend && (
             <div className="gw-linegen" aria-label="Legenda antenelor și a liniilor">
               {dev.list.length > 0 && <span><i className="gw-ln gw-ln-main" />principală (semnalul cel mai bun)</span>}
@@ -307,7 +314,9 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
               ))}
             </ul>
           )}
-        </aside>
+          </>}
+        </aside>,
+        sideEl,
       )}
     </>
   );

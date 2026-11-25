@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LINK_LABEL, fdtA, ours, type AntennaRecord, type GasLink, type OverviewRow } from "@/lib/antennas";
 import type { GwDetail } from "@/lib/services/gateways";
+import { ColumnChart, type Bar } from "./charts/primitives";
 
 const AntennasMap = dynamic(() => import("./AntennasMap"), { ssr: false, loading: () => <div className="skeleton" style={{ height: 520, borderRadius: 12 }} /> });
 
@@ -104,8 +105,23 @@ export default function AntennaOverview() {
   const m = more && more.id === sel ? more : null;
   const sortBy = (k: string) => setSort((s) => ({ key: k, dir: s.key === k ? (s.dir === 1 ? -1 : 1) : 1 }));
   const pick = (id: string) => { setSel(id); setMore(null); };
-  const chart = m?.v?.days ?? null;
-  const chartMax = chart ? Math.max(1, ...chart.map((x) => x.n)) : 1;
+  // ultimele 60 de zile COMPLETE (zilele fără mesaje = 0, nu lipsesc), ziua = ziua UTC ca în rest
+  const series = useMemo(() => {
+    const days = m?.v?.days;
+    if (!days) return null;
+    const by = new Map(days.map((x) => [x.d, x.n]));
+    const today = Math.floor((data?.now ?? days[days.length - 1]?.d ?? 0) / 86_400_000) * 86_400_000;
+    const out: { d: number; n: number }[] = [];
+    for (let i = 59; i >= 0; i--) { const d = today - i * 86_400_000; out.push({ d, n: by.get(d) ?? 0 }); }
+    return out;
+  }, [m, data]);
+  const stat = useMemo(() => {
+    if (!series) return null;
+    const total = series.reduce((a, b) => a + b.n, 0), active = series.filter((x) => x.n > 0);
+    const peak = series.reduce((a, b) => (b.n > a.n ? b : a), series[0]);
+    return { total, activeDays: active.length, avg: active.length ? Math.round(total / active.length) : 0, peak, yesterday: series[series.length - 2]?.n ?? 0, today: series[series.length - 1]?.n ?? 0, lastDay: [...series].reverse().find((x) => x.n > 0)?.d ?? null };
+  }, [series]);
+  const bars: Bar[] = useMemo(() => (series ?? []).map((x, i, a) => ({ label: day(x.d), axis: i % 10 === 0 || i === a.length - 1 ? day(x.d).slice(0, 5) : "", value: x.n, ghost: 0, sub: x.n === 0 ? "niciun mesaj în ziua aceasta" : undefined })), [series]);
 
   return (
     <div className="page" style={{ overflow: "auto" }}>
@@ -179,12 +195,19 @@ export default function AntennaOverview() {
           {m?.err && <p className="form-error" role="alert">{m.err}</p>}
           {m?.v && (
             <>
-              <h4 style={{ margin: "14px 0 6px" }}>Mesaje primite pe zi (ultimele 60 de zile)</h4>
-              {chart && chart.length === 0 && <p className="cell-sub">Nicio dată.</p>}
-              {chart && chart.length > 0 && (
-                <svg viewBox={`0 0 ${chart.length * 12} 100`} preserveAspectRatio="none" style={{ width: "100%", height: 90 }} role="img" aria-label={`Mesaje pe zi, ${chart.length} zile`}>
-                  {chart.map((x, i) => <rect key={x.d} x={i * 12 + 1} width={10} y={100 - (x.n / chartMax) * 96} height={(x.n / chartMax) * 96} fill="var(--series-1)"><title>{`${day(x.d)}: ${nf.format(x.n)}`}</title></rect>)}
-                </svg>
+              <h4 style={{ margin: "14px 0 2px" }}>Mesaje primite pe zi (ultimele 60 de zile)</h4>
+              <p className="cell-sub" style={{ margin: "0 0 8px", whiteSpace: "normal" }}>Fiecare coloană este o zi; înălțimea ei = câte mesaje de la contoarele noastre a primit antena în ziua aceea (ziua începe la miezul nopții UTC). Pe axa din stânga sunt numărul de mesaje, iar dedesubt datele. Treci cu cursorul (sau atinge) peste o coloană ca să vezi ziua exactă.</p>
+              {stat && stat.total === 0 && <p className="cell-sub">Antena nu a primit niciun mesaj de la contoarele noastre în ultimele 60 de zile.</p>}
+              {stat && stat.total > 0 && (
+                <>
+                  <div className="stats auto" style={{ marginBottom: 8 }}>
+                    <div className="stat"><div className="k">Total în 60 de zile</div><div className="v">{nf.format(stat.total)}</div><div className="s">mesaje primite</div></div>
+                    <div className="stat"><div className="k">Zile cu mesaje</div><div className="v">{stat.activeDays} din 60</div><div className="s">medie {nf.format(stat.avg)} / zi activă</div></div>
+                    <div className="stat"><div className="k">Cea mai bună zi</div><div className="v">{nf.format(stat.peak.n)}</div><div className="s">{day(stat.peak.d)}</div></div>
+                    <div className="stat"><div className="k">Azi / ieri</div><div className="v">{nf.format(stat.today)} / {nf.format(stat.yesterday)}</div><div className="s">{stat.lastDay ? `ultimul mesaj în ziua ${day(stat.lastDay)}` : ""}</div></div>
+                  </div>
+                  <ColumnChart bars={bars} unit="mesaje" ariaLabel={`Mesaje primite pe zi de antenă, ultimele 60 de zile, total ${stat.total}`} height={190} labelWidth={46} />
+                </>
               )}
               {m.v.detail && <Devices d={m.v.detail} />}
               {!m.v.detail && <p className="cell-sub" style={{ marginTop: 10 }}>La noi nu a trimis încă niciun mesaj prin integrare, deci nu avem contoare auzite de ea.</p>}

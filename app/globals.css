@@ -1050,6 +1050,15 @@ button.badge-btn:hover {
   background: color-mix(in oklab, var(--surface) 82%, transparent); color: var(--muted);
 }
 .map-empty strong { color: var(--text); font-size: 15px; }
+/* coloana din dreapta sus a hărții: cardul contorului + panoul cu antenele lui, unul sub altul; fiecare se strânge / se deschide fără să deselecteze contorul */
+.map-side { position: absolute; right: 10px; top: 10px; z-index: 720; width: min(380px, calc(100% - 20px)); max-height: calc(100% - 36px); overflow: auto; display: flex; flex-direction: column; gap: 8px; pointer-events: none; overscroll-behavior: contain; }
+.map-side > * { pointer-events: auto; }
+.map-side .map-popup, .map-side .gw-panel-sm { position: static; width: auto; max-height: none; bottom: auto; overflow: visible; flex: none; }
+.map-fold { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.map-fold-t { display: grid; min-width: 0; }
+.map-fold-t .cell-main, .map-fold-t .cell-sub { white-space: normal; overflow-wrap: anywhere; }
+.map-fold-i { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--border-strong); border-radius: 8px; font-size: 13px; color: var(--muted); }
+.map-fold:hover .map-fold-i { color: var(--text); background: var(--surface-2); }
 .map-popup {
   position: absolute; left: 0; top: 0; z-index: 720; width: 290px; padding: 10px 12px; border-radius: 12px;
   background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); box-shadow: var(--shadow);
@@ -1070,14 +1079,14 @@ button.badge-btn:hover {
 @media (max-width: 640px) {
   .map-stage { min-height: 60dvh; }
   /* telefon: popup-ul contorului și panoul antenei sunt „foi” prinse de ecran (nu de hartă, care poate ieși din ecran): mereu întregi și vizibile */
-  .map-popup, .map-stage .gw-panel {
+  .map-stage .map-side { position: fixed; left: 8px; right: 8px; top: auto; bottom: max(8px, env(safe-area-inset-bottom)); width: auto; max-height: 56dvh; z-index: 2100; }
+  .map-side .map-popup, .map-side .gw-panel-sm { padding: 10px 12px; border-radius: 14px; }
+  .map-stage .gw-panel {
     position: fixed; left: 8px; right: 8px; top: auto; bottom: max(8px, env(safe-area-inset-bottom)); width: auto; max-height: 52dvh; overflow: auto;
     transform: none !important; visibility: visible !important; z-index: 2100; padding: 12px 14px; border-radius: 14px; overscroll-behavior: contain;
   }
   .map-stage .gw-panel { max-height: 68dvh; }
-  /* antenele contorului sunt și în „Detalii”; cât timp e deschis popup-ul contorului, foaia lor nu mai stă peste el */
-  .map-stage .gw-panel.gw-panel-sm { bottom: max(8px, env(safe-area-inset-bottom)); top: auto; max-height: 40dvh; }
-  .map-stage .gw-panel-sm:has(~ .map-popup) { display: none; }
+  .map-stage .map-side .gw-panel-sm { position: static; left: auto; right: auto; bottom: auto; top: auto; width: auto; max-height: none; overflow: visible; transform: none; }
   .map-popup .map-x, .map-stage .gw-panel .map-x { width: 40px; height: 40px; right: 2px; top: 0; font-size: 26px; }
   .map-popup .cell-main { white-space: normal; overflow-wrap: anywhere; }
   .map-btns { gap: 8px; }

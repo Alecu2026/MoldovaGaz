@@ -85,7 +85,9 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen, antennas }: 
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
-  const popRef = useRef<HTMLDivElement>(null);
+  const [sideEl, setSideEl] = useState<HTMLDivElement | null>(null);
+  /** cardul contorului strâns / deschis: se păstrează între contoare și NU deselectează contorul (liniile spre antene rămân) */
+  const [popOpen, setPopOpen] = useState(true);
   const mapRef = useRef<L.Map | null>(null);
   const [by, setBy] = useState<ColorBy>("status");
   const [sel, setSel] = useState<number | null>(null);
@@ -198,20 +200,13 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen, antennas }: 
         ctx.fillText(compactCount(n), sx, sy + 0.5);
       }
     }
-    // popup-ul urmărește punctul ales
-    const pop = popRef.current;
-    if (pop) {
-      if (selected !== null && st.la[selected] === st.la[selected]) {
-        const p = map.latLngToContainerPoint([st.la[selected], st.lo[selected]]);
-        // deasupra punctului; dacă nu încape, dedesubt; și mereu în interiorul hărții
-        const w = pop.offsetWidth, h = pop.offsetHeight;
-        const left = Math.min(Math.max(p.x - w / 2, 6), Math.max(6, size.x - w - 6));
-        let top = p.y - h - 12;
-        if (top < 6) top = p.y + 14;
-        top = Math.min(Math.max(top, 6), Math.max(6, size.y - h - 6));
-        pop.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
-        pop.style.visibility = p.x < -20 || p.y < -20 || p.x > size.x + 20 || p.y > size.y + 20 ? "hidden" : "visible";
-      }
+    // contorul ales rămâne marcat pe hartă (cardul lui e în dreapta sus și se poate strânge)
+    if (selected !== null && showMeters && st.la[selected] === st.la[selected]) {
+      const p = map.latLngToContainerPoint([st.la[selected], st.lo[selected]]);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, big + 5, 0, 6.2832);
+      ctx.lineWidth = 4; ctx.strokeStyle = "#ffffff"; ctx.stroke();
+      ctx.lineWidth = 2.5; ctx.strokeStyle = "#2a78d6"; ctx.stroke();
     }
   }, []);
 
@@ -403,16 +398,17 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen, antennas }: 
           onPickGateway={pickGateway}
           legend={legendOn}
           onCloseLegend={closeLegend}
-          onClosePanel={pickGateway}
+          sideEl={sideEl}
         />
 
-        {picked && (
-          <div ref={popRef} className="map-popup" role="dialog" aria-label={`Contor ${picked.name}`}>
-            <button type="button" className="map-x" aria-label="Închide" onClick={() => setSel(null)}>
-              ×
+        <div ref={setSideEl} className="map-side">
+          {picked && (
+          <div className="map-popup" role="dialog" aria-label={`Contor ${picked.name}`}>
+            <button type="button" className="map-fold" aria-expanded={popOpen} aria-label={popOpen ? "Strânge cardul contorului (contorul rămâne ales)" : "Deschide cardul contorului"} title={popOpen ? "Strânge (contorul rămâne ales)" : "Deschide"} onClick={() => setPopOpen((v) => !v)}>
+              <span className="map-fold-t"><span className="cell-main">{picked.name}</span><span className="cell-sub">{[picked.branch, picked.city && picked.city !== "—" ? picked.city : ""].filter(Boolean).join(" · ")}</span></span>
+              <span aria-hidden="true" className="map-fold-i">{popOpen ? "▴" : "▾"}</span>
             </button>
-            <div className="cell-main" style={{ paddingRight: 18 }}>{picked.name}</div>
-            <div className="cell-sub">{[picked.branch, picked.city && picked.city !== "—" ? picked.city : ""].filter(Boolean).join(" · ")}</div>
+            {popOpen && <>
             <dl className="kv" style={{ gridTemplateColumns: "92px 1fr", margin: "8px 0", fontSize: 12.5 }}>
               <dt>Ultima citire</dt><dd>{picked.ts > 0 ? dt(picked.ts) : "—"}</dd>
               <dt>Volume</dt><dd className="mono">{picked.val !== null ? `${nf.format(picked.val)} m³` : "—"}</dd>
@@ -433,8 +429,11 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen, antennas }: 
                 </>
               )}
             </div>
+            <div className="map-btns"><button type="button" className="btn btn-sm" onClick={() => setSel(null)}>Deselectează contorul</button></div>
+            </>}
           </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
