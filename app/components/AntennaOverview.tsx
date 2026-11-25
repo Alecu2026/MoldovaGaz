@@ -8,6 +8,7 @@ import { ColumnChart, type Bar } from "./charts/primitives";
 import MapCard, { IcoTower, type CardMode } from "./MapCard";
 import GwFilterBar, { useGwFilter } from "./GwFilterBar";
 import DistanceChart from "./DistanceChart";
+import { gwGet } from "./gw-fetch";
 import { periodText, queryString, radiusActive, periodActive, type GwQuery } from "@/lib/gw-filter";
 
 const AntennasMap = dynamic(() => import("./AntennasMap"), { ssr: false, loading: () => <div className="skeleton" style={{ height: 520, borderRadius: 12 }} /> });
@@ -88,7 +89,7 @@ export default function AntennaOverview() {
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch("/api/antennas/overview", { cache: "no-store" });
+      const r = await fetch("/api/antennas/overview");
       if (r.status === 401) { window.location.replace("/login"); return; }
       if (!r.ok) throw new Error(String(r.status));
       setData((await r.json()) as Overview); setErr(null);
@@ -103,9 +104,8 @@ export default function AntennaOverview() {
   useEffect(() => {
     if (!gf.on) return;
     const ac = new AbortController();
-    void fetch(`/api/integration/gateways?match=1&${qs}`, { signal: ac.signal, cache: "no-store" })
-      .then(async (r) => { if (!r.ok) throw new Error(String(r.status)); const d = (await r.json()) as { counts: Record<string, number> }; setMatchRaw({ key: qs, v: new Map(Object.entries(d.counts).map(([k, n]) => [k.toLowerCase(), n])) }); })
-      .catch(() => undefined);
+    void gwGet<{ counts: Record<string, number> }>(`/api/integration/gateways?match=1&${qs}`, ac.signal)
+      .then((d) => { if (d && !ac.signal.aborted) setMatchRaw({ key: qs, v: new Map(Object.entries(d.counts).map(([k, n]) => [k.toLowerCase(), n])) }); });
     return () => ac.abort();
   }, [gf.on, qs]);
   const match = gf.on && matchRaw && matchRaw.key === qs ? matchRaw.v : null;
@@ -113,9 +113,8 @@ export default function AntennaOverview() {
   useEffect(() => {
     if (!sel) return;
     const ac = new AbortController();
-    void fetch(`/api/antennas/overview?id=${encodeURIComponent(sel)}${qs ? `&${qs}` : ""}`, { signal: ac.signal, cache: "no-store" })
-      .then(async (r) => { if (!r.ok) throw new Error(String(r.status)); setMore({ id: sel, v: (await r.json()) as More, err: null }); })
-      .catch((e: Error) => { if (e.name !== "AbortError") setMore({ id: sel, v: null, err: "Nu am putut citi detaliile antenei." }); });
+    void gwGet<More>(`/api/antennas/overview?id=${encodeURIComponent(sel)}${qs ? `&${qs}` : ""}`, ac.signal)
+      .then((d) => { if (!ac.signal.aborted) setMore({ id: sel, v: d, err: d ? null : "Nu am putut citi detaliile antenei." }); });
     return () => ac.abort();
   }, [sel, qs]);
 

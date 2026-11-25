@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import type { GwDetail } from "@/lib/services/gateways";
 import GatewayInfo, { km, nf, when } from "./GatewayInfo";
+import { gwGet } from "./gw-fetch";
 
 const AntennaMap = dynamic(() => import("./AntennaMap"), { ssr: false, loading: () => <div className="skeleton gw-minimap" /> });
 
@@ -11,6 +12,7 @@ const AntennaMap = dynamic(() => import("./AntennaMap"), { ssr: false, loading: 
  * Popup-ul unei antene (la click pe o antenă în Grafice): informațiile ei ca în panoul de pe hartă + harta ei cu TOATE contoarele cu care comunică + lista completă a
  * contoarelor (căutare, sortare). Click pe un contor (în listă, pe hartă sau în ultimele cereri) deschide detaliile contorului. Esc sau click în afară închide.
  */
+const ROW = 34, VIEW = 380, OVERSCAN = 10;
 type SortKey = "last" | "km" | "n" | "rssi" | "name";
 const SORTS: [SortKey, string][] = [["last", "Ultimul mesaj"], ["km", "Distanță (apropiate întâi)"], ["n", "Mesaje"], ["rssi", "Semnal (cel mai bun întâi)"], ["name", "Nume"]];
 
@@ -19,13 +21,12 @@ export default function GatewayPopup({ id, onClose, onOpenMeter, onSeries }: { i
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("last");
   const [now] = useState(() => Date.now());
+  /** lista contoarelor e VIRTUALIZATĂ: în DOM stau doar rândurile din fereastră (+ câteva de rezervă), nu cele până la 3000 */
+  const [scrollTop, setScrollTop] = useState(0);
 
   useEffect(() => {
     const ac = new AbortController();
-    void fetch(`/api/integration/gateways?id=${encodeURIComponent(id)}`, { signal: ac.signal, cache: "no-store" })
-      .then((r) => (r.ok ? (r.json() as Promise<GwDetail>) : null))
-      .then((d) => setRes({ id, det: d }))
-      .catch(() => undefined);
+    void gwGet<GwDetail>(`/api/integration/gateways?id=${encodeURIComponent(id)}`, ac.signal).then((d) => { if (!ac.signal.aborted) setRes({ id, det: d }); });
     return () => ac.abort();
   }, [id]);
 
@@ -52,6 +53,7 @@ export default function GatewayPopup({ id, onClose, onOpenMeter, onSeries }: { i
     };
     return f.sort(by[sort]);
   }, [det, q, sort]);
+  const first = Math.max(0, Math.floor(scrollTop / ROW) - OVERSCAN), last = Math.min(list.length, Math.ceil((scrollTop + VIEW) / ROW) + OVERSCAN);
   const mapDevices = useMemo(() => (det?.list ?? []).filter((d) => d.la !== null && d.lo !== null).map((d) => ({ id: d.id, name: d.name, la: d.la as number, lo: d.lo as number, rssi: d.rssi, km: d.km })), [det]);
 
   return (
@@ -89,12 +91,13 @@ export default function GatewayPopup({ id, onClose, onOpenMeter, onSeries }: { i
                 </label>
                 <span className="cell-sub">{nf.format(list.length)} din {nf.format(det.list.length)}</span>
               </div>
-              <div className="card-table" style={{ maxHeight: 380 }}>
+              <div className="card-table" style={{ maxHeight: VIEW }} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
                 <table className="mini">
                   <thead><tr><th>Contor</th><th className="num">Distanță</th><th className="num">RSSI</th><th className="num">SNR</th><th className="num">Mesaje</th><th>Ultimul mesaj</th></tr></thead>
                   <tbody>
-                    {list.map((d) => (
-                      <tr key={d.id}>
+                    {first > 0 && <tr aria-hidden="true" style={{ height: first * ROW }}><td colSpan={6} style={{ padding: 0, border: 0 }} /></tr>}
+                    {list.slice(first, last).map((d) => (
+                      <tr key={d.id} style={{ height: ROW }}>
                         <td><button type="button" className="link-btn" onClick={() => onOpenMeter(d.id)}>{d.name}</button></td>
                         <td className="num mono">{km(d.km)}</td>
                         <td className="num mono">{d.rssi ?? "—"}</td>
@@ -103,6 +106,7 @@ export default function GatewayPopup({ id, onClose, onOpenMeter, onSeries }: { i
                         <td className="mono">{when(d.last).slice(0, 16)}</td>
                       </tr>
                     ))}
+                    {last < list.length && <tr aria-hidden="true" style={{ height: (list.length - last) * ROW }}><td colSpan={6} style={{ padding: 0, border: 0 }} /></tr>}
                     {list.length === 0 && <tr><td colSpan={6} className="cell-sub" style={{ padding: 14 }}>Niciun contor.</td></tr>}
                   </tbody>
                 </table>

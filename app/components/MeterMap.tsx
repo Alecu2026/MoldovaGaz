@@ -65,7 +65,12 @@ function catOf(st: MeterStore, i: number, by: ColorBy, now: number): 0 | 1 | 2 |
 }
 
 /** raza bulei (px): maximum 21, mai mică decât jumătatea celulei (23), ca bulele vecine să nu se suprapună */
-const clusterRadius = (n: number): number => 10 + Math.min(11, Math.log2(n) * 1.9);
+/** Raza bulei = doar cât să încapă numărul (cifre ~6,7 px, punct ~3 px, «K» ~7,5 px la fontul de 11 px) plus puțin aer — fără bule mari, indiferent câte contoare cuprind. */
+const clusterRadius = (n: number): number => {
+  let w = 0;
+  for (const ch of compactCount(n)) w += ch === "." ? 3 : ch === "K" ? 7.5 : 6.7;
+  return Math.max(8.5, w / 2 + 4.5);
+};
 
 const compactCount = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000)}K` : n >= 1000 ? `${(n / 1000).toFixed(1).replace(".0", "")}K` : String(n));
 

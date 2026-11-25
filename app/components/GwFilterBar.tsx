@@ -26,13 +26,15 @@ function read(): GwFilter {
 }
 
 /** Filtrul curent + limitele lui gata de trimis serverului. Toate locurile din pagină care îl folosesc rămân la fel (se anunță între ele). */
-export function useGwFilter(): { f: GwFilter; set: (p: Partial<GwFilter>) => void; reset: () => void; q: GwQuery; on: boolean; text: string } {
+export function useGwFilter(): { f: GwFilter; set: (p: Partial<GwFilter>) => void; reset: () => void; q: GwQuery; on: boolean; text: string; /** alegere făcută dar încă neaplicată (se așteaptă o clipă după ultima mișcare a glisorului) */ dirty: boolean } {
   const [f, setF] = useState<GwFilter>(DEFAULT_FILTER);
   const cur = useRef<GwFilter>(DEFAULT_FILTER);
+  /** butoanele și meniurile se aplică pe loc; glisorul și câmpurile numerice așteaptă o clipă după ultima mișcare (altfel fiecare pas ar însemna o cerere) */
+  const fast = useRef(true);
   // «acum» se reîmprospătează rar: limitele perioadei depind doar de ziua curentă (miezul nopții local), deci cererile nu se schimbă între timp
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const load = () => { const n = read(); cur.current = n; setF(n); };
+    const load = () => { const n = read(); cur.current = n; fast.current = true; setF(n); };
     const t0 = setTimeout(load, 0);
     const onChange = load;
     window.addEventListener(GW_EVENT, onChange);
@@ -44,12 +46,18 @@ export function useGwFilter(): { f: GwFilter; set: (p: Partial<GwFilter>) => voi
     setF(n);
     try { localStorage.setItem(KEY, JSON.stringify(n)); window.dispatchEvent(new Event(GW_EVENT)); } catch { /* alegerea nu se reține */ }
   }, []);
-  const set = useCallback((p: Partial<GwFilter>) => save({ ...cur.current, ...p }), [save]);
-  const reset = useCallback(() => save(DEFAULT_FILTER), [save]);
+  const set = useCallback((p: Partial<GwFilter>) => { fast.current = !("kmMin" in p || "kmMax" in p || "pFrom" in p || "pTo" in p); save({ ...cur.current, ...p }); }, [save]);
+  const reset = useCallback(() => { fast.current = true; save(DEFAULT_FILTER); }, [save]);
   // același filtru = același obiect: trecerea timpului nu declanșează reîncărcări și redesenări dacă limitele nu s-au schimbat
-  const key = queryString(toQuery(f, now));
+  const raw = queryString(toQuery(f, now));
+  const [key, setKey] = useState(raw);
+  useEffect(() => {
+    if (raw === key) return;
+    const t = setTimeout(() => setKey(raw), fast.current ? 0 : 220);
+    return () => clearTimeout(t);
+  }, [raw, key]);
   const q = useMemo(() => parseQuery(new URLSearchParams(key)), [key]);
-  return { f, set, reset, q, on: queryActive(q), text: describe(f) };
+  return { f, set, reset, q, on: queryActive(q), text: describe(f), dirty: raw !== key };
 }
 
 const fmt = (x: number) => String(x).replace(".", ",");

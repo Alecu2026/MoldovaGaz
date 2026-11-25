@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { mercX as worldX, mercY as worldY, worldSize } from "@/lib/geo";
 import MapCard, { IcoTower, type CardMode } from "./MapCard";
 import GwFilterBar, { IcoFunnel, useGwFilter } from "./GwFilterBar";
+import { gwGet } from "./gw-fetch";
 import { passes, queryString } from "@/lib/gw-filter";
 import type { DevGateway, GwDetail, GwDevice, GwState, GwSummary } from "@/lib/services/gateways";
 
@@ -47,14 +48,8 @@ function arrowMarker(a: L.LatLngTuple, b: L.LatLngTuple, color: string, size: nu
   return L.marker(mid, { icon: L.divIcon({ className: "gw-arrow", html, iconSize: [size, size], iconAnchor: [size / 2, size / 2] }), interactive: false, keyboard: false });
 }
 
-async function getJson<T>(url: string, signal: AbortSignal): Promise<T | null> {
-  try {
-    const r = await fetch(url, { signal, cache: "no-store" });
-    return r.ok ? ((await r.json()) as T) : null;
-  } catch {
-    return null;
-  }
-}
+/** citire cu memorie în browser + ETag / 304 (vezi gw-fetch.ts) */
+const getJson = <T,>(url: string, signal: AbortSignal): Promise<T | null> => gwGet<T>(url, signal);
 
 /** Evantaiul de linii al antenei alese: coordonatele în tablouri tipizate, culoarea (0 verde · 1 galben · 2 roșu · 3 necunoscut) și proiecția reținută pentru ultimul zoom. */
 type Fan = { n: number; la: Float64Array; lo: Float64Array; col: Uint8Array; alat: number; alon: number; z: number; px: Float64Array; py: Float64Array; ax: number; ay: number };
@@ -94,6 +89,7 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
   /** câte contoare din filtru are fiecare antenă (doar când filtrul e pornit) */
   const [counts, setCounts] = useState<{ key: string; v: Record<string, number> } | null>(null);
   const qs = queryString(gf.q);
+  const match = gf.on && counts && counts.key === qs ? counts.v : null;
   /** pe telefon cardurile stau într-o foaie jos: deschiderea unuia strânge pe celelalte, ca foaia să încapă pe ecran */
   const fold = (m: CardMode) => (m === "open" ? "bar" : m);
   const openFilter = (m: CardMode) => { setFilterMode(m); if (phone && m === "open") { setSelMode(fold); setPanelMode(fold); } };
@@ -144,7 +140,7 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
     place();
     map.on("move zoom zoomend resize", place);
     return () => { map.off("move zoom zoomend resize", place); };
-  }, [map, enabled, sum]);
+  }, [map, enabled, sum, match]);
 
   /* antenele care au măcar un contor în filtru */
   useEffect(() => {
@@ -153,7 +149,6 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
     void getJson<{ counts: Record<string, number> }>(`/api/integration/gateways?match=1&${qs}`, ac.signal).then((d) => { if (d) setCounts({ key: qs, v: d.counts }); });
     return () => ac.abort();
   }, [enabled, gf.on, qs]);
-  const match = gf.on && counts && counts.key === qs ? counts.v : null;
 
   /* detaliile antenei alese (cu filtrul: liniile și numărătorile se restrâng) */
   useEffect(() => {

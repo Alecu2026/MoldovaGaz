@@ -1,6 +1,7 @@
 import { apiGuard, apiMeterGuard } from "@/lib/guard";
 import { DAY, MAX_DAYS } from "@/lib/gateway-stats";
 import { parseQuery } from "@/lib/gw-filter";
+import { cachedJson } from "@/lib/http-cache";
 import { deviceGateways, gatewayDetail, gatewayMatches, gatewayStats, gatewaySummary } from "@/lib/services/gateways";
 
 /**
@@ -19,9 +20,12 @@ export async function GET(req: Request) {
   const guard = device ? await apiMeterGuard("any", device.slice(0, 80)) : await apiGuard("integration");
   if ("res" in guard) return guard.res;
   const headers = { "Cache-Control": "private, no-store" };
+  // răspunsuri reținute pe server (un calcul pentru toți), cu ETag / 304 și reîmprospătare în fundal; cheia = cale + filtru
+  const url = new URL(req.url);
+  const key = `gw|${[...url.searchParams].filter(([k]) => k !== "_").sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join("&")}`;
   try {
     const f = parseQuery(q);
-    if (q.get("match")) return Response.json({ counts: await gatewayMatches(f) }, { headers });
+    if (q.get("match")) return cachedJson(req, key, { ttlMs: 10_000 }, async () => ({ counts: await gatewayMatches(f) }));
     if (q.get("stats")) {
       const when = (k: string, d: number) => {
         const v = q.get(k) ?? "";
@@ -31,16 +35,14 @@ export async function GET(req: Request) {
       const to = when("to", Date.now());
       const from = Math.min(Math.max(when("from", to - 6 * DAY), to - (MAX_DAYS - 1) * DAY), to);
       const state = ["on", "slow", "off"].includes(q.get("state") ?? "") ? (q.get("state") as string) : "";
-      const stats = await gatewayStats({ from, to, state, q: (q.get("q") ?? "").slice(0, 60), minDevices: Math.max(0, Math.floor(Number(q.get("min")) || 0)), sort: (q.get("sort") ?? "devices").slice(0, 12), gw: (q.get("gw") ?? "").slice(0, 120), kmin: f.kmin, kmax: f.kmax });
-      return Response.json(stats, { headers });
+      return cachedJson(req, key, { ttlMs: 10_000 }, () => gatewayStats({ from, to, state, q: (q.get("q") ?? "").slice(0, 60), minDevices: Math.max(0, Math.floor(Number(q.get("min")) || 0)), sort: (q.get("sort") ?? "devices").slice(0, 12), gw: (q.get("gw") ?? "").slice(0, 120), kmin: f.kmin, kmax: f.kmax }));
     }
     const id = q.get("id");
     if (id) {
-      const d = await gatewayDetail(id.slice(0, 120), q.get("lite") === "1", f);
-      return d ? Response.json(d, { headers }) : Response.json({ error: "Antena nu există." }, { status: 404 });
+      return cachedJson(req, key, { ttlMs: 10_000, missing: "Antena nu există." }, () => gatewayDetail(id.slice(0, 120), q.get("lite") === "1", f));
     }
     if (device) return Response.json({ gateways: await deviceGateways(device.slice(0, 80)) }, { headers });
-    return Response.json(await gatewaySummary(), { headers });
+    return cachedJson(req, key, { ttlMs: 10_000 }, () => gatewaySummary());
   } catch (e) {
     console.error("[integration/gateways] eșuat:", e);
     return Response.json({ error: "Nu am putut citi antenele." }, { status: 500 });

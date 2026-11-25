@@ -3,7 +3,7 @@ import type { Document } from "mongodb";
 import type { IntegrationMsg } from "../integration";
 import { distanceKm } from "../geo";
 import { DAY, buildStats, dayOf, foldDays, type DayAgg, type Hit, type Stats, type StatQuery } from "../gateway-stats";
-import { KM_EDGES, NO_QUERY, bandOf, passes, queryActive, queryString, radiusActive, type GwQuery } from "../gw-filter";
+import { KM_EDGES, NO_QUERY, bandOf, passes, queryActive, queryString, type GwQuery } from "../gw-filter";
 import { col } from "../mongo";
 import { getStore } from "./meter-dataset";
 
@@ -110,7 +110,10 @@ export type GwSummary = { total: number; located: number; on: number; slow: numb
 const stateOf = (last: number, now: number): GwState => (now - last < ONLINE_MS ? "on" : now - last < SLOW_MS ? "slow" : "off");
 
 type Pair = { g: string; m: string; n: number; nr: number; rs: number; ns: number; ss: number; last: number; rl?: number; sl?: number };
-const g0 = globalThis as unknown as { __gwSum?: { at: number; v: GwSummary }; __gwIdx?: { gen: string; n: number; map: Map<string, number> } };
+/** o pereche antenă × contor în memorie: `mi` = poziția contorului în lista de contoare (-1 = necunoscut), `km` = distanța antenă ↔ contor, calculată O SINGURĂ DATĂ */
+type PairRow = Pair & { mi: number; km: number | null };
+type PairIdx = { at: number; full: number; wm: number; sig: string; rows: Map<string, PairRow>; list: PairRow[]; byG: Map<string, PairRow[]> };
+const g0 = globalThis as unknown as { __gwSum?: { at: number; v: GwSummary }; __gwIdx?: { gen: string; n: number; map: Map<string, number> }; __gwPx?: PairIdx; __gwPxBusy?: Promise<PairIdx> | null };
 
 async function meterIndex() {
   const store = await getStore();
@@ -119,17 +122,65 @@ async function meterIndex() {
     store.cols.id.forEach((id, i) => map.set(id, i));
     g0.__gwIdx = { gen: store.gen, n: store.cols.id.length, map };
   }
-  return { c: store.cols, map: g0.__gwIdx.map };
+  return { c: store.cols, map: g0.__gwIdx.map, gen: store.gen };
+}
+
+/** Distanța antenă ↔ contor (km), sau null când lipsește poziția uneia. */
+function kmBetween(gw: { la: number | null; lo: number | null } | undefined, c: { la: ArrayLike<number | null>; lo: ArrayLike<number | null> }, i: number | undefined): number | null {
+  if (!gw || gw.la === null || gw.lo === null || i === undefined) return null;
+  const la = c.la[i], lo = c.lo[i];
+  return la !== null && lo !== null && Number.isFinite(la) && Number.isFinite(lo) ? r2(distanceKm(gw.la, gw.lo, la, lo)) : null;
+}
+
+/**
+ * INDEXUL PERECHILOR (antenă × contor) în memorie — baza tuturor citirilor de mai jos (listă, detalii, filtre, statistici):
+ *  - prima dată se citește tot (o singură dată); apoi doar perechile cu `last` mai nou decât ultima citire (index pe `last`), adică ce a venit de atunci, și se îmbină (incremental);
+ *    o citire completă la fiecare 5 minute prinde mesajele întârziate (cu ora mai veche decât ultima citire) și orice schimbare de poziții;
+ *  - distanța `km` a fiecărei perechi se calculează când intră în index (și din nou doar dacă se schimbă lista de contoare sau pozițiile antenelor), deci un filtru pe rază înseamnă
+ *    doar comparații, fără baza de date și fără trigonometrie;
+ *  - reîmprospătarea se face în fundal: o cerere primește imediat indexul (cel mult 15 s vechi) și nu așteaptă citirea.
+ */
+const FRESH_MS = 15_000, FULL_MS = 5 * 60_000;
+async function refreshPairs(): Promise<PairIdx> {
+  const prev = g0.__gwPx, now = Date.now();
+  const [gdocs, idx] = await Promise.all([(await col<Document>(GATEWAYS)).find({}, { projection: { la: 1, lo: 1 } }).toArray(), meterIndex()]);
+  const loc = new Map<string, { la: number | null; lo: number | null }>();
+  for (const d of gdocs) loc.set(String(d._id), { la: typeof d.la === "number" ? d.la : null, lo: typeof d.lo === "number" ? d.lo : null });
+  const sig = `${idx.gen}|${idx.c.id.length}|${[...loc].map(([id, l]) => `${id}:${l.la},${l.lo}`).join(";")}`;
+  const full = !prev || prev.sig !== sig || now - prev.full > FULL_MS;
+  const docs = (await (await col<Pair>(GW_DEV)).find(full || !prev ? {} : { last: { $gte: prev.wm } }, { projection: { g: 1, m: 1, n: 1, nr: 1, rs: 1, ns: 1, ss: 1, last: 1, rl: 1, sl: 1 } }).toArray()) as unknown as (Pair & { _id: unknown })[];
+  const rows = full || !prev ? new Map<string, PairRow>() : prev.rows;
+  let wm = full || !prev ? 0 : prev.wm;
+  for (const d of docs) {
+    const mi = idx.map.get(d.m) ?? -1;
+    rows.set(String(d._id), { g: d.g, m: d.m, n: d.n, nr: d.nr, rs: d.rs, ns: d.ns, ss: d.ss, last: d.last, rl: d.rl, sl: d.sl, mi, km: kmBetween(loc.get(d.g), idx.c, mi >= 0 ? mi : undefined) });
+    if (d.last > wm) wm = d.last;
+  }
+  let list = prev?.list ?? [], byG = prev?.byG ?? new Map<string, PairRow[]>();
+  if (full || docs.length > 0 || !prev) {
+    list = [...rows.values()];
+    byG = new Map();
+    for (const p of list) { const a = byG.get(p.g); if (a) a.push(p); else byG.set(p.g, [p]); }
+  }
+  return { at: Date.now(), full: full || !prev ? now : prev.full, wm, sig, rows, list, byG };
+}
+async function pairIndex(): Promise<PairIdx> {
+  const cur = g0.__gwPx, now = Date.now();
+  if (cur && now - cur.at < FRESH_MS) return cur;
+  if (!g0.__gwPxBusy) {
+    const p = refreshPairs().then((v) => { g0.__gwPx = v; return v; });
+    g0.__gwPxBusy = p;
+    void p.then(() => undefined, () => undefined).then(() => { g0.__gwPxBusy = null; });
+  }
+  return cur ?? g0.__gwPxBusy; // cu un index mai vechi la îndemână, nu se așteaptă citirea
 }
 
 /** Lista antenelor cu eficiența fiecăreia. Se reține 15 s (un singur calcul pentru toți utilizatorii). */
 export async function gatewaySummary(): Promise<GwSummary> {
   const now = Date.now();
   if (g0.__gwSum && now - g0.__gwSum.at < 15_000) return g0.__gwSum.v;
-  const [gdocs, pdocs] = await Promise.all([
-    (await col<Document>(GATEWAYS)).find({}, { projection: { rc: 0 } }).toArray(),
-    (await col<Pair>(GW_DEV)).find({}, { projection: { g: 1, m: 1, n: 1, nr: 1, rs: 1, ns: 1, ss: 1 } }).toArray() as Promise<Pair[]>,
-  ]);
+  const [gdocs, px] = await Promise.all([(await col<Document>(GATEWAYS)).find({}, { projection: { rc: 0 } }).toArray(), pairIndex()]);
+  const pdocs = px.list;
   // pentru fiecare contor: antena cu cel mai bun semnal mediu și câte antene îl aud
   const best = new Map<string, { g: string; r: number; k: number }>();
   const heard = new Map<string, number>();
@@ -163,39 +214,17 @@ export async function gatewaySummary(): Promise<GwSummary> {
   return v;
 }
 
-type PairLite = { g: string; m: string; last: number };
-const gp = globalThis as unknown as { __gwPairs?: { at: number; v: PairLite[] } };
-/** Toate perechile antenă × contor (doar ce trebuie pentru filtre), reținute 15 s: un singur citit pentru toate cererile. */
-async function livePairs(): Promise<PairLite[]> {
-  const now = Date.now();
-  if (gp.__gwPairs && now - gp.__gwPairs.at < 15_000) return gp.__gwPairs.v;
-  const v = (await (await col<Pair>(GW_DEV)).find({}, { projection: { g: 1, m: 1, last: 1 } }).toArray()) as unknown as PairLite[];
-  gp.__gwPairs = { at: now, v };
-  return v;
-}
-
-/** Distanța antenă ↔ contor (km), sau null când lipsește poziția uneia. */
-function kmBetween(gw: { la: number | null; lo: number | null } | undefined, c: { la: ArrayLike<number | null>; lo: ArrayLike<number | null> }, i: number | undefined): number | null {
-  if (!gw || gw.la === null || gw.lo === null || i === undefined) return null;
-  const la = c.la[i], lo = c.lo[i];
-  return la !== null && lo !== null && Number.isFinite(la) && Number.isFinite(lo) ? r2(distanceKm(gw.la, gw.lo, la, lo)) : null;
-}
-
-const matchCache = new Map<string, { at: number; v: Record<string, number> }>();
-/** Câte contoare din filtru (rază + perioadă) are fiecare antenă. Antenele fără niciun contor în filtru lipsesc din rezultat. Reținut 15 s pe filtru. */
+const matchCache = new Map<string, { list: PairRow[]; v: Record<string, number> }>();
+/** Câte contoare din filtru (rază + perioadă) are fiecare antenă. Antenele fără niciun contor în filtru lipsesc din rezultat. Un singur parcurs prin index (~câteva ms); reținut cât timp indexul nu se schimbă. */
 export async function gatewayMatches(q: GwQuery): Promise<Record<string, number>> {
   const key = queryString(q);
+  const px = await pairIndex();
   const hit = matchCache.get(key);
-  if (hit && Date.now() - hit.at < 15_000) return hit.v;
-  const [sum, pairs, idx] = await Promise.all([gatewaySummary(), livePairs(), meterIndex()]);
-  const by = new Map(sum.rows.map((r) => [r.id, r]));
+  if (hit && hit.list === px.list) return hit.v;
   const out: Record<string, number> = {};
-  for (const p of pairs) {
-    const km = radiusActive(q) ? kmBetween(by.get(p.g), idx.c, idx.map.get(p.m)) : null;
-    if (passes(q, km, p.last)) out[p.g] = (out[p.g] ?? 0) + 1;
-  }
-  matchCache.set(key, { at: Date.now(), v: out });
-  if (matchCache.size > 40) matchCache.delete(matchCache.keys().next().value as string);
+  for (const p of px.list) if (passes(q, p.km, p.last)) out[p.g] = (out[p.g] ?? 0) + 1;
+  matchCache.set(key, { list: px.list, v: out });
+  if (matchCache.size > 60) matchCache.delete(matchCache.keys().next().value as string);
   return out;
 }
 
@@ -211,9 +240,7 @@ export async function gatewayStats(q: StatQuery): Promise<Stats> {
   const rq: GwQuery = { kmin: q.kmin ?? 0, kmax: q.kmax ?? null, pf, pt };
   const [dayDocs, devicesIn] = await Promise.all([
     (await col<Document>(GW_DAY)).find({ d: { $gte: dayOf(Math.min(q.from, q.to)), $lte: dayOf(Math.max(q.from, q.to)) } }).toArray(),
-    radiusActive(rq)
-      ? gatewayMatches(rq).then((o) => new Map(Object.entries(o)))
-      : (await col<Document>(GW_DEV)).aggregate([{ $match: { last: { $gte: pf, $lte: pt } } }, { $group: { _id: "$g", n: { $sum: 1 } } }]).toArray().then((rows) => new Map<string, number>(rows.map((x) => [String(x._id), Number(x.n) || 0]))),
+    gatewayMatches(rq).then((o) => new Map(Object.entries(o))),
   ]);
   const v = buildStats(sum.rows, dayDocs as unknown as DayAgg[], devicesIn, q);
   statCache.set(key, { at: Date.now(), v });
@@ -249,20 +276,21 @@ function linesOf(byKm: GwDevice[]): GwLines {
 
 /** `lite` = pentru hartă: fără lista completă a contoarelor (`list`), doar ce trebuie ca să se deseneze antena și liniile ei. */
 export async function gatewayDetail(id: string, lite = false, q: GwQuery = NO_QUERY): Promise<GwDetail | null> {
-  const [sum, gdoc, pairs, idx] = await Promise.all([
+  const [sum, gdoc, px, idx] = await Promise.all([
     gatewaySummary(),
-    (await col<Document>(GATEWAYS)).findOne({ _id: id as never }),
-    (await col<Pair>(GW_DEV)).find({ g: id } as never).toArray() as Promise<Pair[]>,
+    (await col<Document>(GATEWAYS)).findOne({ _id: id as never }, { projection: { rc: 1 } }),
+    pairIndex(),
     meterIndex(),
   ]);
+  const pairs = px.byG.get(id) ?? [];
   const row = sum.rows.find((r) => r.id === id);
   if (!gdoc || !row) return null;
-  const { c, map } = idx;
+  const { c } = idx;
   const devices: GwDevice[] = pairs.map((p) => {
-    const i = map.get(p.m);
+    const i = p.mi >= 0 ? p.mi : undefined;
     // coordonate lipsă în listă = NaN: se tratează ca «fără poziție» (altfel contorul ar intra în clasament cu distanță NaN și n-ar avea linie pe hartă)
     const la = i !== undefined && Number.isFinite(c.la[i]) ? c.la[i] : null, lo = i !== undefined && Number.isFinite(c.lo[i]) ? c.lo[i] : null;
-    const kmv = row.la !== null && row.lo !== null && la !== null && lo !== null ? r2(distanceKm(row.la, row.lo, la, lo)) : null;
+    const kmv = p.km;
     return {
       id: p.m, name: i !== undefined ? c.nm[i] : p.m, branch: null, la, lo, km: kmv,
       rssi: p.nr ? r1(p.rs / p.nr) : typeof p.rl === "number" ? p.rl : null, snr: p.ns ? r1(p.ss / p.ns) : null,

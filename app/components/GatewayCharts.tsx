@@ -5,6 +5,7 @@ import { DAY, MAX_DAYS, dayOf, type Stats } from "@/lib/gateway-stats";
 import { queryParams } from "@/lib/gw-filter";
 import { BarList, ColumnChart, nf, nf1, type Bar, type BarItem } from "./charts/primitives";
 import GatewayPopup from "./GatewayPopup";
+import { gwGet } from "./gw-fetch";
 import GwFilterBar, { useGwFilter } from "./GwFilterBar";
 
 /**
@@ -56,10 +57,7 @@ export default function GatewayCharts({ onOpenMeter }: { onOpenMeter?: (id: stri
 
   useEffect(() => {
     const ac = new AbortController();
-    void fetch(`/api/integration/gateways?${qs}`, { signal: ac.signal, cache: "no-store" })
-      .then((r) => (r.ok ? (r.json() as Promise<Stats>) : null))
-      .then((d) => setRes({ key: qs, data: d }))
-      .catch(() => undefined);
+    void gwGet<Stats>(`/api/integration/gateways?${qs}`, ac.signal).then((d) => { if (!ac.signal.aborted) setRes({ key: qs, data: d }); });
     return () => ac.abort();
   }, [qs]);
 
