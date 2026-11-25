@@ -94,6 +94,12 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
   /** câte contoare din filtru are fiecare antenă (doar când filtrul e pornit) */
   const [counts, setCounts] = useState<{ key: string; v: Record<string, number> } | null>(null);
   const qs = queryString(gf.q);
+  /** pe telefon cardurile stau într-o foaie jos: deschiderea unuia strânge pe celelalte, ca foaia să încapă pe ecran */
+  const fold = (m: CardMode) => (m === "open" ? "bar" : m);
+  const openFilter = (m: CardMode) => { setFilterMode(m); if (phone && m === "open") { setSelMode(fold); setPanelMode(fold); } };
+  const openSel = (m: CardMode) => { setSelMode(m); if (phone && m === "open") setFilterMode(fold); };
+  const openPanel = (m: CardMode) => { setPanelMode(m); if (phone && m === "open") setFilterMode(fold); };
+  const pickGw = (id: string) => { setSel(id); onPickGateway(); if (phone) setFilterMode(fold); };
   const [panelMode, setPanelMode] = useState<CardMode>(() => (typeof window === "undefined" || !window.matchMedia("(max-width: 640px)").matches ? "open" : "bar"));
   const [now, setNow] = useState(() => Date.now());
   const meter = useMemo(() => (meterId !== null && meterLa !== null && meterLo !== null ? { id: meterId, name: meterName, la: meterLa, lo: meterLo } : null), [meterId, meterName, meterLa, meterLo]);
@@ -327,7 +333,7 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
       {sum && (
         <div ref={overlay} className="gw-overlay">
           {rows.filter((g) => g.la !== null && g.lo !== null).map((g) => (
-            <button key={g.id} type="button" data-la={g.la ?? 0} data-lo={g.lo ?? 0} className={`gw-pin gw-${g.state}${g.id === sel ? " gw-sel" : ""}`} title={match ? `${g.name} · ${nf.format(match[g.id] ?? 0)} din ${nf.format(g.devices)} contoare în filtru` : `${g.name} · ${nf.format(g.devices)} contoare`} aria-label={`Antenă ${g.name}, ${nf.format(match ? match[g.id] ?? 0 : g.devices)} contoare${match ? " în filtru" : ""}`} onClick={() => { setSel(g.id); onPickGateway(); }}>
+            <button key={g.id} type="button" data-la={g.la ?? 0} data-lo={g.lo ?? 0} className={`gw-pin gw-${g.state}${g.id === sel ? " gw-sel" : ""}`} title={match ? `${g.name} · ${nf.format(match[g.id] ?? 0)} din ${nf.format(g.devices)} contoare în filtru` : `${g.name} · ${nf.format(g.devices)} contoare`} aria-label={`Antenă ${g.name}, ${nf.format(match ? match[g.id] ?? 0 : g.devices)} contoare${match ? " în filtru" : ""}`} onClick={() => pickGw(g.id)}>
               <span />
             </button>
           ))}
@@ -336,10 +342,10 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
       {legendEl && (phone || !sideEl ? legendEl : createPortal(legendEl, sideEl))}
 
       {sum && sideEl && createPortal(
-        <MapCard mode={filterMode} setMode={setFilterMode} tag="aside" icon={<IcoFunnel />} badge={gf.on} label="Filtru antene (rază și perioadă)" className="gw-panel gw-panel-sm gwf-card"
+        <MapCard mode={filterMode} setMode={openFilter} tag="aside" icon={<IcoFunnel />} badge={gf.on} label="Filtru antene (rază și perioadă)" className="gw-panel gw-panel-sm gwf-card"
           title="Filtru antene" sub={gf.on ? gf.text : "rază și perioadă · toate"}>
           <GwFilterBar f={gf.f} set={gf.set} reset={gf.reset} on={gf.on} compact />
-          <div className="cell-sub" style={{ marginTop: 6, whiteSpace: "normal" }}>
+          <div className="cell-sub gwf-hint" style={{ marginTop: 6, whiteSpace: "normal" }}>
             Se aplică antenelor: care se văd pe hartă, câte contoare au, liniile spre contoare și antenele unui contor. {gf.on && !match ? "Se calculează…" : match ? `${nf.format(rows.length)} din ${nf.format(sum.total)} antene au contoare în filtru.` : ""}
           </div>
         </MapCard>,
@@ -347,7 +353,7 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
       )}
 
       {sel && sideEl && createPortal(
-        <MapCard mode={selMode} setMode={setSelMode} tag="aside" icon={<IcoTower />} label={`Antena ${det && detFor === sel ? det.gateway.name : ""}`.trim()} className="gw-panel"
+        <MapCard mode={selMode} setMode={openSel} tag="aside" icon={<IcoTower />} label={`Antena ${det && detFor === sel ? det.gateway.name : ""}`.trim()} className="gw-panel"
           title={det && detFor === sel ? det.gateway.name : "Antenă"} sub={det && detFor === sel ? `${gf.on ? `${nf.format(det.devicesIn)} din ${nf.format(det.devicesTotal)} contoare în filtru` : `${nf.format(det.gateway.devices)} contoare auzite`} · ${STATE_LABEL[det.gateway.state]}` : "se încarcă…"}>
           {det && detFor === sel ? (
             <>
@@ -402,7 +408,7 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
       )}
 
       {showMeterPanel && meter && dev && sideEl && createPortal(
-        <MapCard mode={panelMode} setMode={setPanelMode} tag="aside" icon={<IcoTower />} label="Antene care aud contorul" className="gw-panel gw-panel-sm" title={gf.on ? `Antene care aud contorul (${devList.length} din ${dev.list.length}, în filtru)` : `Antene care aud contorul (${dev.list.length})`}>
+        <MapCard mode={panelMode} setMode={openPanel} tag="aside" icon={<IcoTower />} label="Antene care aud contorul" className="gw-panel gw-panel-sm" title={gf.on ? `Antene care aud contorul (${devList.length} din ${dev.list.length}, în filtru)` : `Antene care aud contorul (${dev.list.length})`}>
           {legend && (
             <div className="gw-linegen" aria-label="Legenda antenelor și a liniilor">
               {devList.length > 0 && <span><i className="gw-ln gw-ln-main" />principală (semnalul cel mai bun)</span>}
@@ -420,7 +426,7 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
             <ul className="gw-list">
               {devList.map((g) => (
                 <li key={g.id}>
-                  <span aria-hidden="true">→ </span><button type="button" className="link-btn" onClick={() => { setSel(g.id); onPickGateway(); }}>{g.name}</button>
+                  <span aria-hidden="true">→ </span><button type="button" className="link-btn" onClick={() => pickGw(g.id)}>{g.name}</button>
                   {g.primary && <span className="gw-badge">principală</span>}
                   <div className="cell-sub">
                     <span className={`gw-dot gw-${g.state}`} aria-hidden="true" /> {km(g.km)} · {g.rssi !== null ? `${g.rssi} dBm` : "fără RSSI"}{g.snr !== null ? ` · SNR ${g.snr}` : ""} · {nf.format(g.n)} mesaje · ultimul {when(g.last)}

@@ -1079,7 +1079,7 @@ button.badge-btn:hover {
 @media (max-width: 640px) {
   .map-stage { min-height: 60dvh; }
   /* telefon: popup-ul contorului și panoul antenei sunt „foi” prinse de ecran (nu de hartă, care poate ieși din ecran): mereu întregi și vizibile */
-  .map-stage .map-side { position: fixed; left: 8px; right: 8px; top: auto; bottom: max(8px, env(safe-area-inset-bottom)); width: auto; max-height: 56dvh; z-index: 2100; }
+  .map-stage .map-side { position: fixed; left: 8px; right: 8px; top: auto; bottom: max(8px, env(safe-area-inset-bottom)); width: auto; max-height: min(56dvh, calc(100dvh - 150px)); z-index: 2100; padding-bottom: 2px; }
   .map-side .map-popup, .map-side .gw-panel { padding: 10px 12px; border-radius: 14px; }
   .map-stage .gw-panel {
     position: fixed; left: 8px; right: 8px; top: auto; bottom: max(8px, env(safe-area-inset-bottom)); width: auto; max-height: 52dvh; overflow: auto;
@@ -1636,3 +1636,12 @@ button.badge-btn:hover {
 .map-icon-dot { position: absolute; top: 5px; right: 5px; width: 10px; height: 10px; border-radius: 50%; background: #e8590c; border: 2px solid var(--surface, #fff); }
 .gwf .select { max-width: 100%; }
 .gwf-nums input[type="date"] { width: 150px; }
+
+/* telefon: foaia de carduri nu atinge marginea de jos (în aplicația instalată bara de acasă a telefonului stă acolo) și textele de ajutor lungi dispar */
+@media (max-width: 640px) {
+  .gwf-hint { display: none; }
+  .gwf-card .gwf-seg button { padding: 7px 9px; }
+}
+@media (max-width: 640px) and (display-mode: standalone) {
+  .map-stage .map-side { bottom: max(28px, calc(env(safe-area-inset-bottom) + 10px)); }
+}
