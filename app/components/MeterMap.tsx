@@ -403,6 +403,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen, antennas }: 
           onPickGateway={pickGateway}
           legend={legendOn}
           onCloseLegend={closeLegend}
+          onClosePanel={pickGateway}
         />
 
         {picked && (

@@ -63,9 +63,11 @@ type Props = {
   /** legenda antenelor se vede / se poate închide */
   legend: boolean;
   onCloseLegend: () => void;
+  /** închide panoul „contor → antene” (deselectează contorul) */
+  onClosePanel: () => void;
 };
 
-export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa, meterLo, onOpen, onPickGateway, legend, onCloseLegend }: Props) {
+export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa, meterLo, onOpen, onPickGateway, legend, onCloseLegend, onClosePanel }: Props) {
   const [sum, setSum] = useState<GwSummary | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [det, setDet] = useState<GwDetail | null>(null);
@@ -134,7 +136,10 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
     const grp = L.layerGroup().addTo(map);
     lines.current = grp;
     const bounds: L.LatLngTuple[] = [];
+    // zoom-ul / poziția hărții se schimbă DOAR când alegi o antenă; click-ul pe un contor lasă harta exact cum e (liniile se desenează peste vederea curentă)
+    let fitIt = false;
     if (sel && det && detFor === sel && det.gateway.la !== null && det.gateway.lo !== null) {
+      fitIt = true;
       const a: L.LatLngTuple = [det.gateway.la, det.gateway.lo];
       bounds.push(a);
       for (const d of det.devices) {
@@ -160,11 +165,13 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
         bounds.push([g.la, g.lo]);
       }
     }
-    if (bounds.length > 1) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 13, animate: true });
+    if (fitIt && bounds.length > 1) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 13, animate: true });
     return () => { grp.remove(); lines.current = null; };
   }, [map, enabled, sel, det, detFor, meter, dev]);
 
   if (!enabled) return null;
+  // cât timp panoul „contor → antene” e deschis (sus în dreapta), legenda antenelor stă ÎN el, nu pe dedesubt
+  const showMeterPanel = !sel && !!meter && !!dev && dev.id === meter.id;
   const close = () => setSel(null);
   const focus = (la: number | null, lo: number | null) => { if (map && la !== null && lo !== null) map.setView([la, lo], Math.max(map.getZoom(), 14)); };
 
@@ -203,7 +210,7 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
           ))}
         </div>
       )}
-      {sum && legend && (
+      {sum && legend && !showMeterPanel && (
         <div className="gw-legend" aria-label="Legenda antenelor">
           <button type="button" className="map-x" aria-label="Închide legenda" onClick={onCloseLegend}>×</button>
           <div className="gw-leg-t">Antene: {nf.format(sum.located)} pe hartă din {nf.format(sum.total)}</div>
@@ -271,9 +278,19 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
         </aside>
       )}
 
-      {!sel && meter && dev && dev.id === meter.id && (
+      {showMeterPanel && meter && dev && (
         <aside className="gw-panel gw-panel-sm" aria-label="Antenele contorului">
-          <div className="cell-main">{meter.name} → antene ({dev.list.length})</div>
+          <button type="button" className="map-x" aria-label="Închide" onClick={onClosePanel}>×</button>
+          <div className="cell-main" style={{ paddingRight: 22 }}>{meter.name} → antene ({dev.list.length})</div>
+          {legend && (
+            <div className="gw-linegen" aria-label="Legenda antenelor și a liniilor">
+              {dev.list.length > 0 && <span><i className="gw-ln gw-ln-main" />principală (semnalul cel mai bun)</span>}
+              {dev.list.length > 1 && <span><i className="gw-ln gw-ln-alt" />alte antene care îl aud</span>}
+              {(["on", "slow", "off"] as const).map((s) => (
+                <span key={s}><span className={`gw-dot gw-${s}`} aria-hidden="true" />{s === "on" ? "activă (< 1 h)" : s === "slow" ? "lentă (< 24 h)" : "offline (> 24 h)"}</span>
+              ))}
+            </div>
+          )}
           {dev.list.length === 0 ? (
             <div className="cell-sub">Nu avem încă mesaje primite prin integrare pentru acest contor, deci nu știm ce antene îl aud.</div>
           ) : (

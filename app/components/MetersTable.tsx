@@ -93,8 +93,10 @@ export default function MetersTable({ userId, admin, warm, head, initialFilters,
     const t = setTimeout(() => {
       try {
         const v = JSON.parse(localStorage.getItem("mg:top:v1") ?? "null") as { f?: boolean; s?: boolean } | null;
-        if (v?.f === false) setFiltersOpen(false);
-        if (v?.s === false) setStatsOpen(false);
+        const phone = window.matchMedia("(max-width: 640px)").matches;
+        // pe telefon, fără alegere proprie, filtrele și totalurile pornesc strânse: lista de contoare e la un deget distanță
+        if (v?.f === false || (phone && v?.f === undefined)) setFiltersOpen(false);
+        if (v?.s === false || (phone && v?.s === undefined)) setStatsOpen(false);
       } catch { /* fără alegere reținută */ }
     }, 0);
     return () => clearTimeout(t);

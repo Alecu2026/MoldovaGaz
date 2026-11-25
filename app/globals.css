@@ -778,6 +778,20 @@ body {
 }
 @media (max-width: 640px) {
   .page { padding: 12px 12px 8px; height: auto; min-height: calc(100dvh - var(--top, 0px)); }
+  /* bara cu butoane: pe telefon nu mai e o bandă de 56 px, ci un grid curat (butoane egale, fără suprapuneri) */
+  .page > .topbar { height: auto; padding: 0; background: transparent; border: 0; position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .page > .topbar > div[style] { display: none; }
+  .page > .topbar .btn { width: 100%; min-height: 42px; justify-content: center; padding: 0 8px; white-space: nowrap; }
+  .page > .topbar .colpick { position: static; }
+  .page > .topbar .colpick-panel { left: 0; right: 0; width: auto; }
+  .page > .topbar .topsum { grid-column: 1 / -1; order: 9; padding: 2px 2px 0; line-height: 1.5; }
+  .toolbar-row2 > label.field { flex: 1 1 100%; }
+  .toolbar-row2 input[type="datetime-local"] { width: 100%; }
+  .toolbar-row2 .seg { max-width: 100%; overflow-x: auto; }
+  .stats > .stat:nth-child(3) { grid-column: 1 / -1; }
+  .stat .stat-k-row { flex-wrap: wrap; row-gap: 6px; }
+  .stat .seg button { padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+  .stat .s { white-space: normal; }
   .tablebox { height: 70dvh; flex: none; }
   .topbar { padding: 0 12px; }
   .kv { grid-template-columns: 1fr; }
@@ -1138,6 +1152,11 @@ button.badge-btn:hover {
   background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: var(--shadow); font-size: 12.5px;
 }
 .gw-panel-sm { bottom: auto; max-height: 55%; }
+/* legenda liniilor contor → antene, chiar în panoul din dreapta sus (acolo unde se vede către ce antene merge contorul) */
+.gw-linegen { display: grid; gap: 3px; margin: 6px 0 8px; padding: 6px 8px; font-size: 11.5px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in oklab, var(--surface) 94%, var(--text)); }
+.gw-linegen > span { display: flex; align-items: center; gap: 8px; }
+.gw-ln { display: inline-block; width: 26px; height: 0; flex: none; border-top: 3.5px solid #0ca30c; }
+.gw-ln-alt { border-top: 2px dashed #898781; }
 .gw-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; }
 .gw-stats div { display: grid; gap: 1px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; }
 .gw-stats b { font-size: 15px; }
