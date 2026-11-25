@@ -1105,12 +1105,21 @@ button.badge-btn:hover {
 .side-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .side-close { display: none; }
 .side-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; }
-.side-nav { display: flex; flex-direction: column; gap: 2px; padding: 10px 8px; }
-.side-link { display: flex; flex-direction: column; justify-content: center; gap: 1px; min-height: 44px; padding: 6px 12px; border-radius: 8px; border-left: 3px solid transparent; color: var(--muted); font-weight: 600; font-size: 14px; line-height: 1.2; text-decoration: none; white-space: nowrap; }
+.side-nav { display: flex; flex-direction: column; gap: 0; padding: 6px 8px 10px; }
+.side-group { display: flex; flex-direction: column; gap: 2px; }
+.side-link { display: flex; align-items: center; gap: 11px; min-height: 46px; padding: 6px 10px; border-radius: 10px; border-left: 3px solid transparent; color: var(--muted); font-weight: 600; font-size: 14px; line-height: 1.2; text-decoration: none; white-space: nowrap; }
 .side-link:hover { background: var(--surface-2); color: var(--text); }
 .side-link[aria-current="page"] { background: var(--accent-soft); color: var(--accent-strong); border-left-color: var(--accent); }
 .side-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.side-sub { font-size: 11px; font-weight: 500; color: var(--muted); font-family: var(--mono); }
+.side-sub { font-size: 11.5px; font-weight: 400; color: var(--muted); }
+.side-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.side-label { overflow: hidden; text-overflow: ellipsis; }
+.side-ico-box { flex: none; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; background: var(--surface-2); color: var(--muted); transition: background .12s, color .12s; }
+.side-link:hover .side-ico-box { color: var(--text); }
+.side-link[aria-current="page"] .side-ico-box { background: var(--accent); color: #fff; }
+.side-link[aria-current="page"] .side-sub { color: var(--accent-strong); opacity: .85; }
+.side-group + .side-group { margin-top: 8px; }
+.side-group-t { padding: 8px 12px 4px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); opacity: .8; }
 .side-foot { margin-top: auto; padding: 12px; border-top: 1px solid var(--border); }
 .side-foot .who { display: flex; flex-direction: column; gap: 8px; color: var(--muted); font-size: 12.5px; min-width: 0; }
 .side-foot .who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1118,8 +1127,12 @@ button.badge-btn:hover {
 .side-scrim { display: none; }
 /* meniul închis pe calculator: rămâne o bandă îngustă, doar cu butonul de redeschidere */
 .shell[data-collapsed="true"] .side { width: 56px; }
-.shell[data-collapsed="true"] .side-brand, .shell[data-collapsed="true"] .side-body { display: none; }
+.shell[data-collapsed="true"] .side-brand, .shell[data-collapsed="true"] .side-foot { display: none; }
 .shell[data-collapsed="true"] .side-head { justify-content: center; padding: 0; }
+.shell[data-collapsed="true"] .side-nav { padding: 8px 6px; }
+.shell[data-collapsed="true"] .side-txt, .shell[data-collapsed="true"] .side-group-t { display: none; }
+.shell[data-collapsed="true"] .side-link { justify-content: center; padding: 4px 0; min-height: 44px; border-left-width: 0; }
+.shell[data-collapsed="true"] .side-group + .side-group { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
 .stats.auto { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
 /* telefon: sus doar o bară mică; meniul se deschide peste pagină */
 @media (max-width: 760px) {
@@ -1130,7 +1143,13 @@ button.badge-btn:hover {
   .side { position: fixed; left: 0; top: 0; width: min(300px, 86vw); transform: translateX(-104%); transition: transform 0.18s ease; box-shadow: var(--shadow); height: 100dvh; }
   .side[data-open="true"] { transform: none; }
   .shell[data-collapsed="true"] .side { width: min(300px, 86vw); }
-  .shell[data-collapsed="true"] .side-brand, .shell[data-collapsed="true"] .side-body { display: flex; }
+  .shell[data-collapsed="true"] .side-brand { display: flex; }
+  .shell[data-collapsed="true"] .side-foot { display: block; }
+  .shell[data-collapsed="true"] .side-txt { display: flex; }
+  .shell[data-collapsed="true"] .side-group-t { display: block; }
+  .shell[data-collapsed="true"] .side-nav { padding: 6px 8px 10px; }
+  .shell[data-collapsed="true"] .side-link { justify-content: flex-start; padding: 6px 10px; border-left-width: 3px; }
+  .shell[data-collapsed="true"] .side-group + .side-group { margin-top: 8px; padding-top: 0; border-top: 0; }
   .shell[data-collapsed="true"] .side-head { justify-content: flex-start; padding: 0 8px; }
   .side-rail-btn { display: none; }
   .side-close { display: grid; }
@@ -1536,3 +1555,22 @@ button.badge-btn:hover {
 .imp-err { flex-basis: 100%; text-align: center; color: #ffd9d4; }
 @keyframes imp-pulse { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .imp-dot { animation: none; } }
+
+/* ───────── Antene: date și hartă (secțiuni pliabile, fișa pe hartă) ───────── */
+.fold-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 2px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.fold-head:hover .fold-i { color: var(--text); background: var(--surface-2); }
+.fold-i { flex: none; width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--border-strong); border-radius: 8px; font-size: 12px; color: var(--muted); }
+.fold-t { font-weight: 700; font-size: 15px; }
+.fold-s { margin-left: 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fold-body { padding-top: 6px; }
+.fold-plain { display: block; }
+.ant-wrap { flex: none; }
+.ant-stage { height: 640px; flex: none; }
+.ant-stage .tbx-map { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; }
+.mapwrap.ant-wrap:fullscreen .ant-stage, .mapwrap.ant-wrap.map-pseudo .ant-stage { height: auto; flex: 1; }
+.ant-side { width: min(460px, calc(100% - 20px)); z-index: 720; }
+.ant-card .usr-grid { grid-template-columns: 1fr 1fr; gap: 8px 12px; margin-top: 8px; }
+.ant-card .stats.auto { grid-template-columns: 1fr 1fr; }
+.ant-card .card-table { max-height: 260px; }
+.ant-card h4 { margin: 10px 0 4px; }
+@media (max-width: 640px) { .ant-stage { height: 70dvh; } .ant-card .usr-grid { grid-template-columns: 1fr; } }

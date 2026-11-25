@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { LINK_LABEL, fdtA, ours, type AntennaRecord, type GasLink, type OverviewRow } from "@/lib/antennas";
 import type { GwDetail } from "@/lib/services/gateways";
 import { ColumnChart, type Bar } from "./charts/primitives";
@@ -53,6 +53,30 @@ export default function AntennaOverview() {
   const [page, setPage] = useState(0);
   const [sel, setSel] = useState<string | null>(null);
   const [more, setMore] = useState<{ id: string; v: More | null; err: string | null } | null>(null);
+  /** fișa antenei de pe hartă strânsă / deschisă (nu deselectează antena) */
+  const [cardOpen, setCardOpen] = useState(true);
+  /** harta urmărește antena aleasă din tabel; la click pe hartă NU se mută (nici zoom) */
+  const [follow, setFollow] = useState(true);
+  const [full, setFull] = useState(false);
+  const [pseudo, setPseudo] = useState(false);
+  const wrapRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const onChange = () => setFull(document.fullscreenElement !== null && document.fullscreenElement === wrapRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  useEffect(() => {
+    if (!pseudo) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPseudo(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pseudo]);
+  const toggleFull = () => {
+    const el = wrapRef.current;
+    if (!el) return;
+    if (full || pseudo) { setPseudo(false); if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); return; }
+    if (el.requestFullscreen) el.requestFullscreen().catch(() => setPseudo(true)); else setPseudo(true);
+  };
 
   const load = useCallback(async () => {
     try {
@@ -104,7 +128,8 @@ export default function AntennaOverview() {
   const cur = sel ? all.find((r) => r.id === sel) ?? null : null;
   const m = more && more.id === sel ? more : null;
   const sortBy = (k: string) => setSort((s) => ({ key: k, dir: s.key === k ? (s.dir === 1 ? -1 : 1) : 1 }));
-  const pick = (id: string) => { setSel(id); setMore(null); };
+  const pick = (id: string) => { setFollow(true); setSel(id); setMore(null); };
+  const pickMap = (id: string) => { setFollow(false); setSel(id); setMore(null); };
   // ultimele 60 de zile COMPLETE (zilele fără mesaje = 0, nu lipsesc), ziua = ziua UTC ca în rest
   const series = useMemo(() => {
     const days = m?.v?.days;
@@ -125,16 +150,18 @@ export default function AntennaOverview() {
 
   return (
     <div className="page" style={{ overflow: "auto" }}>
-      <section className="stats auto" aria-label="Rezumat antene">
+      <Fold id="stats" label="Rezumat antene" title="Rezumat antene" summary={data ? `${nf.format(counts.total)} antene · ${nf.format(counts.ours)} cu contoarele noastre de gaz · ${nf.format(counts.on)} / ${nf.format(counts.slow)} / ${nf.format(counts.off)} active / lente / oprite · ${nf.format(counts.noPos)} fără locație` : "se încarcă…"}>
+        <section className="stats auto" aria-label="Rezumat antene">
         <div className="stat"><div className="k">Antene în total</div><div className="v">{data ? nf.format(counts.total) : "—"}</div><div className="s">din SCADA și din mesajele primite la noi</div></div>
         <div className="stat"><div className="k">Cu contoarele noastre de gaz</div><div className="v">{data ? nf.format(counts.ours) : "—"}</div><div className="s">au auzit gaz în ultima lună</div></div>
         <div className="stat"><div className="k">Gaz demult / niciodată</div><div className="v">{data ? `${nf.format(counts.older)} / ${nf.format(counts.never)}` : "—"}</div><div className="s">fără legătură cu contoarele noastre acum</div></div>
         <div className="stat"><div className="k">Active / lente / oprite</div><div className="v">{data ? `${nf.format(counts.on)} / ${nf.format(counts.slow)} / ${nf.format(counts.off)}` : "—"}</div><div className="s">după ultima activitate (oră / 24 h)</div></div>
         <div className="stat"><div className="k">Fără locație</div><div className="v">{data ? nf.format(counts.noPos) : "—"}</div><div className="s">nu apar pe hartă</div></div>
-      </section>
+        </section>
+      </Fold>
 
-      <section className="card" aria-label="Antene">
-        <header className="card-h"><div><h3>Datele fiecărei antene</h3><p>«Contoare de gaz» arată dacă antena a fost ultima oară cea mai bună receptoare pentru module de gaz (din SCADA, contorul CounterGasModules) sau dacă ne-a trimis contoare prin integrare. Apasă pe o antenă ca să-i vezi fișa și s-o găsești pe hartă.</p></div></header>
+      <Fold id="table" card label="Antene" title="Datele fiecărei antene" summary={`${nf.format(shown.length)} antene afișate`}>
+        <p className="cell-sub" style={{ margin: "0 0 8px", whiteSpace: "normal" }}>«Contoare de gaz» arată dacă antena a fost ultima oară cea mai bună receptoare pentru module de gaz (din SCADA, contorul CounterGasModules) sau dacă ne-a trimis contoare prin integrare. Apasă pe o antenă ca să-i vezi fișa pe hartă (dedesubt).</p>
         <div className="toolbar-row2" role="group" aria-label="Filtre" style={{ marginBottom: 8 }}>
           <label className="field"><span>Caută</span><input className="input" type="search" value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} placeholder="nume, EUI, client, instalator…" /></label>
           <label className="field"><span>Legătura cu gazul</span><select className="select" value={rel} onChange={(e) => { setRel(e.target.value as Rel); setPage(0); }}>{REL.map(([k, l]) => <option key={k} value={k}>{l}{k !== "all" ? ` (${k === "ours" ? counts.ours : counts[k]})` : ` (${counts.total})`}</option>)}</select></label>
@@ -172,11 +199,32 @@ export default function AntennaOverview() {
             <button type="button" className="btn btn-sm" disabled={to >= shown.length} onClick={() => setPage(pg + 1)}>›</button>
           </div>
         )}
-      </section>
+      </Fold>
 
-      {cur && (
-        <section className="card" aria-label="Fișa antenei">
-          <header className="card-h"><div><h3>{cur.name || cur.id}</h3><p className="mono" style={{ margin: 0 }}>{cur.id}</p></div><button type="button" className="btn btn-sm" onClick={() => setSel(null)}>Închide</button></header>
+      <section className="mapwrap ant-wrap" ref={wrapRef} aria-label="Harta antenelor">
+        <div className="map-bar">
+          <div style={{ minWidth: 0 }}>
+            <h3 style={{ margin: 0 }}>Harta antenelor</h3>
+            <span className="cell-sub">{nf.format(shown.filter(hasPos).length)} din {nf.format(shown.length)} antene din tabel au locație. Apasă pe o antenă ca să-i vezi fișa aici, pe hartă.</span>
+          </div>
+          <div style={{ flex: 1 }} />
+          <button type="button" className="btn" onClick={toggleFull} aria-pressed={full || pseudo}>{full || pseudo ? "Ieși din ecranul complet" : "Ecran complet"}</button>
+        </div>
+        <div className="map-stage ant-stage">
+          <AntennasMap rows={shown} selected={sel} onPick={pickMap} follow={follow} />
+          <div className="map-legend" aria-label="Legendă">
+            <div className="map-leg-row"><span className="map-dot" style={{ background: "#2e7d32" }} aria-hidden="true" /><span>Activă</span></div>
+            <div className="map-leg-row"><span className="map-dot" style={{ background: "#d32f2f" }} aria-hidden="true" /><span>Oprită</span></div>
+            <div className="map-leg-row"><span className="map-dot" style={{ background: "#fff", boxShadow: "0 0 0 2.5px #01695c" }} aria-hidden="true" /><span>Aleasă (fișa e în dreapta sus)</span></div>
+          </div>
+          <div className="map-side ant-side">
+            {cur && (
+              <div className="map-popup ant-card" role="dialog" aria-label="Fișa antenei">
+                <button type="button" className="map-fold" aria-expanded={cardOpen} aria-label={cardOpen ? "Strânge fișa antenei (antena rămâne aleasă)" : "Deschide fișa antenei"} title={cardOpen ? "Strânge (antena rămâne aleasă)" : "Deschide"} onClick={() => setCardOpen((v) => !v)}>
+                  <span className="map-fold-t"><span className="cell-main">{cur.name || cur.id}</span><span className="cell-sub mono">{cur.id}</span></span>
+                  <span aria-hidden="true" className="map-fold-i">{cardOpen ? "▴" : "▾"}</span>
+                </button>
+                {cardOpen && <>
           <div className="usr-grid">
             <Fact k="Stare" v={`${STATE_LABEL[cur.state]}${cur.last ? ` · ultima activitate ${fdtA(cur.last)}` : ""}`} />
             <Fact k="Contoare de gaz" v={`${LINK_LABEL[cur.link]}${cur.gas ? ` · ${nf.format(cur.gas)}× în SCADA${cur.gasAt ? `, ultima dată ${day(cur.gasAt)}` : ""}` : ""}`} />
@@ -213,12 +261,12 @@ export default function AntennaOverview() {
               {!m.v.detail && <p className="cell-sub" style={{ marginTop: 10 }}>La noi nu a trimis încă niciun mesaj prin integrare, deci nu avem contoare auzite de ea.</p>}
             </>
           )}
-        </section>
-      )}
-
-      <section className="card" aria-label="Harta antenelor">
-        <header className="card-h"><div><h3>Harta antenelor</h3><p>{nf.format(shown.filter(hasPos).length)} din {nf.format(shown.length)} antene din tabel au locație. Verde = activă, roșu = oprită; apasă pe o antenă ca să-i vezi fișa.</p></div></header>
-        <div style={{ height: 520, borderRadius: 12, overflow: "hidden" }}><AntennasMap rows={shown} selected={sel} onPick={pick} /></div>
+                  <div className="map-btns"><button type="button" className="btn btn-sm" onClick={() => setSel(null)}>Deselectează antena</button></div>
+                </>}
+              </div>
+            )}
+          </div>
+        </div>
       </section>
     </div>
   );
@@ -240,5 +288,29 @@ function Devices({ d }: { d: GwDetail }) {
       </div>
       {d.devicesTotal > 200 && <p className="cell-sub">Primele 200 din {nf.format(d.devicesTotal)} (cele mai recente).</p>}
     </>
+  );
+}
+
+/** Secțiune care se strânge / se deschide din antet (alegerea se ține minte în browser). */
+function Fold({ id, label, title, summary, card, children }: { id: string; label: string; title: string; summary: string; card?: boolean; children: ReactNode }) {
+  const key = `mg:ant:fold:${id}`;
+  const [open, setOpen] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => { try { if (localStorage.getItem(key) === "0") setOpen(false); } catch { /* fără alegere reținută */ } }, 0);
+    return () => clearTimeout(t);
+  }, [key]);
+  const toggle = () => setOpen((v) => { const n = !v; try { localStorage.setItem(key, n ? "1" : "0"); } catch { /* alegerea nu se reține */ } return n; });
+  const head = (
+    <button type="button" className="fold-head" aria-expanded={open} onClick={toggle} title={open ? "Strânge" : "Deschide"}>
+      <span className="fold-i" aria-hidden="true">{open ? "▾" : "▸"}</span>
+      <span className="fold-t">{title}</span>
+      {!open && <span className="cell-sub fold-s">{summary}</span>}
+    </button>
+  );
+  return (
+    <section className={card ? "card" : "fold-plain"} aria-label={label}>
+      {head}
+      {open && <div className="fold-body">{children}</div>}
+    </section>
   );
 }
