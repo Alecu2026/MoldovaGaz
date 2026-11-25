@@ -1564,8 +1564,10 @@ button.badge-btn:hover {
 .fold-s { margin-left: 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fold-body { padding-top: 6px; }
 .fold-plain { display: block; }
-.ant-wrap { flex: none; }
-.ant-stage { height: 640px; flex: none; }
+/* harta ocupă cât ecranul: când rezumatul și tabelul sunt strânse, crește și umple tot spațiul liber; când sunt deschise, harta are cel puțin înălțimea ecranului (derulezi până la ea) */
+.ant-wrap { flex: 1 0 auto; min-height: 480px; }
+.page:has(.fold-body) .ant-wrap { min-height: calc(100dvh - var(--top, 0px) - 32px); }
+.ant-stage { flex: 1 1 auto; height: auto; min-height: 480px; }
 .ant-stage .tbx-map { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; }
 .mapwrap.ant-wrap:fullscreen .ant-stage, .mapwrap.ant-wrap.map-pseudo .ant-stage { height: auto; flex: 1; }
 .ant-side { width: min(460px, calc(100% - 20px)); z-index: 720; }
@@ -1573,4 +1575,4 @@ button.badge-btn:hover {
 .ant-card .stats.auto { grid-template-columns: 1fr 1fr; }
 .ant-card .card-table { max-height: 260px; }
 .ant-card h4 { margin: 10px 0 4px; }
-@media (max-width: 640px) { .ant-stage { height: 70dvh; } .ant-card .usr-grid { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .page:has(.fold-body) .ant-wrap { min-height: calc(100dvh - var(--top, 0px) - 16px); } .ant-stage { min-height: 60dvh; } .ant-card .usr-grid { grid-template-columns: 1fr; } }
