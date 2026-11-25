@@ -1591,3 +1591,13 @@ button.badge-btn:hover {
 .map-side > * { flex: 1 1 100%; min-width: 0; max-width: 100%; }
 .map-side > .map-icon-btn { flex: none; }
 .map-card-bar .map-fold-row { margin: 0; }
+
+/* legenda antenelor stă în aceeași coloană din dreapta sus (deasupra cardurilor / pictogramelor), nu peste ele */
+.map-side .gw-legend { position: static; right: auto; top: auto; max-width: none; z-index: auto; order: -1; }
+.map-side .map-popup + .map-popup { margin-top: 0; }
+/* lista contoarelor din același loc */
+.map-grp { list-style: none; margin: 8px 0; padding: 0; max-height: 240px; overflow: auto; display: grid; gap: 4px; }
+.map-grp-b { display: flex; justify-content: space-between; gap: 10px; width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.map-grp-b:hover { background: var(--surface-2); }
+.map-grp-b.on { background: var(--accent-soft); border-color: var(--accent); }
+.map-grp-b .cell-sub { white-space: nowrap; }

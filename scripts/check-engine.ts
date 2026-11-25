@@ -12,7 +12,7 @@ import { ALERT_FLAGS, FLAG, PROBLEM_FLAGS, XSTR, activityOf, safeTs, isStatusOk,
 import { buildDocs, fetchDevices, type Bill, type Dev } from "../lib/meter-sync";
 import { assertReadOnly, tbCustomerDevices } from "../lib/thingsboard";
 import { pack, unpack, type Pts } from "../lib/meter-history";
-import { addressLinks, boundsOf, buildClusters, latFromY, lonFromX, mapLinks, mercX, mercY, worldSize } from "../lib/geo";
+import { addressLinks, boundsOf, buildClusters, samePlace, latFromY, lonFromX, mapLinks, mercX, mercY, worldSize } from "../lib/geo";
 import { SourceStore, type SortSpec } from "../lib/source-store";
 import { billingDocs, billingTable, columnarize, lorawanDocs, lorawanTable } from "../lib/source-schemas";
 import { EMPTY_TOKEN, type ColDef, type SourceRow } from "../lib/source-shared";
@@ -406,7 +406,14 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
     check(`hartă: bule la zoom ${z} = celule naive (aceleași numărători, centre = medii)`, ok && sum === withGeo && cl.n === naiveCells.size, `${cl.n} bule din ${withGeo} puncte`);
   }
   const single = buildClusters(la, lo, idx, 17, 0);
-  check("hartă: fără grupare — fiecare punct cu coordonate e propria bulă", single.n === withGeo && Array.from(single.cnt).slice(0, single.n).every((c) => c === 1));
+  check("hartă: fără grupare pe ecran — punctele din locuri diferite sunt bule separate", single.n === withGeo && Array.from(single.cnt).slice(0, single.n).every((c) => c === 1));
+  {
+    // contoare din același loc: 3 la aceeași adresă (0, 1, 2), 2 la ~1 cm unul de altul (3, 4) și unul singur în altă parte (5)
+    const la2 = Float64Array.from([47.01, 47.01, 47.01, 47.0200001, 47.02, 47.5]), lo2 = Float64Array.from([28.5, 28.5, 28.5, 28.6, 28.6, 28.9]);
+    const ix2 = Int32Array.from([0, 1, 2, 3, 4, 5]), g = buildClusters(la2, lo2, ix2, 18, 0);
+    check("hartă: contoarele din ACELAȘI loc rămân o bulă cu numărătoare și la zoom maxim (3 + 2 + 1 ⇒ 3 bule)", g.n === 3 && Array.from(g.cnt).slice(0, 3).join() === "3,2,1", Array.from(g.cnt).slice(0, g.n).join());
+    check("hartă: «același loc» dă membrii grupului (indicii din lista filtrată)", samePlace(la2, lo2, ix2, 1).join() === "0,1,2" && samePlace(la2, lo2, ix2, 4).join() === "3,4" && samePlace(la2, lo2, ix2, 5).join() === "5" && samePlace(la2, lo2, Int32Array.from([0, 1]), 0).join() === "0,1");
+  }
   const sub = Int32Array.from(idx.filter((i) => i % 7 === 0));
   check("hartă: respectă filtrul (doar indecșii dați)", buildClusters(la, lo, sub, 10, 48).cnt.reduce((a, b) => a + b, 0) === Array.from(sub).filter((i) => la[i] === la[i]).length);
   const bb = boundsOf(la, lo, idx)!;

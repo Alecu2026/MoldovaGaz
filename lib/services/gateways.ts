@@ -202,7 +202,8 @@ export async function gatewayDetail(id: string): Promise<GwDetail | null> {
   const { c, map } = idx;
   const devices: GwDevice[] = pairs.map((p) => {
     const i = map.get(p.m);
-    const la = i !== undefined ? c.la[i] : null, lo = i !== undefined ? c.lo[i] : null;
+    // coordonate lipsă în listă = NaN: se tratează ca «fără poziție» (altfel contorul ar intra în clasament cu distanță NaN și n-ar avea linie pe hartă)
+    const la = i !== undefined && Number.isFinite(c.la[i]) ? c.la[i] : null, lo = i !== undefined && Number.isFinite(c.lo[i]) ? c.lo[i] : null;
     const kmv = row.la !== null && row.lo !== null && la !== null && lo !== null ? r2(distanceKm(row.la, row.lo, la, lo)) : null;
     return {
       id: p.m, name: i !== undefined ? c.nm[i] : p.m, branch: null, la, lo, km: kmv,
@@ -219,7 +220,8 @@ export async function gatewayDetail(id: string): Promise<GwDetail | null> {
     gateway: row, devicesTotal: devices.length, recent,
     nearest: byKm[0] ?? null, farthest: byKm.length ? byKm[byKm.length - 1] : null,
     strongest: withRssi[0] ?? null, weakest: withRssi.length ? withRssi[withRssi.length - 1] : null,
-    devices: byKm.slice(0, 800),
+    // liniile spre contoare: toate cele cu poziție (cel mult 3000, cele mai apropiate); la 800 antenele cu multe contoare pierdeau liniile spre cele mai îndepărtate
+    devices: byKm.slice(0, 3000),
     list: [...devices].sort((a, b) => b.last - a.last).slice(0, 3000),
   };
 }

@@ -78,6 +78,8 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
   /** panoul „contor → antene” strâns / deschis (nu schimbă contorul ales; se păstrează între contoare) */
   // pe telefon (foaia din josul ecranului) lista antenelor pornește strânsă, ca să rămână loc pentru hartă; la fel de ușor de deschis
   /** panoul antenei alese strâns / deschis (antena rămâne aleasă, liniile rămân; se păstrează între antene) */
+  // pe telefon cardurile sunt o foaie jos: legenda rămâne în colțul hărții (nu acoperă harta din foaie); pe calculator stă în coloana din dreapta sus, deasupra cardurilor
+  const [phone] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches);
   const [selMode, setSelMode] = useState<CardMode>("open");
   const [panelMode, setPanelMode] = useState<CardMode>(() => (typeof window === "undefined" || !window.matchMedia("(max-width: 640px)").matches ? "open" : "bar"));
   const [now, setNow] = useState(() => Date.now());
@@ -166,6 +168,14 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
       };
       ring(det.nearest, "Cel mai apropiat", "#2a78d6");
       ring(det.farthest, "Cel mai îndepărtat", "#7a3fc9");
+      // contorul ales rămâne legat de antenă printr-o linie groasă, chiar dacă nu e printre contoarele desenate (sau e mai îndepărtat decât restul)
+      if (meter) {
+        const mp: L.LatLngTuple = [meter.la, meter.lo];
+        L.polyline([mp, a], { color: "#2a78d6", weight: 4, opacity: 0.95, interactive: false }).addTo(grp);
+        arrowMarker(mp, a, "#2a78d6", 24).addTo(grp);
+        L.circleMarker(mp, { radius: 10, color: "#2a78d6", weight: 3, fillOpacity: 0, interactive: false }).addTo(grp);
+        bounds.push(mp);
+      }
     } else if (meter && dev && dev.id === meter.id) {
       const a: L.LatLngTuple = [meter.la, meter.lo];
       bounds.push(a);
@@ -189,6 +199,20 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
   if (!enabled) return null;
   // cât timp panoul „contor → antene” e deschis (sus în dreapta), legenda antenelor stă ÎN el, nu pe dedesubt
   const showMeterPanel = !sel && !!meter && !!dev && dev.id === meter.id;
+  const legendEl = sum && legend && !meterId ? (
+    <div className="gw-legend" aria-label="Legenda antenelor">
+            <button type="button" className="map-x" aria-label="Închide legenda" onClick={onCloseLegend}>×</button>
+            <div className="gw-leg-t">Antene: {nf.format(sum.located)} pe hartă din {nf.format(sum.total)}</div>
+            {(["on", "slow", "off"] as const).map((s) => (
+              <div key={s} className="map-leg-row">
+                <span className={`gw-dot gw-${s}`} aria-hidden="true" />
+                <span>{s === "on" ? "Activă (< 1 h)" : s === "slow" ? "Lentă (< 24 h)" : "Offline (> 24 h)"}</span>
+                <span className="mono">{nf.format(sum[s])}</span>
+              </div>
+            ))}
+            {sum.total > sum.located && <div className="cell-sub">{nf.format(sum.total - sum.located)} antene fără poziție validă (0, 0) nu pot fi puse pe hartă.</div>}
+          </div>
+  ) : null;
   const close = () => setSel(null);
   const focus = (la: number | null, lo: number | null) => { if (map && la !== null && lo !== null) map.setView([la, lo], Math.max(map.getZoom(), 14)); };
 
@@ -227,20 +251,7 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
           ))}
         </div>
       )}
-      {sum && legend && !meterId && (
-        <div className="gw-legend" aria-label="Legenda antenelor">
-          <button type="button" className="map-x" aria-label="Închide legenda" onClick={onCloseLegend}>×</button>
-          <div className="gw-leg-t">Antene: {nf.format(sum.located)} pe hartă din {nf.format(sum.total)}</div>
-          {(["on", "slow", "off"] as const).map((s) => (
-            <div key={s} className="map-leg-row">
-              <span className={`gw-dot gw-${s}`} aria-hidden="true" />
-              <span>{s === "on" ? "Activă (< 1 h)" : s === "slow" ? "Lentă (< 24 h)" : "Offline (> 24 h)"}</span>
-              <span className="mono">{nf.format(sum[s])}</span>
-            </div>
-          ))}
-          {sum.total > sum.located && <div className="cell-sub">{nf.format(sum.total - sum.located)} antene fără poziție validă (0, 0) nu pot fi puse pe hartă.</div>}
-        </div>
-      )}
+      {legendEl && (phone || !sideEl ? legendEl : createPortal(legendEl, sideEl))}
 
       {sel && sideEl && createPortal(
         <MapCard mode={selMode} setMode={setSelMode} tag="aside" icon={<IcoTower />} label={`Antena ${det && detFor === sel ? det.gateway.name : ""}`.trim()} className="gw-panel"

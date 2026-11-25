@@ -3,7 +3,7 @@
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { boundsOf, buildClusters, latFromY, lonFromX, mapLinks, worldSize, type Clusters } from "@/lib/geo";
+import { samePlace, boundsOf, buildClusters, latFromY, lonFromX, mapLinks, worldSize, type Clusters } from "@/lib/geo";
 import { FLAG, PROBLEM_FLAGS } from "@/lib/meter-shared";
 import type { MeterStore } from "@/lib/meter-store";
 import GatewayLayer from "./GatewayLayer";
@@ -89,6 +89,9 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen, antennas }: 
   const [sideEl, setSideEl] = useState<HTMLDivElement | null>(null);
   /** cardul contorului strâns / deschis: se păstrează între contoare și NU deselectează contorul (liniile spre antene rămân) */
   const [popMode, setPopMode] = useState<CardMode>("open");
+  /** contoarele din ACELAȘI loc (aceleași coordonate): zoom-ul nu le poate despărți, deci se aleg dintr-o listă */
+  const [group, setGroup] = useState<number[] | null>(null);
+  const [grpMode, setGrpMode] = useState<CardMode>("open");
   const mapRef = useRef<L.Map | null>(null);
   const [by, setBy] = useState<ColorBy>("status");
   const [sel, setSel] = useState<number | null>(null);
@@ -100,7 +103,8 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen, antennas }: 
   const [pseudo, setPseudo] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [now] = useState(() => Date.now());
-  const pickGateway = useCallback(() => setSel(null), []);
+  // alegerea unei antene NU deselectează contorul: ca să se vadă linia dintre ele, contorul rămâne ales (cardul lui se poate strânge)
+  const pickGateway = useCallback(() => undefined, []);
   const closeLegend = useCallback(() => setLegendOn(false), []);
 
   /* ecran complet: API-ul browserului (Esc iese); unde nu există (ex. iPhone), harta acoperă pagina */
@@ -267,7 +271,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen, antennas }: 
         if (!h) { tip.style.display = "none"; return; }
         const n = h.cl.cnt[h.c];
         const st = live.current.store;
-        tip.textContent = n > 1 ? `${nf.format(n)} contoare — click ca să mărești` : `${st.nm[h.cl.rep[h.c]]} · ${st.dict.br[st.br[h.cl.rep[h.c]]] ?? ""}`;
+        tip.textContent = n > 1 ? (h.cl.zoom >= NO_CLUSTER_ZOOM ? `${nf.format(n)} contoare în același loc — click ca să vezi lista` : `${nf.format(n)} contoare — click ca să mărești`) : `${st.nm[h.cl.rep[h.c]]} · ${st.dict.br[st.br[h.cl.rep[h.c]]] ?? ""}`;
         tip.style.display = "block";
         tip.style.transform = `translate(${Math.round(e.containerPoint.x + 14)}px, ${Math.round(e.containerPoint.y + 14)}px)`;
       });
@@ -275,11 +279,16 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen, antennas }: 
     const onMouseOut = () => { if (tip) tip.style.display = "none"; };
     const onClick = (e: L.LeafletMouseEvent) => {
       const h = hitTest(e.containerPoint.x, e.containerPoint.y);
-      if (!h) { setSel(null); return; }
+      if (!h) { setSel(null); setGroup(null); return; }
       const size = worldSize(h.cl.zoom);
-      if (h.cl.cnt[h.c] > 1) {
+      if (h.cl.cnt[h.c] > 1 && h.cl.zoom >= NO_CLUSTER_ZOOM) {
+        // la zoom maxim, o bulă = contoare din același loc: lista lor (zoom-ul nu ajută)
+        const st = live.current.store;
+        setGroup(samePlace(st.la, st.lo, live.current.idx, h.cl.rep[h.c])); setGrpMode("open"); setSel(null);
+      } else if (h.cl.cnt[h.c] > 1) {
         map.setView([latFromY(h.cl.y[h.c], size), lonFromX(h.cl.x[h.c], size)], Math.min(map.getMaxZoom(), map.getZoom() + 2));
       } else {
+        setGroup(null);
         setSel(h.cl.rep[h.c]);
       }
     };
@@ -314,7 +323,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen, antennas }: 
     if (!map) return;
     const b = boundsOf(store.la, store.lo, idx);
     if (b) map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: [36, 36], maxZoom: 16, animate: false });
-    setSel(null);
+    setSel(null); setGroup(null);
   }, [fitKey]); // eslint-disable-line react-hooks/exhaustive-deps -- doar la schimbarea filtrelor, nu la fiecare actualizare live
 
   const fit = () => {
@@ -403,6 +412,23 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen, antennas }: 
         />
 
         <div ref={setSideEl} className="map-side">
+          {group && group.length > 0 && (
+          <MapCard mode={grpMode} setMode={setGrpMode} icon={<IcoMeter />} label={`${group.length} contoare în același loc`} className="map-popup" role="dialog"
+            title={`${nf.format(group.length)} contoare în același loc`} sub="aceleași coordonate (de ex. o clădire): alege unul">
+            <ul className="map-grp">
+              {group.slice(0, 300).map((i) => (
+                <li key={i}>
+                  <button type="button" className={`map-grp-b${sel === i ? " on" : ""}`} onClick={() => { setSel(i); setPopMode("open"); }}>
+                    <span className="cell-main">{store.nm[i]}</span>
+                    <span className="cell-sub">{store.ts[i] > 0 ? dt(store.ts[i]) : "fără citiri"}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {group.length > 300 && <div className="cell-sub">Primele 300 din {nf.format(group.length)}.</div>}
+            <div className="map-btns"><button type="button" className="btn btn-sm" onClick={() => { setGroup(null); setSel(null); }}>Închide lista</button></div>
+          </MapCard>
+          )}
           {picked && (
           <MapCard mode={popMode} setMode={setPopMode} icon={<IcoMeter />} label={`Contor ${picked.name}`} className="map-popup" role="dialog"
             title={picked.name} sub={[picked.branch, picked.city && picked.city !== "—" ? picked.city : ""].filter(Boolean).join(" · ")}>

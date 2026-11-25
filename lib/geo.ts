@@ -32,7 +32,8 @@ export type Clusters = {
 /**
  * Grupează punctele (`idx` = indecșii rândurilor filtrate; cei fără coordonate se sar) în celule pătrate de `cell` pixeli la `zoom`.
  * Celulele sunt ancorate în „lume”, nu în ecran: la deplasarea hărții bulele NU se schimbă, doar la schimbarea zoom-ului. Cost: o trecere, O(n).
- * `cell` = 0 ⇒ fără grupare (fiecare punct e propria „bulă”).
+ * `cell` = 0 ⇒ fără grupare pe ecran, DAR punctele din ACELAȘI loc (aceleași coordonate, la ~1 m) rămân o singură bulă cu numărătoare: altfel, de ex. 12 contoare
+ * de la aceeași adresă s-ar desena unul peste altul și ar părea unul singur, oricât te-ai apropia (zoom-ul nu le poate despărți).
  */
 export function buildClusters(la: ArrayLike<number>, lo: ArrayLike<number>, idx: ArrayLike<number>, zoom: number, cell: number): Clusters {
   const size = worldSize(zoom);
@@ -41,10 +42,13 @@ export function buildClusters(la: ArrayLike<number>, lo: ArrayLike<number>, idx:
   const cnt = new Int32Array(m), rep = new Int32Array(m);
   let n = 0;
   if (cell <= 0) {
+    const spot = new Map<number, number>();
     for (let k = 0; k < m; k++) {
       const i = idx[k], a = la[i], b = lo[i];
       if (a !== a || b !== b) continue;
-      x[n] = mercX(b, size); y[n] = mercY(a, size); cnt[n] = 1; rep[n] = i; n++;
+      const key = spotKey(a, b), c = spot.get(key);
+      if (c === undefined) { spot.set(key, n); x[n] = mercX(b, size); y[n] = mercY(a, size); cnt[n] = 1; rep[n] = i; n++; }
+      else cnt[c]++;
     }
     return { zoom, n, x, y, cnt, rep };
   }
@@ -65,6 +69,16 @@ export function buildClusters(la: ArrayLike<number>, lo: ArrayLike<number>, idx:
   }
   for (let c = 0; c < n; c++) if (cnt[c] > 1) { x[c] /= cnt[c]; y[c] /= cnt[c]; }
   return { zoom, n, x, y, cnt, rep };
+}
+
+/** Cheie numerică pentru „același loc”: coordonatele rotunjite la 1e-5° (~1 m). */
+export const spotKey = (a: number, b: number): number => Math.round(a * 1e5) * 40_000_000 + Math.round(b * 1e5);
+
+/** Toate punctele (indici din `idx`) din același loc cu punctul `at` — contoarele de la aceeași adresă / același GPS. */
+export function samePlace(la: ArrayLike<number>, lo: ArrayLike<number>, idx: ArrayLike<number>, at: number): number[] {
+  const key = spotKey(la[at], lo[at]), out: number[] = [];
+  for (let k = 0; k < idx.length; k++) { const i = idx[k]; if (la[i] === la[i] && lo[i] === lo[i] && spotKey(la[i], lo[i]) === key) out.push(i); }
+  return out;
 }
 
 /** Limitele geografice ale punctelor: [latMin, lonMin, latMax, lonMax], sau null dacă nu e niciunul cu coordonate. */
