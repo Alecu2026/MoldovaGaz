@@ -1228,6 +1228,10 @@ const sectionNotify = (async () => {
     check("navigare: browserul trimite pagina, timpul petrecut, filtrele și clicurile prin sendBeacon, fără a citi câmpuri de text", trk.includes("sendBeacon") && trk.includes('t: "view"') && trk.includes('t: "leave"') && trk.includes('t: "query"') && trk.includes('t: "click"') && !trk.includes(".value"));
     check("navigare: urmărirea e în ambele cadre (aplicație + instalator)", readFileSync("app/(app)/layout.tsx", "utf8").includes("<AuditTracker />") && readFileSync("app/(installer)/layout.tsx", "utf8").includes("<AuditTracker />"));
   }
+  {
+    const gl = readFileSync("app/components/GatewayLayer.tsx", "utf8"), gs = readFileSync("lib/services/gateways.ts", "utf8");
+    check("hartă: liniile antenei (până la 10 000) se desenează pe UN canvas, nu cu un obiect Leaflet pe linie; detaliile pentru hartă sunt compacte (tablouri) și fără lista completă (lite)", gs.includes("MAX_LINES = 10_000") && gs.includes("lite ? []") && gl.includes("className=\"gw-lines\"") && gl.includes("fan.current") && !gl.includes("det.devices") && readFileSync("app/api/integration/gateways/route.ts", "utf8").includes('"lite"'));
+  }
   check("securitate: pagina și API-ul sunt pentru contul propriu (fără drept special), blocate în simulare de login", readFileSync("app/api/securitate/route.ts", "utf8").includes("user.impersonation") && readFileSync("app/(app)/securitate/page.tsx", "utf8").includes("user.impersonation") && acct.includes("user.impersonation"));
   check("mail: fără SMTP_HOST / expeditor / APP_URL funcția e oprită (nu se trimite nimic)", readFileSync("lib/mailer.ts", "utf8").includes("export const mailConfigured") && acct.includes("if (!mailConfigured())"));
   check("acces: fiecare pagină are «Vizualizare»; acțiunile paginii au descriere; căile sunt unice", PAGES.every((d) => !!d.actions.view && Object.values(d.actions).every((t) => !!t)) && new Set(PAGES.map((d) => d.path)).size === PAGES.length);

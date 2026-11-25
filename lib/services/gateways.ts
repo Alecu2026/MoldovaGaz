@@ -181,16 +181,28 @@ export async function gatewayStats(q: StatQuery): Promise<Stats> {
 }
 
 export type GwDevice = { id: string; name: string; branch: string | null; la: number | null; lo: number | null; km: number | null; rssi: number | null; snr: number | null; n: number; last: number; ts: number; volume: number | null };
+/** Tablouri paralele (fără obiecte): coordonate la ~1 m și RSSI întreg (0 = necunoscut). 10 000 de contoare ≈ 250 KB brut, mult mai puțin comprimat. */
+export type GwLines = { la: number[]; lo: number[]; rs: number[] };
+export const MAX_LINES = 10_000;
+
 export type GwDetail = {
   gateway: GwRow; devicesTotal: number; recent: (Recent & { name: string })[];
   nearest: GwDevice | null; farthest: GwDevice | null; strongest: GwDevice | null; weakest: GwDevice | null;
-  /** contoarele cu coordonate, cele mai apropiate primele (pentru liniile de pe hartă) */
-  devices: GwDevice[];
+  /** liniile de pe hartă: contoarele cu coordonate, cele mai apropiate primele, în tablouri paralele compacte (cel mult MAX_LINES; `linesTotal` = câte au poziție în total) */
+  lines: GwLines; linesTotal: number;
   /** TOATE contoarele auzite de antenă (și cele fără coordonate), cele mai recente întâi, cel mult 3000 (pentru popup-ul din Grafice) */
   list: GwDevice[];
 };
 
-export async function gatewayDetail(id: string): Promise<GwDetail | null> {
+/** Tablourile pentru linii din contoarele cu poziție, deja sortate după distanță (cele mai apropiate primele). */
+function linesOf(byKm: GwDevice[]): GwLines {
+  const n = Math.min(byKm.length, MAX_LINES), la = new Array<number>(n), lo = new Array<number>(n), rs = new Array<number>(n);
+  for (let i = 0; i < n; i++) { const d = byKm[i]; la[i] = Math.round((d.la as number) * 1e5) / 1e5; lo[i] = Math.round((d.lo as number) * 1e5) / 1e5; rs[i] = d.rssi === null ? 0 : Math.round(d.rssi); }
+  return { la, lo, rs };
+}
+
+/** `lite` = pentru hartă: fără lista completă a contoarelor (`list`), doar ce trebuie ca să se deseneze antena și liniile ei. */
+export async function gatewayDetail(id: string, lite = false): Promise<GwDetail | null> {
   const [sum, gdoc, pairs, idx] = await Promise.all([
     gatewaySummary(),
     (await col<Document>(GATEWAYS)).findOne({ _id: id as never }),
@@ -220,9 +232,8 @@ export async function gatewayDetail(id: string): Promise<GwDetail | null> {
     gateway: row, devicesTotal: devices.length, recent,
     nearest: byKm[0] ?? null, farthest: byKm.length ? byKm[byKm.length - 1] : null,
     strongest: withRssi[0] ?? null, weakest: withRssi.length ? withRssi[withRssi.length - 1] : null,
-    // liniile spre contoare: toate cele cu poziție (cel mult 3000, cele mai apropiate); la 800 antenele cu multe contoare pierdeau liniile spre cele mai îndepărtate
-    devices: byKm.slice(0, 3000),
-    list: [...devices].sort((a, b) => b.last - a.last).slice(0, 3000),
+    lines: linesOf(byKm), linesTotal: byKm.length,
+    list: lite ? [] : [...devices].sort((a, b) => b.last - a.last).slice(0, 3000),
   };
 }
 

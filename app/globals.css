@@ -1601,3 +1601,6 @@ button.badge-btn:hover {
 .map-grp-b:hover { background: var(--surface-2); }
 .map-grp-b.on { background: var(--accent-soft); border-color: var(--accent); }
 .map-grp-b .cell-sub { white-space: nowrap; }
+
+/* liniile antenă → contoare (canvas): peste punctele contoarelor, sub marcajele antenelor */
+.gw-lines { position: absolute; left: 0; top: 0; z-index: 455; pointer-events: none; }

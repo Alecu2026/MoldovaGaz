@@ -5,7 +5,8 @@ import { deviceGateways, gatewayDetail, gatewayStats, gatewaySummary } from "@/l
 /**
  * Antenele (gateway-uri LoRaWAN) din mesajele primite prin integrare, doar pentru utilizatori autentificați.
  *   GET /api/integration/gateways               → lista antenelor cu eficiența fiecăreia
- *   GET /api/integration/gateways?id=<antenă>   → detalii: ultimele cereri, cel mai apropiat / îndepărtat contor, contoarele auzite
+ *   GET /api/integration/gateways?id=<antenă>   → detalii: ultimele cereri, cel mai apropiat / îndepărtat contor, liniile spre contoare (până la 10 000, compact), contoarele auzite;
+ *                                               cu lite=1 (harta) fără lista completă a contoarelor
  *   GET /api/integration/gateways?device=<id>   → antenele care aud un contor
  *   GET /api/integration/gateways?stats=1&from=&to=&state=&q=&min=&sort=&gw=   → eficiența antenelor pe perioadă, pe zile (from / to = AAAA-LL-ZZ sau ms)
  */
@@ -30,7 +31,7 @@ export async function GET(req: Request) {
     }
     const id = q.get("id");
     if (id) {
-      const d = await gatewayDetail(id.slice(0, 120));
+      const d = await gatewayDetail(id.slice(0, 120), q.get("lite") === "1");
       return d ? Response.json(d, { headers }) : Response.json({ error: "Antena nu există." }, { status: 404 });
     }
     if (device) return Response.json({ gateways: await deviceGateways(device.slice(0, 80)) }, { headers });

@@ -3,6 +3,7 @@
 import L from "leaflet";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { mercX as worldX, mercY as worldY, worldSize } from "@/lib/geo";
 import MapCard, { IcoTower, type CardMode } from "./MapCard";
 import type { DevGateway, GwDetail, GwDevice, GwState, GwSummary } from "@/lib/services/gateways";
 
@@ -16,7 +17,6 @@ import type { DevGateway, GwDetail, GwDevice, GwState, GwSummary } from "@/lib/s
 const nf = new Intl.NumberFormat("ro-RO");
 const STATE_LABEL: Record<GwState, string> = { on: "activă (a auzit ceva în ultima oră)", slow: "lentă (ultimul mesaj acum 1–24 h)", off: "offline (nimic de peste 24 h)" };
 const STATE_COLOR: Record<GwState, string> = { on: "#0ca30c", slow: "#fab219", off: "#d03b3b" };
-const sigColor = (r: number | null) => (r === null ? "#898781" : r >= -105 ? "#0ca30c" : r >= -115 ? "#fab219" : "#d03b3b");
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const when = (ms: number) => {
@@ -53,6 +53,11 @@ async function getJson<T>(url: string, signal: AbortSignal): Promise<T | null> {
     return null;
   }
 }
+
+/** Evantaiul de linii al antenei alese: coordonatele în tablouri tipizate, culoarea (0 verde · 1 galben · 2 roșu · 3 necunoscut) și proiecția reținută pentru ultimul zoom. */
+type Fan = { n: number; la: Float64Array; lo: Float64Array; col: Uint8Array; alat: number; alon: number; z: number; px: Float64Array; py: Float64Array; ax: number; ay: number };
+const FAN_COLOR = ["#0ca30c", "#fab219", "#d03b3b", "#898781"];
+const fanColor = (r: number): number => (r === 0 ? 3 : r >= -105 ? 0 : r >= -115 ? 1 : 2);
 
 type Props = {
   map: L.Map | null;
@@ -92,6 +97,10 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
   }
   const overlay = useRef<HTMLDivElement>(null);
   const lines = useRef<L.LayerGroup | null>(null);
+  /** liniile antenă → contoare (până la 10 000) se desenează pe UN canvas, în câte o trecere pe culoare: fără obiecte Leaflet pe linie */
+  const cvRef = useRef<HTMLCanvasElement>(null);
+  const fan = useRef<Fan | null>(null);
+  const redraw = useRef<() => void>(() => undefined);
 
   /* lista antenelor, reîmprospătată la un minut */
   useEffect(() => {
@@ -127,7 +136,7 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
   useEffect(() => {
     if (!enabled || !sel) return;
     const ac = new AbortController();
-    void getJson<GwDetail>(`/api/integration/gateways?id=${encodeURIComponent(sel)}`, ac.signal).then((d) => { if (d) { setDet(d); setDetFor(sel); setNow(Date.now()); } });
+    void getJson<GwDetail>(`/api/integration/gateways?id=${encodeURIComponent(sel)}&lite=1`, ac.signal).then((d) => { if (d) { setDet(d); setDetFor(sel); setNow(Date.now()); } });
     return () => ac.abort();
   }, [enabled, sel]);
 
@@ -139,6 +148,63 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
     return () => ac.abort();
   }, [enabled, meterId]);
 
+  /* canvasul liniilor antenei: se redesenează la mișcarea / zoom-ul hărții (o singură trecere pe culoare, ~câteva ms și la 10 000 de linii) */
+  useEffect(() => {
+    const cv = cvRef.current;
+    if (!map || !enabled || !cv) return;
+    let raf = 0;
+    const clear = () => { const c = cv.getContext("2d"); if (c) { c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, cv.width, cv.height); } };
+    const draw = () => {
+      raf = 0;
+      const size = map.getSize(), dpr = window.devicePixelRatio || 1;
+      if (cv.width !== Math.round(size.x * dpr) || cv.height !== Math.round(size.y * dpr)) {
+        cv.width = Math.round(size.x * dpr); cv.height = Math.round(size.y * dpr); cv.style.width = `${size.x}px`; cv.style.height = `${size.y}px`;
+      }
+      const ctx = cv.getContext("2d"), f = fan.current;
+      if (!ctx) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, size.x, size.y);
+      if (!f || f.n === 0) return;
+      const z = map.getZoom();
+      if (f.z !== z) { // proiecția în pixeli de «lume» se recalculează doar când se schimbă zoom-ul; la deplasare se scade doar colțul ferestrei
+        const w = worldSize(z);
+        for (let i = 0; i < f.n; i++) { f.px[i] = worldX(f.lo[i], w); f.py[i] = worldY(f.la[i], w); }
+        f.ax = worldX(f.alon, w); f.ay = worldY(f.alat, w); f.z = z;
+      }
+      const tl = map.getPixelBounds().min as L.Point, ox = tl.x, oy = tl.y, ax = f.ax - ox, ay = f.ay - oy, W = size.x, H = size.y;
+      ctx.lineWidth = 1.3; ctx.globalAlpha = 0.6; ctx.lineCap = "butt";
+      for (let c = 0; c < 4; c++) {
+        ctx.beginPath();
+        for (let i = 0; i < f.n; i++) {
+          if (f.col[i] !== c) continue;
+          const x = f.px[i] - ox, y = f.py[i] - oy;
+          if ((x < 0 && ax < 0) || (x > W && ax > W) || (y < 0 && ay < 0) || (y > H && ay > H)) continue; // capetele de aceeași parte, în afara ecranului
+          ctx.moveTo(ax, ay); ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = FAN_COLOR[c]; ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    };
+    const schedule = () => { if (!raf) raf = requestAnimationFrame(draw); };
+    redraw.current = schedule;
+    map.on("move zoom viewreset resize zoomend", schedule);
+    map.on("zoomstart", clear);
+    schedule();
+    return () => { map.off("move zoom viewreset resize zoomend", schedule); map.off("zoomstart", clear); if (raf) cancelAnimationFrame(raf); redraw.current = () => undefined; clear(); };
+  }, [map, enabled]);
+
+  /* datele evantaiului: la alegerea unei antene (sau când sosesc detaliile ei) */
+  useEffect(() => {
+    const ok = enabled && sel && det && detFor === sel && det.gateway.la !== null && det.gateway.lo !== null;
+    if (!ok) { fan.current = null; redraw.current(); return; }
+    const n = det.lines.la.length;
+    const la = Float64Array.from(det.lines.la), lo = Float64Array.from(det.lines.lo), col = new Uint8Array(n);
+    for (let i = 0; i < n; i++) col[i] = fanColor(det.lines.rs[i]);
+    fan.current = { n, la, lo, col, alat: det.gateway.la as number, alon: det.gateway.lo as number, z: NaN, px: new Float64Array(n), py: new Float64Array(n), ax: 0, ay: 0 };
+    redraw.current();
+    return () => { fan.current = null; redraw.current(); };
+  }, [enabled, sel, det, detFor]);
+
   /* liniile: antenă → contoare, sau contor → antene */
   useEffect(() => {
     if (!map || !enabled) return;
@@ -147,19 +213,14 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
     const bounds: L.LatLngTuple[] = [];
     // zoom-ul / poziția hărții se schimbă DOAR când alegi o antenă; click-ul pe un contor lasă harta exact cum e (liniile se desenează peste vederea curentă)
     let fitIt = false;
-    const devPts: { p: L.LatLngTuple; m: number }[] = [];
     if (sel && det && detFor === sel && det.gateway.la !== null && det.gateway.lo !== null) {
       fitIt = true;
       const a: L.LatLngTuple = [det.gateway.la, det.gateway.lo];
       bounds.push(a);
-      for (const d of det.devices) {
-        if (d.la === null || d.lo === null) continue;
-        L.polyline([a, [d.la, d.lo]], { color: sigColor(d.rssi), weight: 1.3, opacity: 0.55, interactive: false }).addTo(grp);
-        devPts.push({ p: [d.la, d.lo], m: L.latLng(a).distanceTo([d.la, d.lo]) });
-      }
-      // încadrarea ține cont doar de cele mai apropiate 90 % dintre contoare: câteva contoare foarte îndepărtate nu mai depărtează harta (liniile spre ele se desenează oricum)
-      devPts.sort((x, y) => x.m - y.m);
-      for (const x of devPts.slice(0, Math.max(1, Math.ceil(devPts.length * 0.9)))) bounds.push(x.p);
+      // liniile spre contoare se desenează pe canvas (vezi mai sus); aici doar încadrarea: ține cont de cele mai apropiate 90 % dintre contoare (sunt deja sortate după distanță),
+      // ca să nu depărteze harta câteva contoare foarte îndepărtate (liniile spre ele se desenează oricum)
+      const nl = det.lines.la.length;
+      for (let i = 0, k = Math.max(1, Math.ceil(nl * 0.9)); i < Math.min(k, nl); i++) bounds.push([det.lines.la[i], det.lines.lo[i]]);
       const ring = (d: GwDevice | null, label: string, color: string) => {
         if (!d || d.la === null || d.lo === null) return;
         L.circleMarker([d.la, d.lo], { radius: 9, color, weight: 3, fillOpacity: 0, interactive: true })
@@ -242,6 +303,7 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
 
   return (
     <>
+      <canvas ref={cvRef} className="gw-lines" aria-hidden="true" />
       {sum && (
         <div ref={overlay} className="gw-overlay">
           {sum.rows.filter((g) => g.la !== null && g.lo !== null).map((g) => (
@@ -297,7 +359,7 @@ export default function GatewayLayer({ map, enabled, meterId, meterName, meterLa
                   </tbody>
                 </table>
               </div>
-              <div className="cell-sub">Liniile de pe hartă merg spre {nf.format(det.devices.length)} contoare (verde = semnal bun, galben = mediu, roșu = slab).</div>
+              <div className="cell-sub">Liniile de pe hartă merg spre {nf.format(det.lines.la.length)}{det.linesTotal > det.lines.la.length ? ` din ${nf.format(det.linesTotal)}` : ""} contoare (verde = semnal bun, galben = mediu, roșu = slab).</div>
               <div className="map-btns"><button type="button" className="btn btn-sm" onClick={close}>Deselectează antena</button></div>
             </>
           ) : (
