@@ -16,6 +16,7 @@
     "photos:pull": "tsx scripts/pull-photos.ts",
     "antennas:pull": "tsx scripts/pull-antennas.ts",
     "alerts:check": "tsx scripts/check-alerts.ts",
+    "msgs:count": "tsx scripts/count-messages.ts",
     "bench:integration": "tsx scripts/bench-integration.ts",
     "history:fetch": "tsx scripts/fetch-history.ts",
     "history:load": "tsx scripts/load-history.ts"

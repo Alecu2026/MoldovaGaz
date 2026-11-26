@@ -43,6 +43,10 @@ start_or_reload() {
   if ! pm2 describe "$NAME-alerts" >/dev/null 2>&1; then
     pm2 start ecosystem.config.js --only "$NAME-alerts" --update-env
   fi
+  # mesajele pe zi ale contoarelor (din fCnt): tot separat și doar dacă nu există; la creare rulează imediat (fixează punctul de pornire), apoi la 30 de minute; doar baza noastră
+  if ! pm2 describe "$NAME-msgs" >/dev/null 2>&1; then
+    pm2 start ecosystem.config.js --only "$NAME-msgs" --update-env
+  fi
   pm2 save >/dev/null
 }
 

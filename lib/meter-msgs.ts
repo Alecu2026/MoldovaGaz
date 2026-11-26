@@ -7,10 +7,10 @@
  *  - fCnt mai mic decât cel reținut = contorul a repornit sesiunea (join nou): se numără mesajele de după repornire (fCnt + 1);
  *  - fără fCnt nou (același număr sau moment mai vechi) nimic nu se schimbă;
  *  - prima observare doar fixează punctul de pornire: istoria dinainte NU se poate reconstitui, deci zilele se umplu de la prima sincronizare cu această funcție.
- * Se păstrează ultimele KEEP_DAYS zile pe contor, ca vector de întregi pe 16 biți (un document de ~100 de octeți pe contor).
+ * Se păstrează ultimele KEEP_DAYS zile (cât o lună întreagă + azi) pe contor, ca vector de întregi pe 16 biți (un document de ~100 de octeți pe contor).
  */
 export const DAY = 86_400_000;
-export const KEEP_DAYS = 14;
+export const KEEP_DAYS = 31;
 export const dayIdx = (ms: number): number => Math.floor(ms / DAY);
 
 /** f = ultimul fCnt, t = momentul lui (ms), d0 = ziua (indice UTC) a lui c[0], c = mesaje pe zi (KEEP_DAYS valori; c[KEEP_DAYS-1] = ziua ultimei actualizări), b = ziua primei observări (de când se numără) */
@@ -18,11 +18,50 @@ export type MsgState = { f: number; t: number; d0: number; c: number[]; b: numbe
 
 const MAX_COUNT = 65_535;
 
-/** Mesajele unui contor în ziua `day` (indice de zi), sau null dacă ziua nu e în fereastra păstrată (sau contorul nu e urmărit încă). */
-export function countOn(s: MsgState | undefined | null, day: number): number | null {
-  if (!s) return null;
+/**
+ * Mesajele unui contor în ziua `day` (indice de zi), sau null dacă ziua e înaintea ferestrei păstrate, în viitor, sau contorul nu e urmărit încă.
+ * Documentul se rescrie doar când fCnt crește: zilele de după ultima lui actualizare, până azi, au 0 mesaje (contorul nu a mai trimis nimic).
+ */
+export function countOn(s: MsgState | undefined | null, day: number, today: number = dayIdx(Date.now())): number | null {
+  if (!s || day > today) return null;
   const i = day - s.d0;
-  return i >= 0 && i < s.c.length ? s.c[i] : null;
+  if (i < 0) return null;
+  return i < s.c.length ? s.c[i] : 0;
+}
+
+/** Perioada aleasă pentru mesaje, ca zile (indici UTC, capete incluse). */
+export type Period = { from: number; to: number; multi: boolean };
+/**
+ * «today» · «yesterday» · AAAA-LL-ZZ (o zi) · «3d» / «7d» / «30d» (ultimele N zile ÎNTREGI, fără azi) · «r:AAAA-LL-ZZ:AAAA-LL-ZZ» (interval ales, cel mult KEEP_DAYS zile).
+ * Capetele puse invers se întorc. Null = valoare invalidă.
+ */
+export function parsePeriod(v: string, now: number): Period | null {
+  const today = dayIdx(now);
+  const n = /^(\d{1,2})d$/.exec(v);
+  if (n) { const k = Number(n[1]); return k >= 1 && k <= KEEP_DAYS - 1 ? { from: today - k, to: today - 1, multi: k > 1 } : null; }
+  const r = /^r:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/.exec(v);
+  if (r) {
+    const a = parseDay(r[1], now), b = parseDay(r[2], now);
+    if (a === null || b === null) return null;
+    const from = Math.min(a, b), to = Math.max(a, b);
+    return to - from + 1 > KEEP_DAYS ? { from: to - KEEP_DAYS + 1, to, multi: true } : { from, to, multi: to > from };
+  }
+  const d = parseDay(v, now);
+  return d === null ? null : { from: d, to: d, multi: false };
+}
+
+/**
+ * Mesajele unui contor pe o perioadă: total și câte zile s-au numărat. Doar zilele de la prima observare; ziua primei observări e parțială (numărătoarea a pornit în
+ * timpul ei), deci într-o perioadă de mai multe zile se omite dacă mai sunt altele. Null = nimic numărat în perioadă (contor nenumărat încă).
+ */
+export function sumOver(s: MsgState | undefined | null, p: Period, today: number = dayIdx(Date.now())): { total: number; days: number } | null {
+  if (!s) return null;
+  const lo = Math.max(p.from, s.b), hi = Math.min(p.to, today);
+  if (hi < lo) return null;
+  const a = p.multi && hi > lo && lo === s.b ? lo + 1 : lo;
+  let total = 0;
+  for (let d = a; d <= hi; d++) total += countOn(s, d, today) ?? 0;
+  return { total, days: hi - a + 1 };
 }
 
 /** Fereastra aliniată la ziua `today` (zilele noi încep de la 0, cele ieșite din fereastră se pierd). */

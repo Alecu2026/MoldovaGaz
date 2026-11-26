@@ -1,13 +1,13 @@
 import "server-only";
 import { allowsMeter, type Viewer } from "../access";
-import { KEEP_DAYS, countOn, dayIdx, dayLabel, unpackCounts, type MsgState } from "../meter-msgs";
+import { KEEP_DAYS, countOn, dayIdx, dayLabel, sumOver, unpackCounts, type MsgState, type Period } from "../meter-msgs";
 import { MSGS_COLLECTION, type MsgDoc } from "../meter-msgs-job";
 import { col } from "../mongo";
-import { getStore } from "./meter-dataset";
+import { clientOrder, getStore } from "./meter-dataset";
 
 /**
- * Citirea mesajelor pe zi (colecția `meter_msgs`, vezi lib/meter-msgs-job.ts): tot tabelul stă în memorie (≈100 de octeți pe contor), reîmprospătat în fundal la 5 minute
- * (se schimbă doar la sincronizarea orară). Rezultatele respectă zona utilizatorului.
+ * Citirea mesajelor pe zi (colecția `meter_msgs`, vezi lib/meter-msgs-job.ts): tot tabelul stă în memorie (≈100 de octeți pe contor), reîmprospătat în fundal la 5 minute.
+ * Rezultatele respectă zona utilizatorului. «Mesaje» = de câte ori a trimis contorul date (din contorul de cadre fCnt); pe o perioadă de mai multe zile se arată media pe zi.
  */
 const g = globalThis as unknown as { __msgTab?: { at: number; map: Map<string, MsgState>; since: number }; __msgBusy?: Promise<void> | null };
 const TTL = 5 * 60_000;
@@ -39,40 +39,41 @@ function zoneCheck(st: Awaited<ReturnType<typeof getStore>>, v: Viewer) {
   };
 }
 
-/** Mesajele în ziua `day` pentru contoarele date (null = nu e urmărit / ziua nu e păstrată / contor din afara zonei). */
-export async function msgsForIds(v: Viewer, ids: string[], day: number): Promise<Record<string, number | null>> {
+/** [total, zile numărate] pe perioadă, sau null (nenumărat / contor din afara zonei). Pentru coloana din tabel: doar contoarele cerute. */
+export async function msgsForIds(v: Viewer, ids: string[], p: Period): Promise<Record<string, [number, number] | null>> {
   const [tab, st] = await Promise.all([table(), getStore()]);
-  const ok = zoneCheck(st, v);
-  const out: Record<string, number | null> = {};
+  const ok = zoneCheck(st, v), today = dayIdx(Date.now());
+  const out: Record<string, [number, number] | null> = {};
   for (const id of ids) {
     const i = st.idx.get(id);
-    out[id] = i === undefined || !ok(i) ? null : countOn(tab.map.get(id), day);
+    const r = i === undefined || !ok(i) ? null : sumOver(tab.map.get(id), p, today);
+    out[id] = r ? [r.total, r.days] : null;
   }
   return out;
 }
 
-export type MsgRow = { id: string; name: string; branch: string; city: string; n: number; battery: number | null; rssi: number | null; last: number; /** mesaje pe zi, în ordinea `days` (null = nemăsurat) */ s: (number | null)[] };
+export type MsgRow = { id: string; name: string; branch: string; city: string; /** mesaje pe zi (media pe perioadă) */ n: number; total: number; days: number; battery: number | null; rssi: number | null; last: number; /** mesaje pe zi, în ordinea `days` (null = nemăsurat) */ s: (number | null)[] };
 export type MsgRanking = {
-  /** ziua cerută (AAAA-LL-ZZ) și zilele păstrate (cele mai vechi primele) */
-  day: string; days: string[];
-  /** contoare urmărite (cu cel puțin o observare) în zona ta, și câte au o valoare pentru ziua cerută */
+  /** perioada ceruta (AAAA-LL-ZZ … AAAA-LL-ZZ) și zilele din grafice (cele mai vechi primele) */
+  from: string; to: string; days: string[];
   tracked: number; measured: number; total: number;
-  /** mesaje în total în ziua cerută, și câte contoare au cel puțin N mesaje (praguri) */
+  /** mesaje în total în perioadă, și câte contoare au în medie cel puțin N mesaje pe zi (praguri) */
   sum: number; above: { min: number; n: number }[];
-  /** contoarele cele mai active, în ordine descrescătoare (cel mult `limit`) */
   rows: MsgRow[];
   /** de când se numără (prima zi cu date) */
   since: string;
 };
 export const THRESHOLDS = [10, 24, 48, 96, 144];
+const SPARK_DAYS = 14;
+const r1 = (x: number) => Math.round(x * 10) / 10;
 
-export async function msgsRanking(v: Viewer, day: number, opt: { min: number; limit: number; q: string }): Promise<MsgRanking> {
+export async function msgsRanking(v: Viewer, p: Period, opt: { min: number; limit: number; q: string }): Promise<MsgRanking> {
   const [tab, st] = await Promise.all([table(), getStore()]);
   const ok = zoneCheck(st, v);
   const today = dayIdx(Date.now());
-  const days = Array.from({ length: KEEP_DAYS }, (_, k) => today - KEEP_DAYS + 1 + k);
+  const days = Array.from({ length: SPARK_DAYS }, (_, k) => today - SPARK_DAYS + 1 + k);
   const needle = opt.q.trim().toLowerCase();
-  type C = { id: string; i: number; n: number };
+  type C = { id: string; i: number; avg: number; total: number; days: number };
   const cand: C[] = [];
   let tracked = 0, measured = 0, sum = 0;
   const above = THRESHOLDS.map((min) => ({ min, n: 0 }));
@@ -80,19 +81,40 @@ export async function msgsRanking(v: Viewer, day: number, opt: { min: number; li
     const i = st.idx.get(id);
     if (i === undefined || !ok(i)) continue;
     tracked++;
-    const n = countOn(s, day);
-    if (n === null) continue;
-    measured++; sum += n;
-    for (const a of above) if (n >= a.min) a.n++;
-    if (n < opt.min) continue;
+    const r = sumOver(s, p, today);
+    if (!r) continue;
+    const avg = r.total / r.days;
+    measured++; sum += r.total;
+    for (const a of above) if (avg >= a.min) a.n++;
+    if (avg < opt.min) continue;
     if (needle && !`${st.cols.nm[i]} ${st.cols.q[i]}`.toLowerCase().includes(needle)) continue;
-    cand.push({ id, i, n });
+    cand.push({ id, i, avg, total: r.total, days: r.days });
   }
-  cand.sort((a, b) => b.n - a.n || a.id.localeCompare(b.id));
-  const rows: MsgRow[] = cand.slice(0, opt.limit).map(({ id, i, n }) => {
+  cand.sort((a, b) => b.avg - a.avg || a.id.localeCompare(b.id));
+  const rows: MsgRow[] = cand.slice(0, opt.limit).map(({ id, i, avg, total, days: nd }) => {
     const s = tab.map.get(id);
     const b = st.cols.br[i], t = st.cols.ct[i], bat = st.cols.bat[i], rs = st.cols.rssi[i];
-    return { id, name: st.cols.nm[i], branch: b >= 0 ? st.dict.br[b] : "", city: t >= 0 ? st.dict.ct[t] : "", n, battery: bat ?? null, rssi: rs ?? null, last: st.cols.ts[i], s: days.map((d) => countOn(s, d)) };
+    return { id, name: st.cols.nm[i], branch: b >= 0 ? st.dict.br[b] : "", city: t >= 0 ? st.dict.ct[t] : "", n: r1(avg), total, days: nd, battery: bat ?? null, rssi: rs ?? null, last: st.cols.ts[i], s: days.map((d) => countOn(s, d, today)) };
   });
-  return { day: dayLabel(day), days: days.map(dayLabel), tracked, measured, total: cand.length, sum, above, rows, since: dayLabel(tab.since) };
+  return { from: dayLabel(p.from), to: dayLabel(p.to), days: days.map(dayLabel), tracked, measured, total: cand.length, sum, above, rows, since: dayLabel(tab.since) };
 }
+
+/**
+ * Valorile pentru TOATE contoarele, pe poziție în lista utilizatorului (pentru sortarea tabelului după mesaje): totalul pe perioadă (16 biți) și zilele numărate (8 biți),
+ * ca șiruri base64. `probes` = câteva (poziție, id) ca browserul să verifice că lista lui are aceeași ordine înainte să folosească valorile; `gen` = generația listei.
+ */
+export type MsgAll = { gen: string; n: number; probes: [number, string][]; t: string; d: string };
+export async function msgsAll(v: Viewer, p: Period): Promise<MsgAll> {
+  const [tab, order] = await Promise.all([table(), clientOrder(v)]);
+  const today = dayIdx(Date.now()), n = order.ids.length;
+  const t = Buffer.alloc(n * 2), d = Buffer.alloc(n);
+  for (let i = 0; i < n; i++) {
+    const r = sumOver(tab.map.get(order.ids[i]), p, today);
+    if (r) { t.writeUInt16LE(Math.min(65_535, r.total), i * 2); d[i] = Math.min(255, r.days); }
+  }
+  const probes: [number, string][] = [];
+  for (let k = 0; k < 8 && n > 0; k++) { const pos = Math.min(n - 1, Math.floor((k * n) / 8)); probes.push([pos, order.ids[pos]]); }
+  if (n > 0) probes.push([n - 1, order.ids[n - 1]]);
+  return { gen: order.gen, n, probes, t: t.toString("base64"), d: d.toString("base64") };
+}
+export { KEEP_DAYS };

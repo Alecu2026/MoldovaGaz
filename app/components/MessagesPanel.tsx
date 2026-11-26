@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { MsgRanking, MsgRow } from "@/lib/services/meter-msgs";
 import { gwGet } from "./gw-fetch";
-import { dayOptions, useMsgDay } from "./useMsgCounts";
+import MsgPeriod from "./MsgPeriod";
+import { periodLabel, useMsgPeriod } from "./useMsgCounts";
 
 /**
  * «Mesaje»: care contoare trimit cele mai multe mesaje pe zi (un contor care transmite des își descarcă repede bateria). Ziua se alege (azi, ieri, oricare din ultimele 14 zile),
@@ -13,7 +14,7 @@ import { dayOptions, useMsgDay } from "./useMsgCounts";
 const nf = new Intl.NumberFormat("ro-RO");
 const SIZES = [50, 100, 200, 500];
 
-function Spark({ s, days, pick }: { s: (number | null)[]; days: string[]; pick: number }) {
+function Spark({ s, days, inP }: { s: (number | null)[]; days: string[]; inP: (i: number) => boolean }) {
   const max = Math.max(1, ...s.map((x) => x ?? 0));
   const w = 6, g = 2, h = 26;
   return (
@@ -24,7 +25,7 @@ function Spark({ s, days, pick }: { s: (number | null)[]; days: string[]; pick: 
           <g key={i}>
             <title>{`${days[i].split("-").reverse().join(".")}: ${x === null ? "nemăsurat" : `${nf.format(x)} mesaje`}`}</title>
             <rect x={i * (w + g)} y={0} width={w} height={h} fill="transparent" />
-            <rect x={i * (w + g)} y={h - bh} width={w} height={bh} rx={1.5} fill={i === pick ? "var(--accent, #2a78d6)" : "var(--muted, #8a94a6)"} opacity={i === pick ? 1 : 0.55} />
+            <rect x={i * (w + g)} y={h - bh} width={w} height={bh} rx={1.5} fill={inP(i) ? "var(--accent, #2a78d6)" : "var(--muted, #8a94a6)"} opacity={inP(i) ? 1 : 0.55} />
           </g>
         );
       })}
@@ -33,7 +34,7 @@ function Spark({ s, days, pick }: { s: (number | null)[]; days: string[]; pick: 
 }
 
 export default function MessagesPanel({ onOpenMeter }: { onOpenMeter: (id: string) => void }) {
-  const [day, setDay] = useMsgDay();
+  const [day] = useMsgPeriod();
   const [min, setMin] = useState("");
   const [limit, setLimit] = useState(100);
   const [qIn, setQIn] = useState("");
@@ -41,7 +42,7 @@ export default function MessagesPanel({ onOpenMeter }: { onOpenMeter: (id: strin
   const [now] = useState(() => Date.now());
   const [res, setRes] = useState<{ key: string; v: MsgRanking | null } | null>(null);
   useEffect(() => { const t = setTimeout(() => setQ(qIn.trim()), 300); return () => clearTimeout(t); }, [qIn]);
-  const qs = new URLSearchParams({ day, min: min || "0", limit: String(limit), q }).toString();
+  const qs = new URLSearchParams({ p: day, min: min || "0", limit: String(limit), q }).toString();
   useEffect(() => {
     const ac = new AbortController();
     void gwGet<MsgRanking>(`/api/meters/messages?${qs}`, ac.signal, 20_000).then((v) => { if (!ac.signal.aborted) setRes({ key: qs, v }); });
@@ -49,37 +50,34 @@ export default function MessagesPanel({ onOpenMeter }: { onOpenMeter: (id: strin
   }, [qs]);
   const loading = !res || res.key !== qs;
   const d = res?.v ?? null;
-  const opts = useMemo(() => dayOptions(now), [now]);
-  const pick = d ? d.days.indexOf(d.day) : -1;
-  const label = opts.find((o) => o.v === day)?.label ?? day;
+  const label = periodLabel(day, now);
+  const multi = !!d && d.from !== d.to;
+  // în grafic se evidențiază ziua (sau zilele) perioadei
+  const inPeriod = (i: number) => !!d && d.days[i] >= d.from && d.days[i] <= d.to;
   const noData = !!d && d.measured === 0;
 
   return (
     <div className="msgs">
       <div className="toolbar-row2" role="group" aria-label="Filtre mesaje" style={{ marginBottom: 10 }}>
-        <label className="field"><span>Ziua (UTC)</span>
-          <select className="select" value={day} onChange={(e) => setDay(e.target.value)}>
-            {opts.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
-          </select>
-        </label>
-        <label className="field"><span>Cel puțin (mesaje)</span><input className="input" type="number" min={0} inputMode="numeric" value={min} placeholder="0" onChange={(e) => setMin(e.target.value)} style={{ width: 120 }} /></label>
+        <div className="field"><span>Perioada (UTC)</span><MsgPeriod /></div>
+        <label className="field"><span>Cel puțin (mesaje / zi)</span><input className="input" type="number" min={0} inputMode="numeric" value={min} placeholder="0" onChange={(e) => setMin(e.target.value)} style={{ width: 120 }} /></label>
         <label className="field"><span>Caută contor</span><input className="input" type="search" value={qIn} placeholder="nume, adresă…" onChange={(e) => setQIn(e.target.value)} /></label>
         <label className="field"><span>Afișează</span>
           <select className="select" value={limit} onChange={(e) => setLimit(Number(e.target.value))}>{SIZES.map((n) => <option key={n} value={n}>primele {n}</option>)}</select>
         </label>
       </div>
       <p className="cell-sub" style={{ margin: "0 0 10px", whiteSpace: "normal" }}>
-        Câte mesaje a trimis fiecare contor în ziua aleasă (ziua începe la miezul nopții UTC: 02:00 / 03:00 ora Moldovei). Un contor care transmite foarte des își descarcă repede bateria; sus sunt cele mai active.
+        De câte ori a trimis fiecare contor date (mesaje către antenă) în perioada aleasă; pe mai multe zile se arată media pe zi. Zilele încep la miezul nopții UTC (02:00 / 03:00 ora Moldovei); perioadele de 3 / 7 / 30 de zile sunt zile întregi, fără azi. Un contor care transmite foarte des își descarcă repede bateria; sus sunt cele mai active.
         Numărătoarea pornește de la prima sincronizare cu această funcție{d ? ` (${d.since.split("-").reverse().join(".")})` : ""}; zilele dinainte nu se pot reconstitui.
       </p>
 
       {d && (
         <div className="stats auto" style={{ opacity: loading ? 0.6 : 1, marginBottom: 12 }} aria-live="polite">
           <div className="stat"><div className="k">Contoare urmărite</div><div className="v">{nf.format(d.tracked)}</div><div className="s">{nf.format(d.measured)} cu valoare pentru {label.toLowerCase()}</div></div>
-          <div className="stat"><div className="k">Mesaje în total</div><div className="v">{nf.format(d.sum)}</div><div className="s">{d.measured ? `în medie ${(d.sum / d.measured).toFixed(1).replace(".", ",")} pe contor` : "—"}</div></div>
+          <div className="stat"><div className="k">Mesaje în total</div><div className="v">{nf.format(d.sum)}</div><div className="s">{d.measured ? `în medie ${(d.sum / d.measured).toFixed(1).replace(".", ",")} pe contor${multi ? " în perioadă" : ""}` : "—"}</div></div>
           {d.above.map((a) => (
             <div className="stat" key={a.min}>
-              <div className="k">Cel puțin {a.min} mesaje</div>
+              <div className="k">Cel puțin {a.min} mesaje / zi</div>
               <div className="v"><button type="button" className="link-btn" onClick={() => setMin(String(a.min))} title="Arată doar aceste contoare" style={{ font: "inherit", fontWeight: 700 }}>{nf.format(a.n)}</button></div>
               <div className="s">contoare</div>
             </div>
@@ -91,19 +89,19 @@ export default function MessagesPanel({ onOpenMeter }: { onOpenMeter: (id: strin
 
       <div className="card-table" style={{ maxHeight: 640, opacity: loading ? 0.6 : 1 }}>
         <table className="mini">
-          <thead><tr><th className="num">#</th><th>Contor</th><th className="num">Mesaje ({label.toLowerCase()})</th><th>Ultimele {d?.days.length ?? 14} zile</th><th className="num">Baterie</th><th className="num">Semnal</th></tr></thead>
+          <thead><tr><th className="num">#</th><th>Contor</th><th className="num">{multi ? "Mesaje / zi (medie)" : "Mesaje"} · {label}</th><th>Ultimele {d?.days.length ?? 14} zile</th><th className="num">Baterie</th><th className="num">Semnal</th></tr></thead>
           <tbody>
             {d?.rows.map((r: MsgRow, i) => (
               <tr key={r.id} onClick={() => onOpenMeter(r.id)} style={{ cursor: "pointer" }} title="Click: detaliile contorului">
                 <td className="num mono">{i + 1}</td>
                 <td><button type="button" className="link-btn" onClick={(e) => { e.stopPropagation(); onOpenMeter(r.id); }}><b>{r.name}</b></button><div className="cell-sub">{[r.branch, r.city].filter(Boolean).join(" · ")}</div></td>
-                <td className="num mono"><b>{nf.format(r.n)}</b></td>
-                <td><Spark s={r.s} days={d.days} pick={pick} /></td>
+                <td className="num mono"><b className={r.n >= 48 ? "low" : undefined}>{nf.format(r.n)}</b>{multi && <div className="cell-sub">{nf.format(r.total)} în {r.days} zile</div>}</td>
+                <td><Spark s={r.s} days={d.days} inP={inPeriod} /></td>
                 <td className={`num mono ${r.battery !== null && r.battery < 20 ? "low" : ""}`}>{r.battery !== null ? `${Math.round(r.battery)}%` : "—"}</td>
                 <td className="num mono">{r.rssi !== null ? `${r.rssi} dBm` : "—"}</td>
               </tr>
             ))}
-            {d && d.rows.length === 0 && !noData && <tr><td colSpan={6} className="cell-sub" style={{ padding: 16 }}>Niciun contor cu cel puțin {min || "0"} mesaje în ziua aleasă.</td></tr>}
+            {d && d.rows.length === 0 && !noData && <tr><td colSpan={6} className="cell-sub" style={{ padding: 16 }}>Niciun contor cu cel puțin {min || "0"} mesaje pe zi în perioada aleasă.</td></tr>}
             {!d && <tr><td colSpan={6} className="cell-sub" style={{ padding: 16 }}>{loading ? "se încarcă…" : "Nu am putut citi mesajele."}</td></tr>}
           </tbody>
         </table>

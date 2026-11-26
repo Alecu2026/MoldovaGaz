@@ -17,7 +17,7 @@ export const ALL_COLUMNS: ColDef[] = [
   { col: "ac", label: "Activ", key: null, w: "96px", min: 96, group: "base", def: true },
   { col: "at", label: "Activitate", key: null, w: "118px", min: 118, group: "base", def: true },
   { col: "ts", label: "Ultima citire", key: "ts", w: "132px", min: 132, group: "base", def: true },
-  { col: "msg", label: "Mesaje / zi", key: null, w: "150px", min: 150, cls: "num", group: "base", def: true },
+  { col: "msg", label: "Mesaje / zi", key: "msg", w: "172px", min: 172, cls: "num", group: "base", def: true },
   { col: "xsp", label: "SPID", key: null, w: "124px", min: 124, group: "ids", def: false },
   { col: "xcp", label: "Cont personal", key: null, w: "128px", min: 128, group: "ids", def: false },
   { col: "xsn", label: "Contor SN", key: null, w: "112px", min: 112, group: "ids", def: false },

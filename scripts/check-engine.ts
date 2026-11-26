@@ -47,7 +47,8 @@ import { ACTIONS as AUDIT_ACTIONS, AUDIT_MODULES, actionSeverity, auditFiltersTo
 import { ANTENNA_SPEC, INSTALLER_SPEC, diffAccess, diffFields, fmtAuditValue, summarizeChanges } from "../lib/audit-diff";
 import { PAGES, PRESETS, allowsMeter, can, canOf, canPage, cleanAccess, firstPath, grantable, sameAccess, scopeKey, viewerFromDoc, type Viewer } from "../lib/access";
 import { DEFAULT_FILTER, KM_EDGES, bandOf, inRadius, parseQuery, passes, periodBounds, periodText, describe, queryActive, queryString, radiusOf, toQuery as gwQuery, type GwFilter } from "../lib/gw-filter";
-import { DAY as MDAY, KEEP_DAYS, countOn, dayIdx, packCounts, parseDay, step as msgStep, unpackCounts } from "../lib/meter-msgs";
+import { DAY as MDAY, KEEP_DAYS, countOn, dayIdx, packCounts, parseDay, parsePeriod, step as msgStep, sumOver, unpackCounts } from "../lib/meter-msgs";
+import type { MsgState } from "../lib/meter-msgs";
 import type { Db } from "mongodb";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -648,6 +649,16 @@ for (const [label, f] of [["toate", F({})], ["filtrate", F({ branch: "05 · Comr
       check("mesaje pe zi: un ceas greșit (momentul în viitor) nu mută mesajele în zile viitoare", countOn(fut, dayIdx(T0 + 3_600_000)) === 10);
       const bin = packCounts([0, 1, 65535, 70000, -3]);
       check("mesaje pe zi: stocare în Uint16 (limitat la 65535) și citire înapoi; zi în afara ferestrei = necunoscut; parseDay (azi / ieri / dată / invalid)", JSON.stringify(unpackCounts(bin)) === "[0,1,65535,65535,0]" && countOn(s1, d20 + 99) === null && countOn(undefined, d20) === null && parseDay("yesterday", T0) === d20 - 1 && parseDay("2026-11-20", T0) === d20 && parseDay("2026-02-31", T0) === null && parseDay("x", T0) === null && parseDay("today", T0) === d20);
+      // perioade: 3 zile / o săptămână / o lună / interval ales; media pe zi
+      const dayLabelOf = (d: number) => new Date(d * MDAY).toISOString().slice(0, 10);
+      const nowP = Date.UTC(2026, 10, 27, 12, 0), tP = dayIdx(nowP);
+      const p3 = parsePeriod("3d", nowP)!, p30 = parsePeriod("30d", nowP)!, pr = parsePeriod("r:2026-11-20:2026-11-25", nowP)!, pv = parsePeriod("r:2026-11-25:2026-11-20", nowP)!;
+      check("mesaje pe perioade: «3d» / «7d» / «30d» = ultimele N zile ÎNTREGI (fără azi); intervalul ales își întoarce capetele inversate și se limitează la 31 de zile; valori invalide = null", p3.from === tP - 3 && p3.to === tP - 1 && p3.multi && p30.from === tP - 30 && p30.to === tP - 1 && pr.from === dayIdx(Date.UTC(2026, 10, 20)) && pr.to === dayIdx(Date.UTC(2026, 10, 25)) && pv.from === pr.from && pv.to === pr.to && parsePeriod("r:2026-01-01:2026-11-25", nowP)!.to - parsePeriod("r:2026-01-01:2026-11-25", nowP)!.from + 1 === KEEP_DAYS && parsePeriod("99d", nowP) === null && parsePeriod("0d", nowP) === null && parsePeriod("r:x:y", nowP) === null && parsePeriod("yesterday", nowP)!.from === tP - 1 && !parsePeriod("today", nowP)!.multi);
+      const sP: MsgState = { f: 100, t: nowP, d0: tP - KEEP_DAYS + 1, c: Array.from({ length: KEEP_DAYS }, (_, i) => (i === KEEP_DAYS - 2 ? 10 : i === KEEP_DAYS - 3 ? 20 : i === KEEP_DAYS - 4 ? 30 : i === KEEP_DAYS - 5 ? 99 : 0)), b: tP - 4 };
+      const a3 = sumOver(sP, p3, tP)!;
+      check("mesaje pe perioade: media pe zi se calculează doar pe zilele numărate; ziua primei observări (parțială) se omite într-o perioadă de mai multe zile", a3.days === 3 && a3.total === 60 && sumOver(sP, parsePeriod("7d", nowP)!, tP)!.days === 3 && sumOver(sP, parsePeriod("7d", nowP)!, tP)!.total === 60 && sumOver(sP, parsePeriod(dayLabelOf(tP - 4), nowP)!, tP)!.total === 99 && sumOver(sP, parsePeriod("r:2026-01-01:2026-01-03", nowP)!, tP) === null && sumOver(null, p3, tP) === null);
+      const stale: MsgState = { f: 5, t: nowP - 9 * MDAY, d0: tP - 9 - KEEP_DAYS + 1, c: new Array<number>(KEEP_DAYS).fill(2), b: tP - 40 };
+      check("mesaje pe zi: zilele de după ultima actualizare a documentului (contorul n-a mai trimis nimic) sunt 0, nu «nemăsurat»; ziua din viitor sau dinaintea ferestrei = null", countOn(stale, tP, tP) === 0 && countOn(stale, tP - 5, tP) === 0 && countOn(stale, tP - 9, tP) === 2 && countOn(stale, tP + 1, tP) === null && countOn(stale, tP - 9 - KEEP_DAYS, tP) === null);
       const rt = readFileSync("app/api/meters/messages/route.ts", "utf8"), sv = readFileSync("lib/services/meter-msgs.ts", "utf8"), sy = readFileSync("scripts/sync-meters.ts", "utf8");
       check("mesaje pe zi: ruta cere dreptul la Contoare, limitează id-urile și rezultatul, iar rezultatele respectă zona (cheie cu zona); sincronizarea numără după fiecare rulare, fără să o strice la eroare", rt.includes('apiGuard("meters")') && rt.includes("slice(0, 150)") && rt.includes("scopeKey(user)") && sv.includes("zoneCheck") && sv.includes("allowsMeter") && sy.includes("appendMsgCounts(client.db(), log).catch"));
     }

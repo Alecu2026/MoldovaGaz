@@ -103,6 +103,21 @@ module.exports = {
       error_file: "logs/alerts.log",
     },
     {
+      name: `${NAME}-msgs`,
+      cwd: __dirname,
+      script: "node_modules/tsx/dist/cli.mjs",
+      args: "scripts/count-messages.ts",
+      exec_mode: "fork",
+      instances: 1,
+      autorestart: false, // rulează o dată și iese; pm2 îl repornește după cron_restart
+      cron_restart: "*/30 * * * *", // la 30 de minute: mesajele pe zi ale contoarelor (din fCnt); doar din baza noastră, la pornire fixează imediat punctul de pornire
+      watch: false,
+      time: true,
+      merge_logs: true,
+      out_file: "logs/msgs.log",
+      error_file: "logs/msgs.log",
+    },
+    {
       name: `${NAME}-antennas`,
       cwd: __dirname,
       script: "node_modules/tsx/dist/cli.mjs",

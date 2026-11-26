@@ -310,6 +310,14 @@ export async function allowedIds(v: Viewer): Promise<string[] | null> {
   return (view.ids ??= view.idx.map((i) => st.cols.id[i]));
 }
 
+/** Id-urile în ORDINEA în care le primește browserul acestui utilizator (lista lui), cu generația listei: pentru valori trimise pe poziție (ex. mesaje pe zi). */
+export async function clientOrder(v: Viewer): Promise<{ gen: string; ids: string[] }> {
+  const st = await getStore();
+  if (v.admin) return { gen: st.gen, ids: st.cols.id };
+  const view = viewOf(st, v);
+  return { gen: genFor(st, v), ids: (view.ids ??= view.idx.map((i) => st.cols.id[i])) };
+}
+
 /** Contorul e în zona utilizatorului? (verificat în memorie, fără interogare) */
 export async function meterAllowed(v: Viewer, id: string): Promise<boolean> {
   if (v.admin) return true;
