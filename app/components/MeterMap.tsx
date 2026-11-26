@@ -84,7 +84,7 @@ type Props = {
   fitKey: string;
   onOpen: (id: string) => void;
   /** stratul cu toate antenele (doar administratorii; un utilizator limitat nu vede antenele altor zone) */
-  antennas: boolean;
+  antennas: false | "full" | "basic";
 };
 
 export default function MeterMap({ store, idx, rev, fitKey, onOpen, antennas }: Props) {
@@ -101,7 +101,7 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen, antennas }: 
   const [by, setBy] = useState<ColorBy>("status");
   const [sel, setSel] = useState<number | null>(null);
   const [mapObj, setMapObj] = useState<L.Map | null>(null);
-  const [gwOn, setGwOn] = useState(antennas);
+  const [gwOn, setGwOn] = useState(!!antennas);
   const [legendOn, setLegendOn] = useState(true);
   const [metersOn, setMetersOn] = useState(true);
   const [full, setFull] = useState(false);
@@ -407,7 +407,8 @@ export default function MeterMap({ store, idx, rev, fitKey, onOpen, antennas }: 
 
         <GatewayLayer
           map={mapObj}
-          enabled={gwOn && antennas}
+          enabled={gwOn && !!antennas}
+          basic={antennas === "basic"}
           meterId={pid} meterName={pname} meterLa={plat} meterLo={plon}
           onOpen={onOpen}
           onPickGateway={pickGateway}

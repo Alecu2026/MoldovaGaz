@@ -7,7 +7,7 @@ import type { SortKey } from "@/lib/meter-filter";
  */
 export type ColKey =
   | "ts" | "ac" | "at" | "dev" | "br" | "ct" | "gw" | "rssi" | "bat" | "val" | "dc" | "ty" | "st"
-  | "xsp" | "xcp" | "xsn" | "il" | "xar" | "xcz" | "xin" | "xsr" | "xhs" | "xap" | "cal" | "la" | "lo";
+  | "msg" | "xsp" | "xcp" | "xsn" | "il" | "xar" | "xcz" | "xin" | "xsr" | "xhs" | "xap" | "cal" | "la" | "lo";
 
 export type ColDef = { col: ColKey; label: string; key: SortKey | null; w: string; min: number; cls?: string; group: "base" | "ids" | "install" | "address" | "coords"; def: boolean };
 
@@ -17,6 +17,7 @@ export const ALL_COLUMNS: ColDef[] = [
   { col: "ac", label: "Activ", key: null, w: "96px", min: 96, group: "base", def: true },
   { col: "at", label: "Activitate", key: null, w: "118px", min: 118, group: "base", def: true },
   { col: "ts", label: "Ultima citire", key: "ts", w: "132px", min: 132, group: "base", def: true },
+  { col: "msg", label: "Mesaje / zi", key: null, w: "150px", min: 150, cls: "num", group: "base", def: true },
   { col: "xsp", label: "SPID", key: null, w: "124px", min: 124, group: "ids", def: false },
   { col: "xcp", label: "Cont personal", key: null, w: "128px", min: 128, group: "ids", def: false },
   { col: "xsn", label: "Contor SN", key: null, w: "112px", min: 112, group: "ids", def: false },
@@ -45,12 +46,20 @@ export const GROUP_LABELS: Record<ColDef["group"], string> = { base: "Coloanele 
 export const DEFAULT_COLS: ColKey[] = ALL_COLUMNS.filter((c) => c.def).map((c) => c.col);
 const STORE = "mg:cols:v1";
 
-/** Coloanele alese (în ordinea din ALL_COLUMNS); fără alegere salvată sau invalidă ⇒ cele implicite. */
+const KNOWN = "mg:cols:known";
+/** coloanele care existau înainte să se țină evidența celor «cunoscute» (alegerile vechi nu le conțineau pe cele noi) */
+const LEGACY_NEW = new Set<string>(["msg"]);
+
+/** Coloanele alese (în ordinea din ALL_COLUMNS); fără alegere salvată sau invalidă ⇒ cele implicite. Coloanele implicite apărute după alegerea salvată se adaugă o singură dată. */
 export function readCols(): ColKey[] {
   try {
     const raw = localStorage.getItem(STORE);
     if (!raw) return DEFAULT_COLS;
     const want = new Set(JSON.parse(raw) as string[]);
+    let known: Set<string>;
+    try { known = new Set(JSON.parse(localStorage.getItem(KNOWN) ?? "null") as string[]); if (known.size === 0) throw new Error("fără"); } catch { known = new Set(ALL_COLUMNS.map((c) => c.col).filter((c) => !LEGACY_NEW.has(c))); }
+    for (const c of ALL_COLUMNS) if (c.def && !known.has(c.col)) want.add(c.col);
+    try { localStorage.setItem(KNOWN, JSON.stringify(ALL_COLUMNS.map((c) => c.col))); } catch { /* nu se reține */ }
     const out = ALL_COLUMNS.filter((c) => want.has(c.col)).map((c) => c.col);
     return out.length >= 2 && out.includes("dev") ? out : DEFAULT_COLS;
   } catch {
@@ -60,6 +69,7 @@ export function readCols(): ColKey[] {
 export function saveCols(cols: ColKey[]): void {
   try {
     localStorage.setItem(STORE, JSON.stringify(cols));
+    localStorage.setItem(KNOWN, JSON.stringify(ALL_COLUMNS.map((c) => c.col)));
   } catch {
     /* alegerea nu se reține */
   }

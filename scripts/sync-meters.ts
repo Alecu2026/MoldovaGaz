@@ -16,6 +16,7 @@ import { buildDocs, fetchBilling, fetchDevices, fetchLatest, fetchLorawan, type 
 import { validCoords } from "../lib/meter-shared";
 import { writeSources } from "../lib/source-sync";
 import { appendReadings } from "../lib/meter-readings";
+import { appendMsgCounts } from "../lib/meter-msgs-job";
 import { ingestIsNewer } from "../lib/integration";
 import { maybeAnalyze } from "../lib/night-job";
 
@@ -151,6 +152,7 @@ async function main() {
     if (!limit) {
       try {
         await appendReadings(client.db(), fresh, log);
+        await appendMsgCounts(client.db(), log).catch((e: Error) => log(`ATENȚIE: mesaje pe zi — ${e.message}`));
         await maybeAnalyze(client.db(), log);
       } catch (e) {
         log(`ATENȚIE: istoricul / analiza nopților — ${(e as Error).message}`);

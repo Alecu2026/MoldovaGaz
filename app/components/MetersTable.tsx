@@ -12,6 +12,8 @@ import ColumnFilter from "./ColumnFilters";
 import ColumnPicker from "./ColumnPicker";
 import { ALL_COLUMNS, DEFAULT_COLS, readCols, saveCols, type ColDef, type ColKey } from "./meter-columns";
 import MeterCharts from "./MeterCharts";
+import MessagesPanel from "./MessagesPanel";
+import { dayOptions, useMsgCounts, useMsgDay } from "./useMsgCounts";
 import MeterDetail from "./MeterDetail";
 
 /** Harta (Leaflet) se încarcă doar când deschizi fila „Hartă”: nu încarcă pagina principală. */
@@ -47,13 +49,13 @@ function ago(ms: number): string {
 type Head = { rows: RowView[]; total: number };
 type Props = {
   userId: string;
-  /** administrator: vede și stratul cu antenele de pe hartă */
-  admin: boolean;
+  /** stratul cu antenele de pe hartă: «full» = administrator / drept la Integrare (eficiență, contoare auzite, linii, filtru); «basic» = instalator de antene (doar poziția, starea și ultima activitate, din lista lui de antene); false = fără antene */
+  antennas: false | "full" | "basic";
   warm: { gen: string; head: number } | null;
   head: Head;
   initialFilters: Filters;
   initialSort: Sort;
-  initialView: "table" | "charts" | "map";
+  initialView: "table" | "charts" | "map" | "msgs";
 };
 
 const RANGES: [string, string][] = [
@@ -68,10 +70,10 @@ const RANGES: [string, string][] = [
 const hasAdvanced = (f: Filters) =>
   !!(f.app || f.gw || f.type || f.fr || f.port || f.model || f.year || f.billed || f.geo || f.valMin || f.valMax || f.dcMin || f.dcMax || f.batMin || f.batMax || f.rssiMin || f.rssiMax || f.snrMin || f.snrMax || f.fcMin || f.fcMax);
 
-export default function MetersTable({ userId, admin, warm, head, initialFilters, initialSort, initialView }: Props) {
+export default function MetersTable({ userId, antennas, warm, head, initialFilters, initialSort, initialView }: Props) {
   const [filters, setFilters] = useState<Filters>(initialFilters);
   const [sort, setSort] = useState<Sort>(initialSort);
-  const [view, setView] = useState<"table" | "charts" | "map">(initialView);
+  const [view, setView] = useState<"table" | "charts" | "map" | "msgs">(initialView);
   // ora locală la care începe ziua SCADA (miezul nopții UTC): 02:00 iarna, 03:00 vara
   const [dayFrom] = useState(() => new Date(periodStarts(Date.now()).dayStart).toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" }));
   const [consPeriod, setConsPeriod] = useState<"month" | "day" | "yest">("month");
@@ -264,6 +266,9 @@ export default function MetersTable({ userId, admin, warm, head, initialFilters,
         <button type="button" role="tab" id="tab-map" aria-selected={view === "map"} aria-controls="panel-view" onClick={() => setView("map")}>
           Hartă
         </button>
+        <button type="button" role="tab" id="tab-msgs" aria-selected={view === "msgs"} aria-controls="panel-view" onClick={() => setView("msgs")}>
+          Mesaje
+        </button>
       </div>
 
       {view === "table" ? (
@@ -293,12 +298,16 @@ export default function MetersTable({ userId, admin, warm, head, initialFilters,
       ) : view === "map" ? (
         <section className="mapbox" id="panel-view" role="tabpanel" aria-labelledby="tab-map" aria-label="Hartă">
           {store && result ? (
-            <MeterMap store={store} idx={result.idx} rev={rev} fitKey={JSON.stringify(filters)} onOpen={setOpenId} antennas={admin} />
+            <MeterMap store={store} idx={result.idx} rev={rev} fitKey={JSON.stringify(filters)} onOpen={setOpenId} antennas={antennas} />
           ) : (
             <div className="empty">
               <h2>{status === "error" ? "Nu am putut încărca lista" : "Se încarcă lista…"}</h2>
             </div>
           )}
+        </section>
+      ) : view === "msgs" ? (
+        <section className="chartsbox" id="panel-view" role="tabpanel" aria-labelledby="tab-msgs" aria-label="Mesaje pe zi">
+          <MessagesPanel onOpenMeter={setOpenId} />
         </section>
       ) : (
         <section className="chartsbox" id="panel-view" role="tabpanel" aria-labelledby="tab-charts" aria-label="Grafice">
@@ -443,9 +452,21 @@ function Grid(p: GridProps) {
   const first = Math.max(0, Math.floor((vp.top - HEADER_H) / ROW_H) - OVERSCAN);
   const last = Math.min(count, Math.ceil((vp.top + vp.h) / ROW_H) + OVERSCAN);
 
+  /* coloana «Mesaje / zi»: se cer doar contoarele din fereastra vizibilă, pentru ziua aleasă în antet */
+  const [msgDay, setMsgDay] = useMsgDay();
+  const msgOn = cols.some((c) => c.col === "msg");
+  const visIds = useMemo(() => {
+    if (!msgOn || !store || !idx) return [] as string[];
+    const out: string[] = [];
+    for (let i = first; i < last; i++) out.push(store.id[idx[i]]);
+    return out;
+  }, [msgOn, store, idx, first, last]);
+  const msgs = useMsgCounts(msgOn, visIds, msgDay);
+  const msgOpts = useMemo(() => dayOptions(now), [now]);
+
   const rows: React.ReactNode[] = [];
   if (store && idx) {
-    for (let i = first; i < last; i++) rows.push(<Row key={store.id[idx[i]]} r={store.view(idx[i])} i={i} top={i * ROW_H} selected={store.id[idx[i]] === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} onSerial={p.onSerial} now={now} cols={cols} />);
+    for (let i = first; i < last; i++) rows.push(<Row key={store.id[idx[i]]} msgs={msgOn ? msgs.get(store.id[idx[i]]) : undefined} r={store.view(idx[i])} i={i} top={i * ROW_H} selected={store.id[idx[i]] === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} onSerial={p.onSerial} now={now} cols={cols} />);
   }
 
   const headMode = !idx; // lista completă încă nu e gata: primele rânduri vin din HTML
@@ -463,6 +484,13 @@ function Grid(p: GridProps) {
                     {c.label}
                     <span aria-hidden="true">{sort.key === c.key ? (sort.dir === 1 ? "▲" : "▼") : ""}</span>
                   </button>
+                ) : c.col === "msg" ? (
+                  <span className="plain">
+                    {c.label}{" "}
+                    <select className="select msg-day" value={msgDay} onChange={(e) => setMsgDay(e.target.value)} onClick={(e) => e.stopPropagation()} aria-label="Ziua pentru mesaje (UTC)" title="Ziua pentru care se arată mesajele (ziua începe la miezul nopții UTC)">
+                      {msgOpts.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+                    </select>
+                  </span>
                 ) : (
                   <span className="plain">{c.label}</span>
                 )}
@@ -481,7 +509,7 @@ function Grid(p: GridProps) {
         {headMode && !p.error && (
           <div role="rowgroup">
             {head.map((r, i) => (
-              <Row key={r.id} r={r} i={i} top={0} selected={r.id === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} onSerial={p.onSerial} flow now={now} cols={cols} />
+              <Row key={r.id} msgs={undefined} r={r} i={i} top={0} selected={r.id === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} onSerial={p.onSerial} flow now={now} cols={cols} />
             ))}
             {head.length === 0 && p.loading && <SkeletonRows n={cols.length} />}
             {p.loading && head.length > 0 && <div className="cell-sub" style={{ padding: 14 }}>Se încarcă lista completă…</div>}
@@ -554,7 +582,7 @@ const dmy = (ms: number) => {
 const dash = <span className="cell-sub">—</span>;
 const yesNo = (on: boolean, what: string) => (on ? <span className="yes" title={`${what}: da`}>✓</span> : <span className="no" title={`${what}: nu / necunoscut`}>✕</span>);
 
-function Row({ r, i, top, selected, onOpen, onDevice, onSerial, flow, now, cols }: { r: RowView; i: number; top: number; selected: boolean; onOpen: (id: string) => void; onDevice: (id: string) => void; onSerial: (serial: string) => void; flow?: boolean; now: number; cols: ColDef[] }) {
+function Row({ r, msgs, i, top, selected, onOpen, onDevice, onSerial, flow, now, cols }: { r: RowView; /** mesaje în ziua aleasă: număr, null = nemăsurat, undefined = se încarcă / coloana nu e afișată */ msgs: number | null | undefined; i: number; top: number; selected: boolean; onOpen: (id: string) => void; onDevice: (id: string) => void; onSerial: (serial: string) => void; flow?: boolean; now: number; cols: ColDef[] }) {
   const f = r.fl;
   const act = activityOf(r.ts, now); // 0 activ 24 h · 1 avertizare 1–7 zile · 2 critic > 7 zile · 3 fără citire (ca în SCADA)
   const statusOk = isStatusOk(f); // „OK” = raport de stare fără probleme (inactiv / serie repetată se afișează în plus)
@@ -639,6 +667,12 @@ function Row({ r, i, top, selected, onOpen, onDevice, onSerial, flow, now, cols 
           <div key={c} role="cell" className="num mono">
             {r.dc != null ? nf.format(r.dc) : <span className="cell-sub">—</span>}
             {r.mc != null && <div className="cell-sub">lună: {nf.format(r.mc)}</div>}
+          </div>
+        );
+      case "msg":
+        return (
+          <div key={c} role="cell" className="num mono" title="Mesaje trimise de contor în ziua aleasă (din contorul de cadre fCnt). Clasamentul tuturor contoarelor: fila «Mesaje».">
+            {msgs === undefined ? <span className="cell-sub">…</span> : msgs === null ? <span className="cell-sub">—</span> : <span className={msgs >= 48 ? "cell-main low" : "cell-main"}>{nf.format(msgs)}</span>}
           </div>
         );
       case "la": return <div key={c} role="cell" className="mono cell-main">{r.lat !== null ? r.lat.toFixed(5) : dash}</div>;
