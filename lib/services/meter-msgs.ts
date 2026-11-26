@@ -8,6 +8,7 @@ import { clientOrder, getStore } from "./meter-dataset";
 /**
  * Citirea mesajelor pe zi (colecția `meter_msgs`, vezi lib/meter-msgs-job.ts): tot tabelul stă în memorie (≈100 de octeți pe contor), reîmprospătat în fundal la 5 minute.
  * Rezultatele respectă zona utilizatorului. «Mesaje» = de câte ori a trimis contorul date (din contorul de cadre fCnt); pe o perioadă de mai multe zile se arată media pe zi.
+ * Totalul de mesaje primite prin integrare (evidența din pagina Integrare) NU e aici: e o coloană a listei de contoare (`mg`, vezi lib/services/meter-dataset.ts).
  */
 const g = globalThis as unknown as { __msgTab?: { at: number; map: Map<string, MsgState>; since: number }; __msgBusy?: Promise<void> | null };
 const TTL = 5 * 60_000;
@@ -40,19 +41,19 @@ function zoneCheck(st: Awaited<ReturnType<typeof getStore>>, v: Viewer) {
 }
 
 /** [total, zile numărate] pe perioadă, sau null (nenumărat / contor din afara zonei). Pentru coloana din tabel: doar contoarele cerute. */
-export async function msgsForIds(v: Viewer, ids: string[], p: Period): Promise<Record<string, [number, number] | null>> {
+export async function msgsForIds(v: Viewer, ids: string[], p: Period): Promise<{ counts: Record<string, [number, number] | null> }> {
   const [tab, st] = await Promise.all([table(), getStore()]);
   const ok = zoneCheck(st, v), today = dayIdx(Date.now());
-  const out: Record<string, [number, number] | null> = {};
+  const counts: Record<string, [number, number] | null> = {};
   for (const id of ids) {
     const i = st.idx.get(id);
-    const r = i === undefined || !ok(i) ? null : sumOver(tab.map.get(id), p, today);
-    out[id] = r ? [r.total, r.days] : null;
+    const r = i !== undefined && ok(i) ? sumOver(tab.map.get(id), p, today) : null;
+    counts[id] = r ? [r.total, r.days] : null;
   }
-  return out;
+  return { counts };
 }
 
-export type MsgRow = { id: string; name: string; branch: string; city: string; /** mesaje pe zi (media pe perioadă) */ n: number; total: number; days: number; battery: number | null; rssi: number | null; last: number; /** mesaje pe zi, în ordinea `days` (null = nemăsurat) */ s: (number | null)[] };
+export type MsgRow = { id: string; name: string; branch: string; city: string; /** mesaje pe zi (media pe perioadă) */ n: number; total: number; days: number; /** total primit prin integrare (de la început) */ life: number | null; battery: number | null; rssi: number | null; last: number; /** mesaje pe zi, în ordinea `days` (null = nemăsurat) */ s: (number | null)[] };
 export type MsgRanking = {
   /** perioada ceruta (AAAA-LL-ZZ … AAAA-LL-ZZ) și zilele din grafice (cele mai vechi primele) */
   from: string; to: string; days: string[];
@@ -94,7 +95,7 @@ export async function msgsRanking(v: Viewer, p: Period, opt: { min: number; limi
   const rows: MsgRow[] = cand.slice(0, opt.limit).map(({ id, i, avg, total, days: nd }) => {
     const s = tab.map.get(id);
     const b = st.cols.br[i], t = st.cols.ct[i], bat = st.cols.bat[i], rs = st.cols.rssi[i];
-    return { id, name: st.cols.nm[i], branch: b >= 0 ? st.dict.br[b] : "", city: t >= 0 ? st.dict.ct[t] : "", n: r1(avg), total, days: nd, battery: bat ?? null, rssi: rs ?? null, last: st.cols.ts[i], s: days.map((d) => countOn(s, d, today)) };
+    return { id, name: st.cols.nm[i], branch: b >= 0 ? st.dict.br[b] : "", city: t >= 0 ? st.dict.ct[t] : "", n: r1(avg), total, days: nd, life: st.cols.mg[i] ?? null, battery: bat ?? null, rssi: rs ?? null, last: st.cols.ts[i], s: days.map((d) => countOn(s, d, today)) };
   });
   return { from: dayLabel(p.from), to: dayLabel(p.to), days: days.map(dayLabel), tracked, measured, total: cand.length, sum, above, rows, since: dayLabel(tab.since) };
 }

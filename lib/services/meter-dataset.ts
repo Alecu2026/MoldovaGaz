@@ -48,7 +48,7 @@ type Store = {
 /** Ce vede un utilizator limitat: indicii rândurilor din zona lui, ultimul `seq` din zonă și ce intrări de dicționar folosesc rândurile lui. */
 type View = { seq: number; idx: number[]; last: number; used: Record<"ap" | "gw" | "br" | "ct" | "pf", Set<number>>; gz: Promise<Buffer> | null; ids: string[] | null };
 
-const g = globalThis as unknown as { __mtStore?: Store; __mtBuild?: { p: Promise<Store> }; __mtStamp?: { at: number; epoch: number; p: Promise<Stamp> }; __mtEpoch?: number };
+const g = globalThis as unknown as { __mtStore?: Store; __mtBuild?: { p: Promise<Store> }; __mtStamp?: { at: number; epoch: number; p: Promise<Stamp> }; __mtEpoch?: number; __mtSeen?: { map: Map<string, number>; wm: number; full: number } };
 
 /** O scriere făcută de ACEST proces invalidează imediat amprenta ținută minte 0,5 s. */
 export function bumpMeterEpoch(): void {
@@ -61,7 +61,7 @@ function newStore(stamp: Stamp): Store {
   return {
     gen: randomBytes(6).toString("hex"),
     seq: 0,
-    cols: { id: [], ts: [], nm: [], eu: [], q: [], ap: [], gw: [], br: [], ct: [], pf: [], rssi: [], snr: [], fr: [], fl: [], fc: [], pt: [], tm: [], val: [], bat: [], dc: [], mc: [], ac: [], ia: [], il: [], cal: [], xsp: [], xcp: [], xsn: [], xsr: [], xhs: [], xap: [], dt: [], mt: [], la: [], lo: [], sq: [], h: [] },
+    cols: { id: [], ts: [], nm: [], eu: [], q: [], ap: [], gw: [], br: [], ct: [], pf: [], rssi: [], snr: [], fr: [], fl: [], fc: [], pt: [], tm: [], val: [], bat: [], dc: [], mc: [], ac: [], ia: [], mg: [], il: [], cal: [], xsp: [], xcp: [], xsn: [], xsr: [], xhs: [], xap: [], dt: [], mt: [], la: [], lo: [], sq: [], h: [] },
     idx: new Map(),
     dict: emptyDict(),
     maps: { ap: new Map(), gw: new Map(), ty: new Map(), br: new Map(), ct: new Map(), pf: new Map() },
@@ -121,7 +121,7 @@ function upsertDoc(st: Store, d: Row): boolean {
   c.ap[i] = intern(st.maps.ap, mi.ap, s.a); c.gw[i] = intern(st.maps.gw, mi.gw, s.g); c.br[i] = intern(st.maps.br, mi.br, s.br);
   c.ct[i] = intern(st.maps.ct, mi.ct, s.ct); c.pf[i] = intern(st.maps.pf, mi.pf, s.pf);
   c.rssi[i] = s.r; c.snr[i] = s.sn; c.fr[i] = s.f; c.fl[i] = s.fl; c.fc[i] = s.fc; c.pt[i] = s.pt; c.tm[i] = typeBit(st, s.ty);
-  c.val[i] = s.v; c.bat[i] = s.b; c.dc[i] = s.dc; c.mc[i] = s.mc; c.ac[i] = s.ac ?? null; c.ia[i] = s.ia ?? null;
+  c.val[i] = s.v; c.bat[i] = s.b; c.dc[i] = s.dc; c.mc[i] = s.mc; c.ac[i] = s.ac ?? null; c.ia[i] = s.ia ?? null; c.mg[i] = g.__mtSeen?.map.get(id) ?? null;
   c.il[i] = s.il ?? null; c.cal[i] = s.cl ?? null; c.xsp[i] = s.sp ?? ""; c.xcp[i] = s.cp ?? ""; c.xsn[i] = s.sn2 ?? ""; c.xsr[i] = s.sr ?? ""; c.xhs[i] = s.hs ?? ""; c.xap[i] = s.apt ?? ""; c.dt[i] = typeof d.tel?.dailyConsumption?.t === "number" ? d.tel.dailyConsumption.t : null; c.mt[i] = typeof d.tel?.monthlyConsumption?.t === "number" ? d.tel.monthlyConsumption.t : null; c.la[i] = s.la ?? null; c.lo[i] = s.lo ?? null;
   c.sq[i] = ++st.seq;
   c.h[i] = h;
@@ -148,9 +148,30 @@ async function getStamp(): Promise<Stamp> {
   return p;
 }
 
+/**
+ * «Mesaje (total)»: câte mesaje a primit aplicația prin integrare de la fiecare contor (evidența din pagina Integrare, colecția `integration_seen`), ca o coloană a listei:
+ * circulă pe același drum ca restul (ETag / 304, gzip, delta după seq, copia din IndexedDB), deci filtrul, sortarea și fereastra derulantă o folosesc fără cereri separate.
+ * Se citește tot la construirea listei (și o dată la 10 minute), iar între timp doar ce s-a mișcat (index pe `last`); un rând al cărui total s-a schimbat primește seq nou, ca să ajungă în delta.
+ */
+async function mergeSeen(st: Store, full: boolean): Promise<void> {
+  const sm = (g.__mtSeen ??= { map: new Map(), wm: 0, full: 0 });
+  const all = full || sm.wm === 0 || Date.now() - sm.full > 10 * 60_000;
+  const coll = await col<{ _id: string; n?: number; last?: number }>(COLLECTIONS.seen);
+  for await (const d of coll.find(all ? {} : { last: { $gte: sm.wm - 300_000 } }, { projection: { n: 1, last: 1 } }).batchSize(5000)) {
+    const n = Number(d.n) || 0, id = String(d._id);
+    if (!n) continue;
+    if (Number(d.last) > sm.wm) sm.wm = Number(d.last);
+    sm.map.set(id, n);
+    const i = st.idx.get(id);
+    if (i !== undefined && st.cols.mg[i] !== n) { st.cols.mg[i] = n; st.cols.sq[i] = ++st.seq; st.gz = null; }
+  }
+  if (all) sm.full = Date.now();
+}
+
 async function fullBuild(stamp: Stamp): Promise<Store> {
   const coll = await col<Row>(COLLECTIONS.meters);
   const st = newStore(stamp);
+  await mergeSeen(st, true).catch((e) => console.error("[meters] evidența mesajelor:", (e as Error).message)); // înainte de rânduri: upsertDoc ia totalul de aici
   for await (const d of coll.find({}, { projection: PROJECTION }).sort({ _id: 1 }).batchSize(5000)) upsertDoc(st, d);
   g.__mtStore = st;
   return st;
@@ -158,6 +179,7 @@ async function fullBuild(stamp: Stamp): Promise<Store> {
 
 async function deltaMerge(st: Store, stamp: Stamp): Promise<boolean> {
   const coll = await col<Row>(COLLECTIONS.meters);
+  await mergeSeen(st, false).catch((e) => console.error("[meters] evidența mesajelor:", (e as Error).message)); // înainte de rânduri: cele noi / modificate iau totalul actual
   for await (const d of coll.find({ updatedAt: { $gte: new Date(Math.max(0, st.maxUpd - OVERLAP_MS)) } }, { projection: PROJECTION }).batchSize(5000)) upsertDoc(st, d);
   st.stamp = stamp; // amprenta luată ÎNAINTE de citire: ce s-a scris între timp se vede la verificarea următoare
   st.mergedAt = Date.now();
@@ -202,7 +224,7 @@ export async function warmVersion(v?: Viewer): Promise<{ gen: string; head: numb
   return { gen: v ? genFor(st, v) : st.gen, head: v && !v.admin ? viewOf(st, v).last : st.seq };
 }
 
-const COLS: (keyof ColsWire)[] = ["id", "ts", "nm", "eu", "q", "ap", "gw", "br", "ct", "pf", "rssi", "snr", "fr", "fl", "fc", "pt", "tm", "val", "bat", "dc", "mc", "ac", "ia", "il", "cal", "xsp", "xcp", "xsn", "xsr", "xhs", "xap", "dt", "mt", "la", "lo"];
+const COLS: (keyof ColsWire)[] = ["id", "ts", "nm", "eu", "q", "ap", "gw", "br", "ct", "pf", "rssi", "snr", "fr", "fl", "fc", "pt", "tm", "val", "bat", "dc", "mc", "ac", "ia", "mg", "il", "cal", "xsp", "xcp", "xsn", "xsr", "xhs", "xap", "dt", "mt", "la", "lo"];
 
 /** Rândurile cu seq > `after` (0 = toate), în ordinea indexului. */
 function wire(st: Store, after: number): ColsWire {
@@ -330,7 +352,7 @@ export async function meterAllowed(v: Viewer, id: string): Promise<boolean> {
 
 const rowOf = (id: string, s: MeterSummary, volT?: unknown): RowView => ({
   id, ts: safeTs(s.t, volT), name: s.n, eui: s.e, app: s.a, gw: s.g, rssi: s.r, snr: s.sn, freqKhz: s.f, fl: s.fl, fc: s.fc, pt: s.pt, types: s.ty ? [s.ty] : [],
-  val: s.v, bat: s.b, dc: s.dc, mc: s.mc, ac: s.ac ?? null, ia: s.ia ?? null, xsp: s.sp ?? "", xcp: s.cp ?? "", xsn: s.sn2 ?? "", xsr: s.sr ?? "", xhs: s.hs ?? "", xap: s.apt ?? "", il: s.il ?? null, cal: s.cl ?? null, lat: s.la ?? null, lon: s.lo ?? null, branch: s.br, city: s.ct, profile: s.pf,
+  val: s.v, bat: s.b, dc: s.dc, mc: s.mc, ac: s.ac ?? null, ia: s.ia ?? null, mg: g.__mtSeen?.map.get(id) ?? null, xsp: s.sp ?? "", xcp: s.cp ?? "", xsn: s.sn2 ?? "", xsr: s.sr ?? "", xhs: s.hs ?? "", xap: s.apt ?? "", il: s.il ?? null, cal: s.cl ?? null, lat: s.la ?? null, lon: s.lo ?? null, branch: s.br, city: s.ct, profile: s.pf,
 });
 
 /** Cele mai recente `n` contoare + totalul, direct din baza de date (indexat): prima pictare a paginii nu așteaptă lista completă. */

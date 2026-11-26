@@ -69,7 +69,7 @@ const RANGES: [string, string][] = [
 
 /** Filtrele care trăiesc în panoul „Mai multe filtre” (dacă vreunul e activ, panoul se deschide singur). */
 const hasAdvanced = (f: Filters) =>
-  !!(f.app || f.gw || f.type || f.fr || f.port || f.model || f.year || f.billed || f.geo || f.valMin || f.valMax || f.dcMin || f.dcMax || f.batMin || f.batMax || f.rssiMin || f.rssiMax || f.snrMin || f.snrMax || f.fcMin || f.fcMax);
+  !!(f.app || f.gw || f.type || f.fr || f.port || f.model || f.year || f.billed || f.geo || f.valMin || f.valMax || f.dcMin || f.dcMax || f.mgMin || f.mgMax || f.batMin || f.batMax || f.rssiMin || f.rssiMax || f.snrMin || f.snrMax || f.fcMin || f.fcMax);
 
 export default function MetersTable({ userId, antennas, warm, head, initialFilters, initialSort, initialView }: Props) {
   const [filters, setFilters] = useState<Filters>(initialFilters);
@@ -667,10 +667,29 @@ function Row({ r, msgs, i, top, selected, onOpen, onDevice, onSerial, flow, now,
             {r.mc != null && <div className="cell-sub">lună: {nf.format(r.mc)}</div>}
           </div>
         );
-      case "msg":
+      case "msg": {
+        const tip = (msgs
+          ? `De ${nf.format(msgs[0])} ori a trimis contorul date în perioada aleasă (${msgs[1]} ${msgs[1] === 1 ? "zi numărată" : "zile numărate"}; din contorul de cadre fCnt).`
+          : "Câte mesaje a trimis contorul în perioada aleasă (din contorul de cadre fCnt).") + " Clasamentul tuturor contoarelor: fila «Mesaje». Totalul primit prin integrare: coloana «Mesaje (total)».";
         return (
-          <div key={c} role="cell" className="num mono" title={msgs ? `De ${nf.format(msgs[0])} ori a trimis contorul date în perioada aleasă (${msgs[1]} ${msgs[1] === 1 ? "zi numărată" : "zile numărate"}; din contorul de cadre fCnt). Clasamentul tuturor contoarelor: fila «Mesaje».` : "Câte mesaje a trimis contorul în perioada aleasă (din contorul de cadre fCnt). Clasamentul tuturor contoarelor: fila «Mesaje»."}>
-            {msgs === undefined ? <span className="cell-sub">…</span> : msgs === null ? <span className="cell-sub" title="Încă nenumărat: numărătoarea pornește la prima sincronizare orară după punerea în funcțiune a acestei funcții (valorile apar de la a doua sincronizare), sau ziua aleasă e în afara ultimelor 14 zile.">—</span> : <><span className={msgs[0] / msgs[1] >= 48 ? "cell-main low" : "cell-main"}>{msgs[1] > 1 ? nf1.format(msgs[0] / msgs[1]) : nf.format(msgs[0])}</span>{msgs[1] > 1 && <div className="cell-sub">{nf.format(msgs[0])} în {msgs[1]} zile</div>}</>}
+          <div key={c} role="cell" className="num mono" title={tip}>
+            {msgs ? (
+              <>
+                <span className={msgs[0] / msgs[1] >= 48 ? "cell-main low" : "cell-main"}>{msgs[1] > 1 ? nf1.format(msgs[0] / msgs[1]) : nf.format(msgs[0])}</span>
+                {msgs[1] > 1 ? <div className="cell-sub">{nf.format(msgs[0])} în {msgs[1]} zile</div> : null}
+              </>
+            ) : msgs === undefined ? (
+              <span className="cell-sub">…</span>
+            ) : (
+              <span className="cell-sub" title="Încă nenumărat: numărătoarea pornește la deploy și rulează la 30 de minute; valorile pe zi apar după a doua rulare. Ziua aleasă trebuie să fie și în ultimele 31 de zile.">—</span>
+            )}
+          </div>
+        );
+      }
+      case "mg":
+        return (
+          <div key={c} role="cell" className="num mono" title={r.mg !== null ? `De la începutul evidenței, aplicația a primit ${nf.format(r.mg)} mesaje de la acest contor prin integrare (aceeași evidență ca «De la care contoare vin datele» din pagina Integrare).` : "Contorul nu a trimis (încă) prin integrare."}>
+            {r.mg !== null ? <span className="cell-main">{nf.format(r.mg)}</span> : <span className="cell-sub">—</span>}
           </div>
         );
       case "la": return <div key={c} role="cell" className="mono cell-main">{r.lat !== null ? r.lat.toFixed(5) : dash}</div>;

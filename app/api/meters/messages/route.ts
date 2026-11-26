@@ -23,7 +23,7 @@ export async function GET(req: Request) {
     const ids = sp.get("ids");
     if (ids !== null) {
       const list = ids.split(",").map((x) => x.trim()).filter((x) => /^[0-9a-zA-Z-]{8,64}$/.test(x)).slice(0, 150);
-      return Response.json({ counts: await msgsForIds(user, list, p) }, { headers: { "Cache-Control": "private, no-store" } });
+      return Response.json(await msgsForIds(user, list, p), { headers: { "Cache-Control": "private, no-store" } });
     }
     // rezultatele depind de zona utilizatorului: cheia o include
     if (sp.get("all")) return cachedJson(req, `msgsall|${scopeKey(user)}|${pk}`, { ttlMs: 60_000 }, () => msgsAll(user, p));

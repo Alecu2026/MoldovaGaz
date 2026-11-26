@@ -60,6 +60,8 @@ export type Filters = {
   /** consum zilnic, litri */
   dcMin: string; dcMax: string;
   fcMin: string; fcMax: string;
+  /** mesaje primite prin integrare, în total */
+  mgMin: string; mgMax: string;
   /** "" | 1h | 24h | 7d | 30d  (după ultima citire) */
   range: string;
   /** interval personalizat: "YYYY-MM-DDTHH:mm" (ora locală), are prioritate față de `range` */
@@ -69,7 +71,7 @@ export type Filters = {
 
 export const NO_FILTERS: Filters = {
   q: "", name: "", app: "", gw: "", type: "", dev: "", flag: "", branch: "", city: "", profile: "", fr: "", port: "", model: "", year: "", billed: "", geo: "", defect: "", xsp: "", xcp: "", xsn: "", xsr: "", xhs: "", xap: "", xar: "", xcz: "", xin: "", ilMin: "", ilMax: "", laMin: "", laMax: "", loMin: "", loMax: "", calFrom: "", calTo: "", band: "", actv: "", acFrom: "", acTo: "", iaFrom: "", iaTo: "", iaHas: "",
-  rssiMin: "", rssiMax: "", snrMin: "", snrMax: "", valMin: "", valMax: "", batMin: "", batMax: "", dcMin: "", dcMax: "", fcMin: "", fcMax: "",
+  rssiMin: "", rssiMax: "", snrMin: "", snrMax: "", valMin: "", valMax: "", batMin: "", batMax: "", dcMin: "", dcMax: "", fcMin: "", fcMax: "", mgMin: "", mgMax: "",
   range: "", from: "", to: "",
 };
 
@@ -90,10 +92,10 @@ export const toggleIn = (s: string, v: string): string => {
   return fromList(l.includes(v) ? l.filter((x) => x !== v) : [...l, v]);
 };
 
-export type SortKey = "ts" | "dev" | "br" | "gw" | "rssi" | "snr" | "val" | "bat" | "dc" | "fc" | "msg";
+export type SortKey = "ts" | "dev" | "br" | "gw" | "rssi" | "snr" | "val" | "bat" | "dc" | "fc" | "msg" | "mg";
 export type Sort = { key: SortKey; dir: 1 | -1 };
 export const DEFAULT_SORT: Sort = { key: "ts", dir: -1 };
-const SORT_KEYS: SortKey[] = ["ts", "dev", "br", "gw", "rssi", "snr", "val", "bat", "dc", "fc", "msg"];
+const SORT_KEYS: SortKey[] = ["ts", "dev", "br", "gw", "rssi", "snr", "val", "bat", "dc", "fc", "msg", "mg"];
 
 export type FilterResult = {
   /** indecșii rândurilor care trec de filtre, în ordinea cerută */
@@ -114,7 +116,7 @@ export function activeFilters(f: Filters): number {
   if (f.q.trim()) n++;
   if (f.name.trim()) n++;
   for (const k of LIST_KEYS) if (f[k]) n++;
-  for (const [a, b] of [["rssiMin", "rssiMax"], ["snrMin", "snrMax"], ["valMin", "valMax"], ["batMin", "batMax"], ["dcMin", "dcMax"], ["fcMin", "fcMax"], ["acFrom", "acTo"], ["iaFrom", "iaTo"], ["ilMin", "ilMax"], ["laMin", "laMax"], ["loMin", "loMax"], ["calFrom", "calTo"]] as const) if (f[a] || f[b]) n++;
+  for (const [a, b] of [["rssiMin", "rssiMax"], ["snrMin", "snrMax"], ["valMin", "valMax"], ["batMin", "batMax"], ["dcMin", "dcMax"], ["fcMin", "fcMax"], ["mgMin", "mgMax"], ["acFrom", "acTo"], ["iaFrom", "iaTo"], ["ilMin", "ilMax"], ["laMin", "laMax"], ["loMin", "loMax"], ["calFrom", "calTo"]] as const) if (f[a] || f[b]) n++;
   if (f.from || f.to || f.range) n++;
   return n;
 }
@@ -217,6 +219,7 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
   const bMin = num(f.batMin, -Infinity), bMax = num(f.batMax, Infinity), bOn = bMin > -Infinity || bMax < Infinity;
   const dMin = num(f.dcMin, -Infinity), dMax = num(f.dcMax, Infinity), dOn = dMin > -Infinity || dMax < Infinity;
   const cMin = num(f.fcMin, -Infinity), cMax = num(f.fcMax, Infinity), cOn = cMin > -Infinity || cMax < Infinity;
+  const gMin = num(f.mgMin, -Infinity), gMax = num(f.mgMax, Infinity), gOn = gMin > -Infinity || gMax < Infinity;
 
   // — interval de timp (după ultima citire) —
   let from = -Infinity;
@@ -308,6 +311,7 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
     if (bOn) { const v = bat[i]; if (v !== v || v < bMin || v > bMax) continue; }
     if (dOn) { const v = dc[i]; if (v !== v || v < dMin || v > dMax) continue; }
     if (cOn) { const v = fc[i]; if (v < 0 || v < cMin || v > cMax) continue; }
+    if (gOn) { const v = st.mg[i]; if (!(v >= gMin && v <= gMax)) continue; }
     if (nw > 0) {
       let ok = true;
       const text = lq[i];
@@ -353,6 +357,7 @@ function sortIdx(st: MeterStore, idx: Int32Array, sort: Sort, ext: Float32Array 
     case "bat": key = (i) => st.bat[i]; break;
     case "dc": key = (i) => st.dc[i]; break;
     case "fc": key = (i) => (st.fc[i] < 0 ? NaN : st.fc[i]); break;
+    case "mg": key = (i) => st.mg[i]; break;
     case "msg": key = (i) => (ext && i < ext.length ? ext[i] : NaN); break;
     default: key = (i) => st.val[i];
   }
@@ -391,7 +396,7 @@ export function filtersFromParams(get: (k: string) => string | undefined): Filte
     iaHas: s("iaHas", 1) === "1" ? "1" : s("iaHas", 1) === "0" ? "0" : "",
     rssiMin: numeric("rssiMin"), rssiMax: numeric("rssiMax"), snrMin: numeric("snrMin"), snrMax: numeric("snrMax"),
     valMin: numeric("valMin"), valMax: numeric("valMax"), batMin: numeric("batMin"), batMax: numeric("batMax"),
-    dcMin: numeric("dcMin"), dcMax: numeric("dcMax"), fcMin: numeric("fcMin"), fcMax: numeric("fcMax"),
+    dcMin: numeric("dcMin"), dcMax: numeric("dcMax"), fcMin: numeric("fcMin"), fcMax: numeric("fcMax"), mgMin: numeric("mgMin"), mgMax: numeric("mgMax"),
     range: RANGE_MS[range] ? range : "", from: s("from", 16), to: s("to", 16),
   };
 }
@@ -455,6 +460,7 @@ export function describeFilters(f: Filters, nameOf: (id: string) => string = (x)
   if (f.rssiMin || f.rssiMax) add("rssi", `RSSI: ${range(f.rssiMin, f.rssiMax, " dBm")}`, { rssiMin: "", rssiMax: "" });
   if (f.snrMin || f.snrMax) add("snr", `SNR: ${range(f.snrMin, f.snrMax, " dB")}`, { snrMin: "", snrMax: "" });
   if (f.fcMin || f.fcMax) add("fc", `fCnt: ${range(f.fcMin, f.fcMax)}`, { fcMin: "", fcMax: "" });
+  if (f.mgMin || f.mgMax) add("mg", `Mesaje primite (total): ${range(f.mgMin, f.mgMax)}`, { mgMin: "", mgMax: "" });
   if (f.from || f.to) add("time", `Ultima citire: ${(f.from || "…").replace("T", " ")} → ${(f.to || "…").replace("T", " ")}`, { from: "", to: "" });
   else if (f.range) add("time", `Ultima citire: ${({ "1h": "ultima oră", "24h": "24 ore", "7d": "7 zile", "30d": "30 zile" } as Record<string, string>)[f.range] ?? f.range}`, { range: "" });
   return chips;

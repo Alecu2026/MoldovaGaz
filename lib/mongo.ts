@@ -12,6 +12,8 @@ export const COLLECTIONS = {
   sessions: process.env.SESSIONS_COLLECTION || "sessions",
   /** contoarele reale (scrise de scripts/sync-meters.ts) */
   meters: process.env.METERS_COLLECTION || "meters",
+  /** evidența contoarelor care au trimis prin integrare: mesaje primite în total (n) și ultimul moment (last), scrisă de lib/services/integration.ts */
+  seen: process.env.INTEGRATION_SEEN_COLLECTION || "integration_seen",
   /** istoricul Volume (m3) arhivat (scrisă de scripts/load-history.ts), folosită când ThingsBoard nu răspunde */
   history: process.env.HISTORY_COLLECTION || "meter_history",
   /** rândurile BRUTE din lorawandb (primul IP) și din getmgdb (al doilea IP), pentru paginile pe sursă (scrise de scripts/sync-sources.ts) */

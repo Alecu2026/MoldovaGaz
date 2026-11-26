@@ -191,6 +191,7 @@ export function AdvancedFilters({ store, all, filters, patch }: PanelProps) {
       </label>
       <Range label="Volume" unit="m³" min={filters.valMin} max={filters.valMax} onMin={(v) => patch({ valMin: v })} onMax={(v) => patch({ valMax: v })} />
       <Range label="Consum zilnic" unit="L" min={filters.dcMin} max={filters.dcMax} onMin={(v) => patch({ dcMin: v })} onMax={(v) => patch({ dcMax: v })} />
+      <Range label="Mesaje primite (total)" min={filters.mgMin} max={filters.mgMax} onMin={(v) => patch({ mgMin: v })} onMax={(v) => patch({ mgMax: v })} />
       <Range label="Baterie" unit="%" min={filters.batMin} max={filters.batMax} onMin={(v) => patch({ batMin: v })} onMax={(v) => patch({ batMax: v })} />
       <Range label="RSSI" unit="dBm" min={filters.rssiMin} max={filters.rssiMax} onMin={(v) => patch({ rssiMin: v })} onMax={(v) => patch({ rssiMax: v })} />
       <Range label="SNR" unit="dB" min={filters.snrMin} max={filters.snrMax} onMin={(v) => patch({ snrMin: v })} onMax={(v) => patch({ snrMax: v })} />

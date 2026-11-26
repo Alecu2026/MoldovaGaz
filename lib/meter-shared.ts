@@ -77,6 +77,8 @@ export type ColsWire = {
   /** atributele din SCADA (ms): lastActivityTime (ultima activitate văzută de platformă) și inactivityAlarmTime (momentul alarmei de inactivitate); null = lipsesc */
   ac: (number | null)[];
   ia: (number | null)[];
+  /** mesaje primite prin integrare de la contor, în TOTAL (de la începutul evidenței); null = contorul nu a trimis prin integrare */
+  mg: (number | null)[];
   /** începutul perioadei (ms, ca în SCADA) la care se referă dc / mc: ziua / luna calendaristică; null = necunoscut. Doar valorile din perioada CURENTĂ se adună în „Consum”. */
   dt: (number | null)[];
   mt: (number | null)[];
@@ -115,6 +117,8 @@ export type RowView = {
   mc: number | null;
   ac: number | null;
   ia: number | null;
+  /** mesaje primite prin integrare, în total (null = fără evidență) */
+  mg: number | null;
   xsp: string; xcp: string; xsn: string; xsr: string; xhs: string; xap: string;
   il: number | null;
   cal: number | null;

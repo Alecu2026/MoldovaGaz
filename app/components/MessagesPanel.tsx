@@ -89,7 +89,7 @@ export default function MessagesPanel({ onOpenMeter }: { onOpenMeter: (id: strin
 
       <div className="card-table" style={{ maxHeight: 640, opacity: loading ? 0.6 : 1 }}>
         <table className="mini">
-          <thead><tr><th className="num">#</th><th>Contor</th><th className="num">{multi ? "Mesaje / zi (medie)" : "Mesaje"} · {label}</th><th>Ultimele {d?.days.length ?? 14} zile</th><th className="num">Baterie</th><th className="num">Semnal</th></tr></thead>
+          <thead><tr><th className="num">#</th><th>Contor</th><th className="num">{multi ? "Mesaje / zi (medie)" : "Mesaje"} · {label}</th><th>Ultimele {d?.days.length ?? 14} zile</th><th className="num" title="Mesaje primite prin integrare de la început (ca în pagina Integrare)">Total primit</th><th className="num">Baterie</th><th className="num">Semnal</th></tr></thead>
           <tbody>
             {d?.rows.map((r: MsgRow, i) => (
               <tr key={r.id} onClick={() => onOpenMeter(r.id)} style={{ cursor: "pointer" }} title="Click: detaliile contorului">
@@ -97,12 +97,13 @@ export default function MessagesPanel({ onOpenMeter }: { onOpenMeter: (id: strin
                 <td><button type="button" className="link-btn" onClick={(e) => { e.stopPropagation(); onOpenMeter(r.id); }}><b>{r.name}</b></button><div className="cell-sub">{[r.branch, r.city].filter(Boolean).join(" · ")}</div></td>
                 <td className="num mono"><b className={r.n >= 48 ? "low" : undefined}>{nf.format(r.n)}</b>{multi && <div className="cell-sub">{nf.format(r.total)} în {r.days} zile</div>}</td>
                 <td><Spark s={r.s} days={d.days} inP={inPeriod} /></td>
+                <td className="num mono">{r.life !== null ? nf.format(r.life) : "—"}</td>
                 <td className={`num mono ${r.battery !== null && r.battery < 20 ? "low" : ""}`}>{r.battery !== null ? `${Math.round(r.battery)}%` : "—"}</td>
                 <td className="num mono">{r.rssi !== null ? `${r.rssi} dBm` : "—"}</td>
               </tr>
             ))}
-            {d && d.rows.length === 0 && !noData && <tr><td colSpan={6} className="cell-sub" style={{ padding: 16 }}>Niciun contor cu cel puțin {min || "0"} mesaje pe zi în perioada aleasă.</td></tr>}
-            {!d && <tr><td colSpan={6} className="cell-sub" style={{ padding: 16 }}>{loading ? "se încarcă…" : "Nu am putut citi mesajele."}</td></tr>}
+            {d && d.rows.length === 0 && !noData && <tr><td colSpan={7} className="cell-sub" style={{ padding: 16 }}>Niciun contor cu cel puțin {min || "0"} mesaje pe zi în perioada aleasă.</td></tr>}
+            {!d && <tr><td colSpan={7} className="cell-sub" style={{ padding: 16 }}>{loading ? "se încarcă…" : "Nu am putut citi mesajele."}</td></tr>}
           </tbody>
         </table>
       </div>

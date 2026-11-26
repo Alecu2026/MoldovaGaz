@@ -51,6 +51,8 @@ export default function ColumnFilter({ col, store, all, filters: f, patch }: P) 
   switch (col) {
     case "msg":
       return <MsgPeriod compact />;
+    case "mg":
+      return <Range label="Mesaje primite (total)" min={f.mgMin} max={f.mgMax} onMin={(v) => patch({ mgMin: v })} onMax={(v) => patch({ mgMax: v })} />;
     case "ts":
       return (
         <select className="select cf-in" aria-label="Ultima citire" value={f.from || f.to ? "custom" : f.range} onChange={(e) => e.target.value !== "custom" && patch({ range: e.target.value, from: "", to: "" })}>

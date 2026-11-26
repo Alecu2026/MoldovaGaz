@@ -6,7 +6,7 @@
  *  - combinarea facturare ↔ dispozitive ↔ ThingsBoard (lib/meter-sync.ts).
  */
 import { aggregate, makeCtx, FRESH_EDGES } from "../lib/meter-aggregate";
-import { NO_FILTERS, filtersFromParams, periodStarts, runFilter, type Filters, type Sort } from "../lib/meter-filter";
+import { NO_FILTERS, activeFilters, filtersFromParams, periodStarts, runFilter, sortFromParams, toQuery as mToQuery, type Filters, type Sort } from "../lib/meter-filter";
 import { MeterStore } from "../lib/meter-store";
 import { ALERT_FLAGS, FLAG, PROBLEM_FLAGS, XSTR, activityOf, safeTs, isStatusOk, validCoords, type ColsWire, type DatasetWire, type DeltaWire } from "../lib/meter-shared";
 import { buildDocs, fetchDevices, type Bill, type Dev } from "../lib/meter-sync";
@@ -72,7 +72,7 @@ const dict = {
   ct: ["Comrat", "Orhei", "Cahul", "Chisinau", "Rezina"],
   pf: ["Comrat_Gas_Meter_DP", "Jooby_Gas_Meter_DP", "Defectate_Jooby_Gaz"],
 };
-const emptyCols = (): ColsWire => ({ id: [], ts: [], nm: [], eu: [], q: [], ap: [], gw: [], br: [], ct: [], pf: [], rssi: [], snr: [], fr: [], fl: [], fc: [], pt: [], tm: [], val: [], bat: [], dc: [], mc: [], ac: [], ia: [], il: [], cal: [], xsp: [], xcp: [], xsn: [], xsr: [], xhs: [], xap: [], dt: [], mt: [], la: [], lo: [] });
+const emptyCols = (): ColsWire => ({ id: [], ts: [], nm: [], eu: [], q: [], ap: [], gw: [], br: [], ct: [], pf: [], rssi: [], snr: [], fr: [], fl: [], fc: [], pt: [], tm: [], val: [], bat: [], dc: [], mc: [], ac: [], ia: [], mg: [], il: [], cal: [], xsp: [], xcp: [], xsn: [], xsr: [], xhs: [], xap: [], dt: [], mt: [], la: [], lo: [] });
 const t0 = Date.now() - 20 * 86400_000;
 const row = (c: ColsWire, i: number, id: string) => {
   const never = rnd() < 0.05;
@@ -203,6 +203,21 @@ for (const [name, f] of cases) {
     check("consum pe perioadă: suma zilei / zilei anterioare / lunii CURENTE (doar contoarele care au raportat în acea perioadă) = calculul independent", r.consDay === cd && r.consDayN === cdn && r.consYest === cy && r.consYestN === cyn && r.consMonth === cm && r.consMonthN === cmn && cdn > 0 && cyn > 0 && cmn > 0 && cdn < want.length); }
   check("perioade: ziua / luna SCADA după UTC, nu după data locală (23:19 UTC pe 23.11 = încă ziua 23.11, chiar dacă la Chișinău e deja 24.11; 00:30 UTC pe 1.12 = luna decembrie)", periodStarts(Date.UTC(2026, 10, 23, 23, 19)).dayStart === Date.UTC(2026, 10, 23) && periodStarts(Date.UTC(2026, 10, 30, 23, 59)).monthStart === Date.UTC(2026, 10, 1) && periodStarts(Date.UTC(2026, 11, 1, 0, 30)).monthStart === Date.UTC(2026, 11, 1) && periodStarts(Date.UTC(2026, 11, 1, 0, 30)).dayStart === Date.UTC(2026, 11, 1));
   check("total volum și alerte din filtru", r.alerts === want.filter((i) => st.fl[i] & ALERT_FLAGS).length && Math.abs(r.volume - want.reduce((s, i) => s + (st.val[i] >= 0 ? st.val[i] : 0), 0)) < 1e-6);
+}
+// «Mesaje (total)»: coloană a listei (evidența din integrare), cu filtru pe interval și sortare; lipsa (null) nu trece de filtru și rămâne la sfârșit
+{
+  const cm = emptyCols();
+  for (let i = 0; i < 4; i++) row(cm, i, `mg-${i}`);
+  cm.mg = [100, null, 2500, 7];
+  const sm = MeterStore.fromWire({ v: 3, gen: "g", head: 4, total: 4, dict: structuredClone(dict), cols: cm } as DatasetWire);
+  const ids = (r: { idx: Int32Array }) => Array.from(r.idx, (i) => sm.id[i]).join();
+  check("mesaje (total): filtrul pe interval ia doar contoarele cu evidență în interval (lipsa nu trece), sortarea după total merge crescător / descrescător cu lipsa la sfârșit, iar rândul expune totalul",
+    ids(runFilter(sm, F({ mgMin: "100" }), SORT, now)).split(",").sort().join() === "mg-0,mg-2" && ids(runFilter(sm, F({ mgMin: "5", mgMax: "200" }), SORT, now)).split(",").sort().join() === "mg-0,mg-3"
+    && ids(runFilter(sm, NO_FILTERS, { key: "mg", dir: -1 }, now)) === "mg-2,mg-0,mg-3,mg-1" && ids(runFilter(sm, NO_FILTERS, { key: "mg", dir: 1 }, now)) === "mg-3,mg-0,mg-2,mg-1"
+    && sm.view(2).mg === 2500 && sm.view(1).mg === null && activeFilters(F({ mgMin: "1" })) === 1 && sortFromParams((k) => (k === "sort" ? "mg" : undefined)).key === "mg"
+    && filtersFromParams((k) => (k === "mgMin" ? "50" : undefined)).mgMin === "50" && mToQuery(F({ mgMin: "50" }), SORT).includes("mgMin=50"));
+  const ds = readFileSync("lib/services/meter-dataset.ts", "utf8");
+  check("mesaje (total): circulă prin lista de contoare (aceeași ETag / 304, gzip, delta, IndexedDB): citit din evidența integrării la construire și la fiecare reîmprospătare, rândul cu total schimbat primește seq nou", ds.includes("async function mergeSeen") && ds.includes("COLLECTIONS.seen") && ds.includes("st.cols.sq[i] = ++st.seq") && ds.includes('"ac", "ia", "mg"') && ds.includes("g.__mtSeen?.map.get(id)"));
 }
 // sortări
 for (const key of ["dev", "br", "gw", "rssi", "snr", "val", "bat", "dc", "fc"] as const) {
