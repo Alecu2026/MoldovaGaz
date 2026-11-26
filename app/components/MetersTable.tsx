@@ -13,7 +13,7 @@ import ColumnPicker from "./ColumnPicker";
 import { ALL_COLUMNS, DEFAULT_COLS, readCols, saveCols, type ColDef, type ColKey } from "./meter-columns";
 import MeterCharts from "./MeterCharts";
 import MessagesPanel from "./MessagesPanel";
-import { dayOptions, useMsgCounts, useMsgDay } from "./useMsgCounts";
+import { useMsgCounts, useMsgDay } from "./useMsgCounts";
 import MeterDetail from "./MeterDetail";
 
 /** Harta (Leaflet) se încarcă doar când deschizi fila „Hartă”: nu încarcă pagina principală. */
@@ -452,8 +452,8 @@ function Grid(p: GridProps) {
   const first = Math.max(0, Math.floor((vp.top - HEADER_H) / ROW_H) - OVERSCAN);
   const last = Math.min(count, Math.ceil((vp.top + vp.h) / ROW_H) + OVERSCAN);
 
-  /* coloana «Mesaje / zi»: se cer doar contoarele din fereastra vizibilă, pentru ziua aleasă în antet */
-  const [msgDay, setMsgDay] = useMsgDay();
+  /* coloana «Mesaje / zi»: se cer doar contoarele din fereastra vizibilă, pentru ziua aleasă în filtrul coloanei */
+  const [msgDay] = useMsgDay(); // ziua se alege în rândul de filtre al coloanei
   const msgOn = cols.some((c) => c.col === "msg");
   const visIds = useMemo(() => {
     if (!msgOn || !store || !idx) return [] as string[];
@@ -462,7 +462,6 @@ function Grid(p: GridProps) {
     return out;
   }, [msgOn, store, idx, first, last]);
   const msgs = useMsgCounts(msgOn, visIds, msgDay);
-  const msgOpts = useMemo(() => dayOptions(now), [now]);
 
   const rows: React.ReactNode[] = [];
   if (store && idx) {
@@ -484,13 +483,6 @@ function Grid(p: GridProps) {
                     {c.label}
                     <span aria-hidden="true">{sort.key === c.key ? (sort.dir === 1 ? "▲" : "▼") : ""}</span>
                   </button>
-                ) : c.col === "msg" ? (
-                  <span className="plain">
-                    {c.label}{" "}
-                    <select className="select msg-day" value={msgDay} onChange={(e) => setMsgDay(e.target.value)} onClick={(e) => e.stopPropagation()} aria-label="Ziua pentru mesaje (UTC)" title="Ziua pentru care se arată mesajele (ziua începe la miezul nopții UTC)">
-                      {msgOpts.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
-                    </select>
-                  </span>
                 ) : (
                   <span className="plain">{c.label}</span>
                 )}
@@ -592,19 +584,21 @@ function Row({ r, msgs, i, top, selected, onOpen, onDevice, onSerial, flow, now,
   const band = f & FLAG.INACTIVE ? "r" : act === 0 ? "g" : act === 1 ? "y" : act === 2 ? "r" : "n";
   const cell = (c: ColKey): React.ReactNode => {
     switch (c) {
-      case "ts":
+      case "ts": {
+        const shown = r.ts > now ? now : r.ts; // ceasul contorului poate merge înainte cu câteva minute: o citire nu poate fi în viitor
         return (
-          <div key={c} role="cell" title={`Citirea de volum: ${r.ts > 0 ? fmtTime(r.ts) : "—"}\nUltima activitate în SCADA: ${r.ac !== null ? fmtTime(r.ac) : "—"}\nAlarmă de inactivitate: ${r.ia !== null ? fmtTime(r.ia) : "—"}`}>
+          <div key={c} role="cell" title={`Citirea de volum: ${r.ts > 0 ? fmtTime(r.ts) : "—"}${r.ts > now ? " (ceasul contorului merge înainte; se arată ora actuală)" : ""}\nUltima activitate în SCADA: ${r.ac !== null ? fmtTime(r.ac) : "—"}\nAlarmă de inactivitate: ${r.ia !== null ? fmtTime(r.ia) : "—"}`}>
             {r.ts > 0 ? (
               <>
-                <div className="mono cell-main" suppressHydrationWarning>{fmtTime(r.ts).slice(11)}</div>
-                <div className="cell-sub mono" suppressHydrationWarning>{fmtTime(r.ts).slice(0, 10)}</div>
+                <div className="mono cell-main" suppressHydrationWarning>{fmtTime(shown).slice(11)}</div>
+                <div className="cell-sub mono" suppressHydrationWarning>{fmtTime(shown).slice(0, 10)}</div>
               </>
             ) : (
               <div className="cell-sub">fără citiri</div>
             )}
           </div>
         );
+      }
       case "ac":
         return (
           <div key={c} role="cell" title={`active în SCADA: ${f & FLAG.ACTIVE ? "true" : f & FLAG.INACTIVE ? "false" : "lipsește"}\nActivitate: ${act === 0 ? "sub 24 h" : act === 1 ? "1–7 zile" : act === 2 ? "peste 7 zile" : "fără citire"}`}>
@@ -672,7 +666,7 @@ function Row({ r, msgs, i, top, selected, onOpen, onDevice, onSerial, flow, now,
       case "msg":
         return (
           <div key={c} role="cell" className="num mono" title="Mesaje trimise de contor în ziua aleasă (din contorul de cadre fCnt). Clasamentul tuturor contoarelor: fila «Mesaje».">
-            {msgs === undefined ? <span className="cell-sub">…</span> : msgs === null ? <span className="cell-sub">—</span> : <span className={msgs >= 48 ? "cell-main low" : "cell-main"}>{nf.format(msgs)}</span>}
+            {msgs === undefined ? <span className="cell-sub">…</span> : msgs === null ? <span className="cell-sub" title="Încă nenumărat: numărătoarea pornește la prima sincronizare orară după punerea în funcțiune a acestei funcții (valorile apar de la a doua sincronizare), sau ziua aleasă e în afara ultimelor 14 zile.">—</span> : <span className={msgs >= 48 ? "cell-main low" : "cell-main"}>{nf.format(msgs)}</span>}
           </div>
         );
       case "la": return <div key={c} role="cell" className="mono cell-main">{r.lat !== null ? r.lat.toFixed(5) : dash}</div>;

@@ -3,7 +3,9 @@
 import type { Agg } from "@/lib/meter-aggregate";
 import { FLAG_LABELS, fromList, toList, type Filters } from "@/lib/meter-filter";
 import type { MeterStore } from "@/lib/meter-store";
+import { useState } from "react";
 import { MultiSelect, type Opt } from "./FilterPanel";
+import { dayOptions, useMsgDay } from "./useMsgCounts";
 
 /**
  * Filtrele din antetul tabelului: câte unul chiar sub numele fiecărei coloane. Folosesc ACEEAȘI stare ca bara de filtre de sus
@@ -45,9 +47,22 @@ const STATES = (all: Agg | null): Opt[] => [
   { value: "magnet", label: FLAG_LABELS.magnet, count: all?.flags.magnet },
 ];
 
+/** Ziua pentru coloana «Mesaje / zi» (azi, ieri, ultimele 14 zile); aceeași alegere ca în fila «Mesaje». */
+function MsgDayFilter() {
+  const [day, setDay] = useMsgDay();
+  const [now] = useState(() => Date.now());
+  return (
+    <select className="select cf-in" aria-label="Ziua pentru mesaje (UTC)" title="Ziua pentru care se arată mesajele (ziua începe la miezul nopții UTC)" value={day} onChange={(e) => setDay(e.target.value)}>
+      {dayOptions(now).map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+    </select>
+  );
+}
+
 export default function ColumnFilter({ col, store, all, filters: f, patch }: P) {
   const d = store?.dict;
   switch (col) {
+    case "msg":
+      return <MsgDayFilter />;
     case "ts":
       return (
         <select className="select cf-in" aria-label="Ultima citire" value={f.from || f.to ? "custom" : f.range} onChange={(e) => e.target.value !== "custom" && patch({ range: e.target.value, from: "", to: "" })}>
