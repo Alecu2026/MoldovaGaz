@@ -7,7 +7,7 @@ import type { SortKey } from "@/lib/meter-filter";
  */
 export type ColKey =
   | "ts" | "ac" | "at" | "dev" | "br" | "ct" | "gw" | "rssi" | "bat" | "val" | "dc" | "ty" | "st"
-  | "msg" | "mg" | "xsp" | "xcp" | "xsn" | "il" | "xar" | "xcz" | "xin" | "xsr" | "xhs" | "xap" | "cal" | "la" | "lo";
+  | "mg" | "xsp" | "xcp" | "xsn" | "il" | "xar" | "xcz" | "xin" | "xsr" | "xhs" | "xap" | "cal" | "la" | "lo";
 
 export type ColDef = { col: ColKey; label: string; key: SortKey | null; w: string; min: number; cls?: string; group: "base" | "ids" | "install" | "address" | "coords"; def: boolean };
 
@@ -17,8 +17,7 @@ export const ALL_COLUMNS: ColDef[] = [
   { col: "ac", label: "Activ", key: null, w: "96px", min: 96, group: "base", def: true },
   { col: "at", label: "Activitate", key: null, w: "118px", min: 118, group: "base", def: true },
   { col: "ts", label: "Ultima citire", key: "ts", w: "132px", min: 132, group: "base", def: true },
-  { col: "msg", label: "Mesaje / zi", key: "msg", w: "172px", min: 172, cls: "num", group: "base", def: true },
-  { col: "mg", label: "Mesaje (total)", key: "mg", w: "136px", min: 136, cls: "num", group: "base", def: true },
+  { col: "mg", label: "Mesaje", key: "mg", w: "112px", min: 112, cls: "num", group: "base", def: true },
   { col: "xsp", label: "SPID", key: null, w: "124px", min: 124, group: "ids", def: false },
   { col: "xcp", label: "Cont personal", key: null, w: "128px", min: 128, group: "ids", def: false },
   { col: "xsn", label: "Contor SN", key: null, w: "112px", min: 112, group: "ids", def: false },
@@ -49,7 +48,7 @@ const STORE = "mg:cols:v1";
 
 const KNOWN = "mg:cols:known";
 /** coloanele care existau înainte să se țină evidența celor «cunoscute» (alegerile vechi nu le conțineau pe cele noi) */
-const LEGACY_NEW = new Set<string>(["msg", "mg"]);
+const LEGACY_NEW = new Set<string>(["mg"]);
 
 /** Coloanele alese (în ordinea din ALL_COLUMNS); fără alegere salvată sau invalidă ⇒ cele implicite. Coloanele implicite apărute după alegerea salvată se adaugă o singură dată. */
 export function readCols(): ColKey[] {

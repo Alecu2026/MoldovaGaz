@@ -31,7 +31,7 @@ async function Gate({ searchParams }: { searchParams: SP }) {
     return Array.isArray(v) ? v[0] : v;
   };
   const [head, warm] = await Promise.all([getHeadRows(40, user), warmVersion(user)]);
-  return <MetersTable userId={user.id} antennas={user.admin || can(user, "integration") ? "full" : can(user, "antennas") ? "basic" : false} warm={warm} head={head} initialFilters={filtersFromParams(get)} initialSort={sortFromParams(get)} initialView={get("view") === "charts" ? "charts" : get("view") === "map" ? "map" : get("view") === "msgs" ? "msgs" : "table"} />;
+  return <MetersTable userId={user.id} antennas={user.admin || can(user, "integration") ? "full" : can(user, "antennas") ? "basic" : false} warm={warm} head={head} initialFilters={filtersFromParams(get)} initialSort={sortFromParams(get)} initialView={get("view") === "charts" ? "charts" : get("view") === "map" ? "map" : "table"} />;
 }
 
 function TableSkeleton() {

@@ -4,7 +4,6 @@ import type { Agg } from "@/lib/meter-aggregate";
 import { FLAG_LABELS, fromList, toList, type Filters } from "@/lib/meter-filter";
 import type { MeterStore } from "@/lib/meter-store";
 import { MultiSelect, type Opt } from "./FilterPanel";
-import MsgPeriod from "./MsgPeriod";
 
 /**
  * Filtrele din antetul tabelului: câte unul chiar sub numele fiecărei coloane. Folosesc ACEEAȘI stare ca bara de filtre de sus
@@ -49,10 +48,8 @@ const STATES = (all: Agg | null): Opt[] => [
 export default function ColumnFilter({ col, store, all, filters: f, patch }: P) {
   const d = store?.dict;
   switch (col) {
-    case "msg":
-      return <MsgPeriod compact />;
     case "mg":
-      return <Range label="Mesaje primite (total)" min={f.mgMin} max={f.mgMax} onMin={(v) => patch({ mgMin: v })} onMax={(v) => patch({ mgMax: v })} />;
+      return <Range label="Mesaje primite" min={f.mgMin} max={f.mgMax} onMin={(v) => patch({ mgMin: v })} onMax={(v) => patch({ mgMax: v })} />;
     case "ts":
       return (
         <select className="select cf-in" aria-label="Ultima citire" value={f.from || f.to ? "custom" : f.range} onChange={(e) => e.target.value !== "custom" && patch({ range: e.target.value, from: "", to: "" })}>

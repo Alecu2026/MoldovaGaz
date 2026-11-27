@@ -92,10 +92,10 @@ export const toggleIn = (s: string, v: string): string => {
   return fromList(l.includes(v) ? l.filter((x) => x !== v) : [...l, v]);
 };
 
-export type SortKey = "ts" | "dev" | "br" | "gw" | "rssi" | "snr" | "val" | "bat" | "dc" | "fc" | "msg" | "mg";
+export type SortKey = "ts" | "dev" | "br" | "gw" | "rssi" | "snr" | "val" | "bat" | "dc" | "fc" | "mg";
 export type Sort = { key: SortKey; dir: 1 | -1 };
 export const DEFAULT_SORT: Sort = { key: "ts", dir: -1 };
-const SORT_KEYS: SortKey[] = ["ts", "dev", "br", "gw", "rssi", "snr", "val", "bat", "dc", "fc", "msg", "mg"];
+const SORT_KEYS: SortKey[] = ["ts", "dev", "br", "gw", "rssi", "snr", "val", "bat", "dc", "fc", "mg"];
 
 export type FilterResult = {
   /** indecșii rândurilor care trec de filtre, în ordinea cerută */
@@ -148,8 +148,7 @@ export function periodStarts(now: number): { dayStart: number; monthStart: numbe
   return { dayStart: Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()), monthStart: Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) };
 }
 
-/** `ext` = valori din afara listei, câte una pe rând (acum: mesaje pe zi, pentru sortarea după «msg»); NaN = lipsă */
-export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = Date.now(), ext: Float32Array | null = null): FilterResult {
+export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = Date.now()): FilterResult {
   st.prepare();
   const n = st.n;
   const empty: FilterResult = { idx: new Int32Array(0), matched: 0, alerts: 0, volume: 0, consDay: 0, consDayN: 0, consYest: 0, consYestN: 0, consMonth: 0, consMonthN: 0 };
@@ -339,13 +338,13 @@ export function runFilter(st: MeterStore, f: Filters, sort: Sort, now: number = 
   if (sort.key === "ts") {
     if (sort.dir === 1) idx = idx.slice().reverse();
   } else {
-    idx = sortIdx(st, idx.slice(), sort, ext);
+    idx = sortIdx(st, idx.slice(), sort);
   }
   return { idx, matched: c, alerts, volume, consDay, consDayN, consYest, consYestN, consMonth, consMonthN };
 }
 
 /** Sortare după o coloană; valorile lipsă (NaN) rămân mereu la sfârșit, indiferent de sens. Egalitățile păstrează ordinea de timp (sortare stabilă). */
-function sortIdx(st: MeterStore, idx: Int32Array, sort: Sort, ext: Float32Array | null): Int32Array {
+function sortIdx(st: MeterStore, idx: Int32Array, sort: Sort): Int32Array {
   const dir = sort.dir;
   let key: (i: number) => number;
   switch (sort.key) {
@@ -358,7 +357,6 @@ function sortIdx(st: MeterStore, idx: Int32Array, sort: Sort, ext: Float32Array 
     case "dc": key = (i) => st.dc[i]; break;
     case "fc": key = (i) => (st.fc[i] < 0 ? NaN : st.fc[i]); break;
     case "mg": key = (i) => st.mg[i]; break;
-    case "msg": key = (i) => (ext && i < ext.length ? ext[i] : NaN); break;
     default: key = (i) => st.val[i];
   }
   return idx.sort((a, b) => {

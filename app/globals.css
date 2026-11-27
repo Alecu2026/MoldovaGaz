@@ -1645,15 +1645,3 @@ button.badge-btn:hover {
 @media (max-width: 640px) and (display-mode: standalone) {
   .map-stage .map-side { bottom: max(28px, calc(env(safe-area-inset-bottom) + 10px)); }
 }
-
-/* ───────── Mesaje pe zi: ziua în antetul coloanei, clasamentul ───────── */
-.msgs .stats { margin-bottom: 12px; }
-.msgp { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
-.msgp-c { flex-wrap: nowrap; width: 100%; }
-.msgp-c .select { flex: 1 1 auto; min-width: 0; }
-.msgp-btn { flex: none; height: 32px; padding: 0 8px; }
-.msgp-inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
-.msgp-inline label, .msgp-pop label { display: inline-flex; align-items: center; gap: 6px; }
-.msgp-inline .input { height: 34px; width: 150px; }
-.msgp-pop { z-index: 3000; display: grid; gap: 8px; padding: 12px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: var(--shadow); font-size: 12.5px; }
-.msgp-pop .input { height: 34px; width: 160px; }

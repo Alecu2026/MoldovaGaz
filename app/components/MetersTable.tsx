@@ -12,8 +12,6 @@ import ColumnFilter from "./ColumnFilters";
 import ColumnPicker from "./ColumnPicker";
 import { ALL_COLUMNS, DEFAULT_COLS, readCols, saveCols, type ColDef, type ColKey } from "./meter-columns";
 import MeterCharts from "./MeterCharts";
-import MessagesPanel from "./MessagesPanel";
-import { useMsgAll, useMsgCounts, useMsgPeriod } from "./useMsgCounts";
 import MeterDetail from "./MeterDetail";
 
 /** Harta (Leaflet) se încarcă doar când deschizi fila „Hartă”: nu încarcă pagina principală. */
@@ -33,7 +31,6 @@ const OVERSCAN = 8;
 
 const nf = new Intl.NumberFormat("ro-RO");
 const nf3 = new Intl.NumberFormat("ro-RO", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
-const nf1 = new Intl.NumberFormat("ro-RO", { maximumFractionDigits: 1 });
 const p2 = (n: number) => String(n).padStart(2, "0");
 function fmtTime(ts: number): string {
   const d = new Date(ts);
@@ -56,7 +53,7 @@ type Props = {
   head: Head;
   initialFilters: Filters;
   initialSort: Sort;
-  initialView: "table" | "charts" | "map" | "msgs";
+  initialView: "table" | "charts" | "map";
 };
 
 const RANGES: [string, string][] = [
@@ -74,7 +71,7 @@ const hasAdvanced = (f: Filters) =>
 export default function MetersTable({ userId, antennas, warm, head, initialFilters, initialSort, initialView }: Props) {
   const [filters, setFilters] = useState<Filters>(initialFilters);
   const [sort, setSort] = useState<Sort>(initialSort);
-  const [view, setView] = useState<"table" | "charts" | "map" | "msgs">(initialView);
+  const [view, setView] = useState<"table" | "charts" | "map">(initialView);
   // ora locală la care începe ziua SCADA (miezul nopții UTC): 02:00 iarna, 03:00 vara
   const [dayFrom] = useState(() => new Date(periodStarts(Date.now()).dayStart).toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" }));
   const [consPeriod, setConsPeriod] = useState<"month" | "day" | "yest">("month");
@@ -115,10 +112,7 @@ export default function MetersTable({ userId, antennas, warm, head, initialFilte
   // OPTIMIST: filtrele se aplică în același cadru cu schimbarea (o trecere peste vectori tipizați = câțiva ms), fără amânare.
   // Doar sortarea completă rămâne amânată: săgeata din antet se mută imediat, rândurile urmează când sunt gata.
   const dSort = useDeferredValue(sort);
-  // sortarea după «Mesaje / zi» cere valorile tuturor contoarelor (o singură cerere, doar când sortezi după ea); până sosesc, lista rămâne în ordinea de timp
-  const [msgPeriod] = useMsgPeriod();
-  const msgAll = useMsgAll(sort.key === "msg", store, rev, msgPeriod);
-  const result = useMemo(() => (store ? runFilter(store, filters, dSort, undefined, dSort.key === "msg" ? msgAll : null) : null), [store, rev, filters, dSort, msgAll]); // eslint-disable-line react-hooks/exhaustive-deps -- `rev` = lista s-a modificat pe loc
+  const result = useMemo(() => (store ? runFilter(store, filters, dSort) : null), [store, rev, filters, dSort]); // eslint-disable-line react-hooks/exhaustive-deps -- `rev` = lista s-a modificat pe loc
   const pending = dSort !== sort;
 
   // Agregările graficelor: „toate” (context și numărătorile din liste) depind doar de listă și de intervalul de timp; „filtrate” rulează doar în fila Grafice.
@@ -270,9 +264,6 @@ export default function MetersTable({ userId, antennas, warm, head, initialFilte
         <button type="button" role="tab" id="tab-map" aria-selected={view === "map"} aria-controls="panel-view" onClick={() => setView("map")}>
           Hartă
         </button>
-        <button type="button" role="tab" id="tab-msgs" aria-selected={view === "msgs"} aria-controls="panel-view" onClick={() => setView("msgs")}>
-          Mesaje
-        </button>
       </div>
 
       {view === "table" ? (
@@ -308,10 +299,6 @@ export default function MetersTable({ userId, antennas, warm, head, initialFilte
               <h2>{status === "error" ? "Nu am putut încărca lista" : "Se încarcă lista…"}</h2>
             </div>
           )}
-        </section>
-      ) : view === "msgs" ? (
-        <section className="chartsbox" id="panel-view" role="tabpanel" aria-labelledby="tab-msgs" aria-label="Mesaje pe zi">
-          <MessagesPanel onOpenMeter={setOpenId} />
         </section>
       ) : (
         <section className="chartsbox" id="panel-view" role="tabpanel" aria-labelledby="tab-charts" aria-label="Grafice">
@@ -456,20 +443,9 @@ function Grid(p: GridProps) {
   const first = Math.max(0, Math.floor((vp.top - HEADER_H) / ROW_H) - OVERSCAN);
   const last = Math.min(count, Math.ceil((vp.top + vp.h) / ROW_H) + OVERSCAN);
 
-  /* coloana «Mesaje / zi»: se cer doar contoarele din fereastra vizibilă, pentru ziua aleasă în filtrul coloanei */
-  const [msgDay] = useMsgPeriod(); // perioada se alege în rândul de filtre al coloanei
-  const msgOn = cols.some((c) => c.col === "msg");
-  const visIds = useMemo(() => {
-    if (!msgOn || !store || !idx) return [] as string[];
-    const out: string[] = [];
-    for (let i = first; i < last; i++) out.push(store.id[idx[i]]);
-    return out;
-  }, [msgOn, store, idx, first, last]);
-  const msgs = useMsgCounts(msgOn, visIds, msgDay);
-
   const rows: React.ReactNode[] = [];
   if (store && idx) {
-    for (let i = first; i < last; i++) rows.push(<Row key={store.id[idx[i]]} msgs={msgOn ? msgs.get(store.id[idx[i]]) : undefined} r={store.view(idx[i])} i={i} top={i * ROW_H} selected={store.id[idx[i]] === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} onSerial={p.onSerial} now={now} cols={cols} />);
+    for (let i = first; i < last; i++) rows.push(<Row key={store.id[idx[i]]} r={store.view(idx[i])} i={i} top={i * ROW_H} selected={store.id[idx[i]] === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} onSerial={p.onSerial} now={now} cols={cols} />);
   }
 
   const headMode = !idx; // lista completă încă nu e gata: primele rânduri vin din HTML
@@ -505,7 +481,7 @@ function Grid(p: GridProps) {
         {headMode && !p.error && (
           <div role="rowgroup">
             {head.map((r, i) => (
-              <Row key={r.id} msgs={undefined} r={r} i={i} top={0} selected={r.id === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} onSerial={p.onSerial} flow now={now} cols={cols} />
+              <Row key={r.id} r={r} i={i} top={0} selected={r.id === p.selectedId} onOpen={p.onOpen} onDevice={p.onDevice} onSerial={p.onSerial} flow now={now} cols={cols} />
             ))}
             {head.length === 0 && p.loading && <SkeletonRows n={cols.length} />}
             {p.loading && head.length > 0 && <div className="cell-sub" style={{ padding: 14 }}>Se încarcă lista completă…</div>}
@@ -578,7 +554,7 @@ const dmy = (ms: number) => {
 const dash = <span className="cell-sub">—</span>;
 const yesNo = (on: boolean, what: string) => (on ? <span className="yes" title={`${what}: da`}>✓</span> : <span className="no" title={`${what}: nu / necunoscut`}>✕</span>);
 
-function Row({ r, msgs, i, top, selected, onOpen, onDevice, onSerial, flow, now, cols }: { r: RowView; /** mesaje în perioada aleasă: [total, zile numărate], null = nemăsurat, undefined = se încarcă / coloana nu e afișată */ msgs: [number, number] | null | undefined; i: number; top: number; selected: boolean; onOpen: (id: string) => void; onDevice: (id: string) => void; onSerial: (serial: string) => void; flow?: boolean; now: number; cols: ColDef[] }) {
+function Row({ r, i, top, selected, onOpen, onDevice, onSerial, flow, now, cols }: { r: RowView; i: number; top: number; selected: boolean; onOpen: (id: string) => void; onDevice: (id: string) => void; onSerial: (serial: string) => void; flow?: boolean; now: number; cols: ColDef[] }) {
   const f = r.fl;
   const act = activityOf(r.ts, now); // 0 activ 24 h · 1 avertizare 1–7 zile · 2 critic > 7 zile · 3 fără citire (ca în SCADA)
   const statusOk = isStatusOk(f); // „OK” = raport de stare fără probleme (inactiv / serie repetată se afișează în plus)
@@ -667,25 +643,6 @@ function Row({ r, msgs, i, top, selected, onOpen, onDevice, onSerial, flow, now,
             {r.mc != null && <div className="cell-sub">lună: {nf.format(r.mc)}</div>}
           </div>
         );
-      case "msg": {
-        const tip = (msgs
-          ? `De ${nf.format(msgs[0])} ori a trimis contorul date în perioada aleasă (${msgs[1]} ${msgs[1] === 1 ? "zi numărată" : "zile numărate"}; din contorul de cadre fCnt).`
-          : "Câte mesaje a trimis contorul în perioada aleasă (din contorul de cadre fCnt).") + " Clasamentul tuturor contoarelor: fila «Mesaje». Totalul primit prin integrare: coloana «Mesaje (total)».";
-        return (
-          <div key={c} role="cell" className="num mono" title={tip}>
-            {msgs ? (
-              <>
-                <span className={msgs[0] / msgs[1] >= 48 ? "cell-main low" : "cell-main"}>{msgs[1] > 1 ? nf1.format(msgs[0] / msgs[1]) : nf.format(msgs[0])}</span>
-                {msgs[1] > 1 ? <div className="cell-sub">{nf.format(msgs[0])} în {msgs[1]} zile</div> : null}
-              </>
-            ) : msgs === undefined ? (
-              <span className="cell-sub">…</span>
-            ) : (
-              <span className="cell-sub" title="Încă nenumărat: numărătoarea pornește la deploy și rulează la 30 de minute; valorile pe zi apar după a doua rulare. Ziua aleasă trebuie să fie și în ultimele 31 de zile.">—</span>
-            )}
-          </div>
-        );
-      }
       case "mg":
         return (
           <div key={c} role="cell" className="num mono" title={r.mg !== null ? `De la începutul evidenței, aplicația a primit ${nf.format(r.mg)} mesaje de la acest contor prin integrare (aceeași evidență ca «De la care contoare vin datele» din pagina Integrare).` : "Contorul nu a trimis (încă) prin integrare."}>
